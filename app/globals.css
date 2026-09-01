@@ -13,6 +13,9 @@
   --bronze-500: #b68149;
   --bronze-400: #d09a5c;
   --bronze-300: #e5bb83;
+  --neon: #f2e94e;
+  --neon-strong: #ffd51f;
+  --neon-ink: #171305;
   --line: #292d30;
   --font-sans: Inter, "Segoe UI", Arial, sans-serif;
 }
@@ -333,6 +336,9 @@ button { cursor: pointer; }
   --bronze-500: #687278;
   --bronze-400: #525d63;
   --bronze-300: #303a3f;
+  --neon: #d2bd13;
+  --neon-strong: #bca800;
+  --neon-ink: #171305;
   --line: #cbd1d4;
 }
 [data-theme="neutro"] {
@@ -346,6 +352,9 @@ button { cursor: pointer; }
   --bronze-500: #77736b;
   --bronze-400: #68645d;
   --bronze-300: #44423e;
+  --neon: #cbb718;
+  --neon-strong: #b29f00;
+  --neon-ink: #171305;
   --line: #d2d0ca;
 }
 [data-theme="ferro"].v3-page {
@@ -722,6 +731,64 @@ button { cursor: pointer; }
 .attention-panel > button strong { font-size: 10px; }
 .attention-panel > button span { color: #9a7771; font-size: 8px; margin-top: 4px; }
 .attention-panel > button svg { width: 16px; color: #565c5f; }
+
+/* Neon marks action and progress; bronze remains the Dama de Ferro signature. */
+.role-switcher button.active,
+.workout-copy button,
+.active .play-button,
+.date-selector button.active,
+.class-card > button,
+.set-row.done > button,
+.finish-workout:not(:disabled),
+.workspace-intro > button,
+.professor-focus > button {
+  background: var(--neon);
+  border-color: var(--neon);
+  color: var(--neon-ink);
+}
+.workout-copy button:hover { background: var(--neon-strong); }
+.student-nav button.active { color: var(--neon); }
+.student-nav button.active:before,
+.mini-progress i,
+.week-bars i.peak,
+.program-line i,
+.evolution-hero > div i,
+.metric-card:after,
+.finance-bar i,
+.finance-legend .received,
+.occupancy-bars i:nth-child(5) {
+  background: var(--neon);
+}
+.week-bars i.peak { box-shadow: 0 0 18px color-mix(in srgb, var(--neon) 52%, transparent); }
+.workout-list > button.active { border-color: color-mix(in srgb, var(--neon) 70%, var(--bronze-500)); }
+.progress-ring { background: conic-gradient(var(--neon) var(--progress), #292c2e 0); }
+.set-row.done input { color: var(--neon); }
+.exercise-card footer svg,
+.exercise-card footer strong { color: var(--neon); }
+.workspace-rail nav button.active { color: var(--neon); }
+.workspace-rail nav button.active:before { background: var(--neon); }
+[data-theme="ferro"] .role-switcher button.active,
+[data-theme="neutro"] .role-switcher button.active,
+[data-theme="ferro"] .workout-copy button,
+[data-theme="neutro"] .workout-copy button,
+[data-theme="ferro"] .date-selector button.active,
+[data-theme="neutro"] .date-selector button.active,
+[data-theme="ferro"] .class-card > button,
+[data-theme="neutro"] .class-card > button,
+[data-theme="ferro"] .set-row.done > button,
+[data-theme="neutro"] .set-row.done > button,
+[data-theme="ferro"] .workspace-intro > button,
+[data-theme="neutro"] .workspace-intro > button,
+[data-theme="ferro"] .professor-focus > button,
+[data-theme="neutro"] .professor-focus > button {
+  color: var(--neon-ink);
+}
+[data-theme="ferro"] .date-selector button.active span,
+[data-theme="neutro"] .date-selector button.active span { color: var(--neon-ink); }
+[data-theme="ferro"] .workspace-rail nav button.active,
+[data-theme="neutro"] .workspace-rail nav button.active { color: var(--neon); }
+[data-theme="ferro"] .workspace-rail nav button.active:before,
+[data-theme="neutro"] .workspace-rail nav button.active:before { background: var(--neon); }
 
 @media (min-width: 760px) {
   .student-app { border-left: 1px solid #242729; border-right: 1px solid #242729; }
