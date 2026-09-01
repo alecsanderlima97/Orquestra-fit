@@ -113,10 +113,14 @@ button { cursor: pointer; }
   padding: 0 18px; display: flex; align-items: center; gap: 24px; font-weight: 900;
 }
 .workout-copy button:hover { background: var(--bronze-300); }
-.workout-art { position: absolute; inset: 0 0 0 40%; }
+.workout-art {
+  position: absolute; inset: 0 0 0 35%;
+  display: grid; place-items: center; background: #0d0f10;
+}
 .workout-art img {
-  width: 100%; height: 100%; object-fit: cover; object-position: 50% 24%;
-  filter: grayscale(1) contrast(1.18) brightness(.56);
+  width: 100%; height: 100%; object-fit: contain; object-position: center;
+  filter: grayscale(.45) contrast(1.12) brightness(.68);
+  opacity: .92;
 }
 .steel-number { position: absolute; right: 8px; bottom: -18px; color: #fff; opacity: .035; font-size: 122px; font-weight: 900; z-index: 2; }
 

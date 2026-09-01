@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -135,7 +134,8 @@ function StudentHeader({ onMenu }: { onMenu: () => void }) {
 function AcademyBrand() {
   return (
     <div className="academy-brand">
-      <Image src="/dama-de-ferro.jpeg" alt="Dama de Ferro Academia" width={106} height={106} priority />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/dama-de-ferro.jpeg" alt="Dama de Ferro Academia" />
       <div><span>Dama de Ferro</span><small>Academia</small></div>
     </div>
   );
@@ -160,7 +160,10 @@ function StudentHome({ onStart }: { onStart: () => void }) {
           </div>
           <button onClick={onStart}>Iniciar treino <ArrowRight size={19} /></button>
         </div>
-        <div className="workout-art" aria-hidden="true"><Image src="/dama-de-ferro.jpeg" alt="" fill sizes="290px" priority /></div>
+        <div className="workout-art" aria-hidden="true">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/dama-de-ferro.jpeg" alt="" />
+        </div>
         <span className="steel-number">01</span>
       </article>
 
