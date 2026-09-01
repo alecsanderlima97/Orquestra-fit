@@ -13,6 +13,9 @@
   --bronze-500: #b68149;
   --bronze-400: #d09a5c;
   --bronze-300: #e5bb83;
+  --energy: #65e6b0;
+  --energy-strong: #28c98b;
+  --energy-ink: #062e22;
   --line: #292d30;
   --font-sans: Inter, "Segoe UI", Arial, sans-serif;
 }
@@ -131,6 +134,27 @@ button { cursor: pointer; }
 .status-grid p { color: #6f7578; font-size: 10px; margin: 0; }
 .mini-progress { position: absolute; left: 16px; right: 16px; bottom: 12px; height: 3px; background: #272b2d; }
 .mini-progress i { display: block; width: 75%; height: 100%; background: var(--bronze-400); }
+.weekly-mission {
+  min-height: 106px; margin: -22px 0 31px; padding: 17px;
+  border: 1px solid #315b4e; background: #101c18;
+  display: grid; grid-template-columns: 42px 1fr 38px; gap: 12px; align-items: center;
+}
+.mission-icon {
+  width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--energy); color: var(--energy-ink);
+}
+.mission-icon svg { width: 20px; }
+.weekly-mission > div { display: grid; min-width: 0; }
+.weekly-mission small { color: var(--energy); font-size: 8px; font-weight: 900; letter-spacing: 1.2px; }
+.weekly-mission strong { font-size: 14px; margin: 3px 0; }
+.weekly-mission p { color: var(--steel-500); font-size: 9px; margin: 0 0 10px; }
+.mission-progress { height: 4px; border-radius: 4px; background: #2b3431; overflow: hidden; }
+.mission-progress i { display: block; width: 75%; height: 100%; border-radius: inherit; background: var(--energy); }
+.weekly-mission > button {
+  width: 36px; height: 36px; border: 0; border-radius: 50%;
+  background: var(--energy); color: var(--energy-ink); display: grid; place-items: center;
+}
+.weekly-mission > button svg { width: 18px; }
 
 .section-block { margin: 0 0 28px; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
@@ -333,6 +357,9 @@ button { cursor: pointer; }
   --bronze-500: #687278;
   --bronze-400: #525d63;
   --bronze-300: #303a3f;
+  --energy: #29a895;
+  --energy-strong: #168775;
+  --energy-ink: #ffffff;
   --line: #cbd1d4;
 }
 [data-theme="neutro"] {
@@ -346,6 +373,9 @@ button { cursor: pointer; }
   --bronze-500: #77736b;
   --bronze-400: #68645d;
   --bronze-300: #44423e;
+  --energy: #4f9183;
+  --energy-strong: #377568;
+  --energy-ink: #ffffff;
   --line: #d2d0ca;
 }
 [data-theme="ferro"].v3-page {
@@ -567,6 +597,153 @@ button { cursor: pointer; }
 [data-theme="ferro"] .outline-action,
 [data-theme="neutro"] .outline-action { border-color: var(--bronze-500); color: var(--bronze-300); }
 
+/* V4: athletic, young and tactile without losing the academy's strength. */
+.academy-brand span,
+.welcome-row h1,
+.page-intro h1,
+.workout-copy h2,
+.section-heading h2,
+.workout-list strong,
+.evolution-hero > strong,
+.class-card h2,
+.profile-identity h1,
+.powered-by strong,
+.session-title h1,
+.exercise-card h2,
+.workspace-topbar h1,
+.workspace-intro h2,
+.metric-card > strong,
+.workspace-panel > header h3,
+.finance-total strong,
+.admin-lower h3,
+.focus-time,
+.table-person i,
+.operator > span,
+.drawer-profile > span,
+.workout-index {
+  font-family: var(--font-sans);
+  font-weight: 800;
+}
+.welcome-row h1, .page-intro h1, .workspace-intro h2 { letter-spacing: 0; }
+.today-workout,
+.status-grid article,
+.weekly-card,
+.weekly-mission,
+.academy-note,
+.program-summary,
+.workout-list > button,
+.evolution-hero,
+.evolution-grid article,
+.date-selector button,
+.class-card,
+.exercise-card,
+.workspace-panel,
+.metric-card,
+.admin-lower > article,
+.professor-focus {
+  border-radius: 8px;
+}
+.academy-brand img,
+.icon-button,
+.status-icon,
+.note-mark,
+.play-button,
+.profile-identity > span,
+.session-top button,
+.exercise-card header button,
+.set-row label,
+.set-row > button,
+.workspace-actions > button,
+.operator > span,
+.table-person i,
+.focus-student > i,
+.attention-panel > button i {
+  border-radius: 7px;
+}
+.profile-identity > span, .drawer-profile > span { border-radius: 50%; }
+.role-switcher, .theme-switcher { border-radius: 8px; }
+.role-switcher button { border-radius: 5px; transition: background .18s ease, color .18s ease; }
+.role-switcher button.active {
+  background: var(--energy); color: var(--energy-ink);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--energy) 28%, transparent);
+}
+.student-nav button { transition: color .18s ease, transform .18s ease; }
+.student-nav button.active { color: var(--energy); }
+.student-nav button.active:before { width: 30px; height: 3px; border-radius: 0 0 5px 5px; background: var(--energy); }
+.student-nav button.active svg { filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--energy) 35%, transparent)); }
+.workout-copy button,
+.class-card > button,
+.finish-workout:not(:disabled),
+.workspace-intro > button,
+.professor-focus > button {
+  background: var(--energy); color: var(--energy-ink); border-radius: 7px;
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--energy) 20%, transparent);
+}
+.workout-copy button:hover { background: var(--energy-strong); }
+.eyebrow, .weekly-mission small { color: var(--energy); }
+.eyebrow span, .mini-progress i, .week-bars i.peak, .mission-progress i { background: var(--energy); }
+.status-icon, .metric-icon { color: var(--energy); border-color: color-mix(in srgb, var(--energy) 42%, var(--line)); }
+.metric-card:after { background: var(--energy); }
+.workout-list > button.active { border-color: color-mix(in srgb, var(--energy) 68%, var(--line)); }
+.workout-list > button.active small { color: var(--energy); }
+.active .play-button { background: var(--energy); border-color: var(--energy); color: var(--energy-ink); }
+.date-selector button.active { border-color: var(--energy); background: var(--energy); color: var(--energy-ink); }
+.date-selector button.active span { color: var(--energy-ink); }
+.progress-ring { background: conic-gradient(var(--energy) var(--progress), #292c2e 0); }
+.set-row.done > button { background: var(--energy); border-color: var(--energy); color: var(--energy-ink); }
+.exercise-card footer svg, .exercise-card footer strong { color: var(--energy); }
+.workspace-rail nav button { border-radius: 6px; transition: background .18s ease, color .18s ease; }
+.workspace-rail nav button.active { color: var(--energy); background: color-mix(in srgb, var(--energy) 10%, transparent); }
+.workspace-rail nav button.active:before { height: 24px; border-radius: 0 4px 4px 0; background: var(--energy); }
+.workspace-intro > button, .professor-focus > button, .class-card > button,
+.workout-copy button, .finish-workout, .outline-action { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+.mission-progress i, .program-line i, .mini-progress i { animation: progress-grow .55s ease-out both; transform-origin: left; }
+@keyframes progress-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+[data-theme="ferro"] .weekly-mission,
+[data-theme="neutro"] .weekly-mission {
+  background: var(--iron-850); border-color: color-mix(in srgb, var(--energy) 45%, var(--line)); color: var(--paper);
+}
+[data-theme="ferro"] .mission-progress,
+[data-theme="neutro"] .mission-progress { background: var(--iron-800); }
+[data-theme="ferro"] .role-switcher button.active,
+[data-theme="neutro"] .role-switcher button.active,
+[data-theme="ferro"] .workout-copy button,
+[data-theme="neutro"] .workout-copy button,
+[data-theme="ferro"] .class-card > button,
+[data-theme="neutro"] .class-card > button,
+[data-theme="ferro"] .workspace-intro > button,
+[data-theme="neutro"] .workspace-intro > button,
+[data-theme="ferro"] .professor-focus > button,
+[data-theme="neutro"] .professor-focus > button {
+  color: var(--energy-ink);
+}
+
+@media (hover: hover) {
+  .workout-list > button:hover,
+  .status-grid article:hover,
+  .metric-card:hover,
+  .attention-panel > button:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--energy) 42%, var(--line));
+  }
+  .workout-list > button,
+  .status-grid article,
+  .metric-card,
+  .attention-panel > button {
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+  .workout-copy button:hover,
+  .class-card > button:hover,
+  .workspace-intro > button:hover,
+  .professor-focus > button:hover,
+  .outline-action:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 26px color-mix(in srgb, var(--energy) 27%, transparent);
+  }
+}
+button:active { transform: scale(.98); }
+
 .desktop-mode { background: #0a0b0c; padding: 0; }
 .workspace-shell { min-height: 100vh; display: grid; grid-template-columns: 250px 1fr; background: #0b0d0e; color: var(--paper); }
 .workspace-rail {
@@ -722,6 +899,35 @@ button { cursor: pointer; }
 .attention-panel > button strong { font-size: 10px; }
 .attention-panel > button span { color: #9a7771; font-size: 8px; margin-top: 4px; }
 .attention-panel > button svg { width: 16px; color: #565c5f; }
+
+.workspace-topbar h1,
+.workspace-intro h2,
+.metric-card > strong,
+.workspace-panel > header h3,
+.finance-total strong,
+.admin-lower h3,
+.focus-time {
+  font-family: var(--font-sans);
+  font-weight: 800;
+}
+.workspace-rail nav button.active {
+  color: var(--energy);
+  background: color-mix(in srgb, var(--energy) 10%, transparent);
+}
+.workspace-rail nav button.active:before { background: var(--energy); border-radius: 0 4px 4px 0; }
+.metric-card:after { background: var(--energy); }
+.metric-icon { color: var(--energy); border-color: color-mix(in srgb, var(--energy) 42%, var(--line)); }
+.workspace-intro > button,
+.professor-focus > button {
+  background: var(--energy);
+  color: var(--energy-ink);
+  border-radius: 7px;
+}
+.workspace-actions > button,
+.operator > span,
+.table-person i,
+.focus-student > i,
+.attention-panel > button i { border-radius: 7px; }
 
 @media (min-width: 760px) {
   .student-app { border-left: 1px solid #242729; border-right: 1px solid #242729; }
