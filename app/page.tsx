@@ -6,7 +6,7 @@ import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Search, Settings,
-  ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X, Zap,
+  ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X,
 } from "lucide-react";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
@@ -145,20 +145,20 @@ function StudentHome({ onStart }: { onStart: () => void }) {
   return (
     <div className="student-view home-view">
       <section className="welcome-row">
-        <div><p>SEGUNDA, 1 DE SETEMBRO</p><h1>Bora treinar, Alecsander?</h1><span>Seu próximo passo já está pronto.</span></div>
+        <div><p>SEGUNDA, 1 DE SETEMBRO</p><h1>Boa tarde, Alecsander.</h1><span>Seu ritmo começa aqui.</span></div>
         <div className="streak" aria-label="Sequência de treinos"><Flame size={20} /><strong>4</strong><small>semanas</small></div>
       </section>
 
       <article className="today-workout">
         <div className="workout-copy">
-          <div className="eyebrow"><span /> MISSÃO DE HOJE</div>
+          <div className="eyebrow"><span /> TREINO DE HOJE</div>
           <h2>Força A</h2>
           <p>Pernas e estabilidade</p>
           <div className="workout-meta">
             <span><Clock3 size={16} /> 52 min</span>
             <span><Dumbbell size={16} /> 8 exercícios</span>
           </div>
-          <button onClick={onStart}>Bora começar <ArrowRight size={19} /></button>
+          <button onClick={onStart}>Iniciar treino <ArrowRight size={19} /></button>
         </div>
         <div className="workout-art" aria-hidden="true"><Image src="/dama-de-ferro.jpeg" alt="" fill sizes="290px" priority /></div>
         <span className="steel-number">01</span>
@@ -176,20 +176,9 @@ function StudentHome({ onStart }: { onStart: () => void }) {
         </article>
       </section>
 
-      <article className="weekly-mission">
-        <span className="mission-icon"><Zap /></span>
-        <div>
-          <small>META DA SEMANA</small>
-          <strong>Falta só mais um treino</strong>
-          <p>Você já completou 3 de 4. Fecha essa meta hoje?</p>
-          <div className="mission-progress"><i /></div>
-        </div>
-        <button onClick={onStart} aria-label="Começar treino para completar a meta"><ArrowRight /></button>
-      </article>
-
       <section className="section-block">
         <div className="section-heading">
-          <div><span>SEU DESEMPENHO</span><h2>Seu ritmo esta semana</h2></div><button>Ver detalhes</button>
+          <div><span>SEU DESEMPENHO</span><h2>Semana em movimento</h2></div><button>Ver detalhes</button>
         </div>
         <article className="weekly-card">
           <div className="week-bars">
@@ -387,7 +376,7 @@ function AdminWorkspace() {
     <WorkspaceShell profile="Gestão">
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Tudo no ritmo por aqui.</h2><p>Veja o movimento da academia e resolva o que precisa de atenção hoje.</p></div>
+          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Boa tarde, Grazielle.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
           <button><Plus /> Novo aluno</button>
         </section>
         <section className="metric-grid">
@@ -443,7 +432,7 @@ function ProfessorWorkspace() {
     <WorkspaceShell profile="Professor">
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Bora cuidar da evolução da turma.</h2><p>Veja quem precisa de treino novo, revisão ou avaliação.</p></div>
+          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Seus alunos, no ritmo certo.</h2><p>Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
           <button><Plus /> Criar treino</button>
         </section>
         <section className="professor-summary">
