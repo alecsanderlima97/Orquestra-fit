@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
-  House, LayoutDashboard, Menu, MoreHorizontal, Play, Plus, Search, Settings,
+  House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Search, Settings,
   ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X,
 } from "lucide-react";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
+type Theme = "forja" | "ferro" | "neutro";
 
 const navItems = [
   ["inicio", House, "Início"],
@@ -28,15 +30,28 @@ const workoutPlan = [
 
 export default function Home() {
   const [role, setRole] = useState<Role>("aluno");
+  const [theme, setTheme] = useState<Theme>("forja");
   const [activeTab, setActiveTab] = useState<StudentTab>("inicio");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [completedSets, setCompletedSets] = useState<string[]>([]);
 
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("orquestra_fit_theme");
+    if (savedTheme !== "forja" && savedTheme !== "ferro" && savedTheme !== "neutro") return;
+    const restoreTheme = window.setTimeout(() => setTheme(savedTheme), 0);
+    return () => window.clearTimeout(restoreTheme);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("orquestra_fit_theme", theme);
+  }, [theme]);
+
   return (
-    <main className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"}>
+    <main className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"} data-theme={theme}>
       <div className="prototype-flag"><Sparkles size={14} /> Protótipo demonstrativo</div>
       <RoleSwitcher role={role} onChange={(nextRole) => { setRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
+      <ThemeSwitcher theme={theme} onChange={setTheme} />
       {role === "aluno" && (
         <section className={sessionOpen ? "student-app session-active" : "student-app"}>
           {sessionOpen ? (
@@ -71,6 +86,28 @@ export default function Home() {
   );
 }
 
+function ThemeSwitcher({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
+  const themes: { id: Theme; label: string }[] = [
+    { id: "forja", label: "Forja escura" },
+    { id: "ferro", label: "Ferro claro" },
+    { id: "neutro", label: "Neutro" },
+  ];
+  return (
+    <div className="theme-switcher" aria-label="Escolher tema">
+      <Palette aria-hidden="true" />
+      {themes.map((item) => (
+        <button
+          key={item.id}
+          className={theme === item.id ? `theme-swatch ${item.id} active` : `theme-swatch ${item.id}`}
+          aria-label={item.label}
+          title={item.label}
+          onClick={() => onChange(item.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
 function RoleSwitcher({ role, onChange }: { role: Role; onChange: (role: Role) => void }) {
   return (
     <div className="role-switcher" aria-label="Alternar perfil demonstrativo">
@@ -98,7 +135,7 @@ function StudentHeader({ onMenu }: { onMenu: () => void }) {
 function AcademyBrand() {
   return (
     <div className="academy-brand">
-      <img src="/dama-de-ferro.jpeg" alt="Dama de Ferro Academia" />
+      <Image src="/dama-de-ferro.jpeg" alt="Dama de Ferro Academia" width={106} height={106} priority />
       <div><span>Dama de Ferro</span><small>Academia</small></div>
     </div>
   );
@@ -123,7 +160,7 @@ function StudentHome({ onStart }: { onStart: () => void }) {
           </div>
           <button onClick={onStart}>Iniciar treino <ArrowRight size={19} /></button>
         </div>
-        <div className="workout-art" aria-hidden="true"><img src="/dama-de-ferro.jpeg" alt="" /></div>
+        <div className="workout-art" aria-hidden="true"><Image src="/dama-de-ferro.jpeg" alt="" fill sizes="290px" priority /></div>
         <span className="steel-number">01</span>
       </article>
 
