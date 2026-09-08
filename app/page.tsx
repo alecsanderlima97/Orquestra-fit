@@ -10,7 +10,7 @@ import {
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
-type Theme = "forja" | "ferro" | "neutro";
+type Theme = "bronze" | "prata";
 
 const navItems = [
   ["inicio", House, "Início"],
@@ -29,7 +29,7 @@ const workoutPlan = [
 
 export default function Home() {
   const [role, setRole] = useState<Role>("aluno");
-  const [theme, setTheme] = useState<Theme>("forja");
+  const [theme, setTheme] = useState<Theme>("bronze");
   const [activeTab, setActiveTab] = useState<StudentTab>("inicio");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
@@ -37,8 +37,8 @@ export default function Home() {
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("orquestra_fit_theme");
-    if (savedTheme !== "forja" && savedTheme !== "ferro" && savedTheme !== "neutro") return;
-    const restoreTheme = window.setTimeout(() => setTheme(savedTheme), 0);
+    const restoredTheme: Theme = savedTheme === "prata" || savedTheme === "ferro" ? "prata" : "bronze";
+    const restoreTheme = window.setTimeout(() => setTheme(restoredTheme), 0);
     return () => window.clearTimeout(restoreTheme);
   }, []);
 
@@ -47,7 +47,10 @@ export default function Home() {
   }, [theme]);
 
   return (
-    <main className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"} data-theme={theme}>
+    <main
+      className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"}
+      data-theme={theme === "prata" ? "ferro" : "forja"}
+    >
       <div className="prototype-flag"><Sparkles size={14} /> Protótipo demonstrativo</div>
       <RoleSwitcher role={role} onChange={(nextRole) => { setRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
       <ThemeSwitcher theme={theme} onChange={setTheme} />
@@ -87,9 +90,8 @@ export default function Home() {
 
 function ThemeSwitcher({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
   const themes: { id: Theme; label: string }[] = [
-    { id: "forja", label: "Forja escura" },
-    { id: "ferro", label: "Ferro claro" },
-    { id: "neutro", label: "Neutro" },
+    { id: "bronze", label: "Bronze" },
+    { id: "prata", label: "Prata" },
   ];
   return (
     <div className="theme-switcher" aria-label="Escolher tema">
@@ -97,11 +99,14 @@ function ThemeSwitcher({ theme, onChange }: { theme: Theme; onChange: (theme: Th
       {themes.map((item) => (
         <button
           key={item.id}
-          className={theme === item.id ? `theme-swatch ${item.id} active` : `theme-swatch ${item.id}`}
+          className={theme === item.id ? `theme-choice ${item.id} active` : `theme-choice ${item.id}`}
           aria-label={item.label}
           title={item.label}
           onClick={() => onChange(item.id)}
-        />
+        >
+          <i aria-hidden="true" />
+          <span>{item.label}</span>
+        </button>
       ))}
     </div>
   );

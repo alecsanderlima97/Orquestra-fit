@@ -313,37 +313,40 @@ button { cursor: pointer; }
 }
 .role-switcher button.active { background: var(--bronze-400); color: #17110b; }
 .theme-switcher {
-  position: fixed; left: 18px; bottom: 64px; z-index: 120; height: 38px;
-  display: flex; align-items: center; gap: 9px; padding: 0 10px;
+  position: fixed; left: 18px; bottom: 64px; z-index: 120; height: 44px;
+  display: flex; align-items: center; gap: 5px; padding: 4px 5px;
   border: 1px solid #40372e; background: rgba(10,11,12,.94);
   box-shadow: 0 12px 35px #0008; backdrop-filter: blur(14px);
 }
-.theme-switcher > svg { width: 15px; color: #8a8f92; }
-.theme-swatch {
-  width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent;
-  box-shadow: 0 0 0 1px #4f5457; padding: 0;
+.theme-switcher > svg { width: 15px; margin: 0 4px; color: #8a8f92; }
+.theme-choice {
+  height: 34px; min-width: 78px; border: 1px solid transparent; background: transparent;
+  color: #7f8589; display: flex; align-items: center; justify-content: center;
+  gap: 7px; padding: 0 10px; font-size: 9px; font-weight: 900; text-transform: uppercase;
 }
-.theme-swatch.forja { background: linear-gradient(135deg, #0e1012 50%, #d09a5c 51%); }
-.theme-swatch.ferro { background: linear-gradient(135deg, #f2f4f5 50%, #667077 51%); }
-.theme-swatch.neutro { background: linear-gradient(135deg, #edece8 50%, #79766f 51%); }
-.theme-swatch.active { border-color: #fff; box-shadow: 0 0 0 2px var(--bronze-400); }
+.theme-choice i {
+  width: 13px; height: 13px; border-radius: 50%; box-shadow: 0 0 0 1px #5b6063;
+}
+.theme-choice.bronze i { background: linear-gradient(135deg, #17191a 48%, #d09a5c 52%); }
+.theme-choice.prata i { background: linear-gradient(135deg, #f8fafb 48%, #69747a 52%); }
+.theme-choice.active { border-color: #66513b; background: #1b1814; color: #f0ece4; }
 
 /* Light themes keep the same product hierarchy while changing material and temperature. */
 [data-theme="ferro"] {
-  --iron-950: #e4e8ea;
-  --iron-900: #f3f5f6;
+  --iron-950: #dce1e4;
+  --iron-900: #f1f3f4;
   --iron-850: #ffffff;
-  --iron-800: #e9edef;
-  --steel-500: #667178;
-  --steel-300: #343c40;
-  --paper: #171c1f;
-  --bronze-500: #687278;
-  --bronze-400: #525d63;
-  --bronze-300: #303a3f;
-  --neon: #d2bd13;
-  --neon-strong: #bca800;
+  --iron-800: #e5e9eb;
+  --steel-500: #606b71;
+  --steel-300: #30383d;
+  --paper: #171d20;
+  --bronze-500: #7c878d;
+  --bronze-400: #626d73;
+  --bronze-300: #3c464b;
+  --neon: #f1dc25;
+  --neon-strong: #dbc400;
   --neon-ink: #171305;
-  --line: #cbd1d4;
+  --line: #bcc4c8;
 }
 [data-theme="neutro"] {
   --iron-950: #e9e8e4;
@@ -363,8 +366,8 @@ button { cursor: pointer; }
 }
 [data-theme="ferro"].v3-page {
   background:
-    linear-gradient(90deg, rgba(55,65,70,.045) 1px, transparent 1px) 0 0 / 52px 52px,
-    linear-gradient(#f2f4f5, #dce1e3);
+    repeating-linear-gradient(90deg, rgba(255,255,255,.22) 0 1px, rgba(65,75,80,.018) 1px 4px),
+    linear-gradient(#edf0f1, #d5dbde);
 }
 [data-theme="neutro"].v3-page {
   background:
@@ -579,6 +582,62 @@ button { cursor: pointer; }
 }
 [data-theme="ferro"] .outline-action,
 [data-theme="neutro"] .outline-action { border-color: var(--bronze-500); color: var(--bronze-300); }
+
+[data-theme="ferro"] .theme-choice { color: #616b70; }
+[data-theme="ferro"] .theme-choice.active {
+  border-color: #7c878d;
+  background: #31393d;
+  color: #ffffff;
+  box-shadow: inset 0 1px #ffffff1f, 0 5px 14px #36404526;
+}
+[data-theme="ferro"] .student-app {
+  border-color: #aeb7bb;
+  box-shadow: 0 22px 70px #3440472b;
+}
+[data-theme="ferro"] .student-header,
+[data-theme="ferro"] .student-nav {
+  box-shadow: 0 6px 22px #46515912;
+}
+[data-theme="ferro"] .status-grid article,
+[data-theme="ferro"] .weekly-card,
+[data-theme="ferro"] .academy-note,
+[data-theme="ferro"] .program-summary,
+[data-theme="ferro"] .workout-list > button,
+[data-theme="ferro"] .evolution-hero,
+[data-theme="ferro"] .evolution-grid article,
+[data-theme="ferro"] .class-card,
+[data-theme="ferro"] .exercise-card,
+[data-theme="ferro"] .workspace-panel,
+[data-theme="ferro"] .metric-card,
+[data-theme="ferro"] .admin-lower > article,
+[data-theme="ferro"] .professor-focus {
+  box-shadow: 0 8px 24px #35404712, inset 0 1px #ffffff;
+}
+[data-theme="ferro"] .today-workout {
+  border-color: #8c969b;
+  background: #202629;
+  box-shadow: 0 14px 32px #303a402e;
+}
+[data-theme="ferro"] .workout-art { background: #252b2e; }
+[data-theme="ferro"] .workout-art img {
+  filter: grayscale(.95) contrast(1.18) brightness(.78);
+  opacity: .96;
+}
+[data-theme="ferro"] .workspace-rail {
+  box-shadow: 8px 0 28px #27313720;
+}
+[data-theme="ferro"] .workspace-topbar {
+  box-shadow: 0 6px 24px #3d484e12;
+}
+[data-theme="forja"] .theme-choice.active {
+  border-color: #76593b;
+  background: #211b15;
+  color: #f3e6d7;
+  box-shadow: inset 0 1px #f3c38b14, 0 5px 16px #0008;
+}
+[data-theme="forja"] .today-workout {
+  box-shadow: 0 16px 36px #0009, inset 0 1px #e4b97e12;
+}
 
 .desktop-mode { background: #0a0b0c; padding: 0; }
 .workspace-shell { min-height: 100vh; display: grid; grid-template-columns: 250px 1fr; background: #0b0d0e; color: var(--paper); }
@@ -810,7 +869,8 @@ button { cursor: pointer; }
 @media (max-width: 520px) {
   .role-switcher { left: 7px; bottom: 84px; }
   .role-switcher button { min-width: 62px; height: 30px; padding: 0 8px; font-size: 9px; }
-  .theme-switcher { left: 7px; bottom: 126px; height: 34px; }
+  .theme-switcher { left: 7px; bottom: 126px; height: 42px; }
+  .theme-choice { min-width: 69px; padding: 0 8px; }
   .prototype-flag { top: auto; bottom: 84px; right: 8px; opacity: .78; }
   .student-header { padding-left: 17px; padding-right: 17px; }
   .academy-brand img { width: 48px; height: 48px; }
