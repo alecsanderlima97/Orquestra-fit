@@ -2,7 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { signOut, type User } from "firebase/auth";
-import { collection, doc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocFromServer, serverTimestamp, writeBatch } from "firebase/firestore";
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
 import { auth, db } from "@/lib/firebase/client";
 import { AccessProvider, AccessRole } from "./access-context";
@@ -40,7 +40,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
       if (!cancelled) setProfile(null);
     }, 8000);
 
-    getDoc(doc(firestore, "users", user.uid))
+    getDocFromServer(doc(firestore, "users", user.uid))
       .then(async (snapshot) => {
         if (!snapshot.exists()) {
           setProfile(null);
@@ -49,7 +49,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
         }
         const nextProfile = snapshot.data() as UserProfile;
         setProfile(nextProfile);
-        const memberSnapshot = await getDoc(doc(firestore, "academies", nextProfile.activeAcademyId, "members", user.uid));
+        const memberSnapshot = await getDocFromServer(doc(firestore, "academies", nextProfile.activeAcademyId, "members", user.uid));
         setMember(memberSnapshot.exists() ? (memberSnapshot.data() as MemberProfile) : null);
       })
       .catch(() => setProfile(null));
