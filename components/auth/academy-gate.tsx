@@ -22,10 +22,24 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setProfile(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) setProfile(null);
+    }, 8000);
+
     getDoc(doc(db, "users", user.uid))
       .then((snapshot) => setProfile(snapshot.exists() ? (snapshot.data() as UserProfile) : null))
       .catch(() => setProfile(null));
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
   }, [user.uid]);
 
   if (profile === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
