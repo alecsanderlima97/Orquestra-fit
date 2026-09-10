@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, User } from "firebase/auth";
+import { GoogleAuthProvider, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, User } from "firebase/auth";
 import { LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
@@ -60,6 +60,19 @@ function LoginPanel() {
     }
   }
 
+  async function signInWithGoogle() {
+    if (!auth) return;
+    setSubmitting(true);
+    setStatus(null);
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch {
+      setStatus("Não foi possível entrar com o Google agora.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <main className="auth-page">
       <section className="auth-panel" aria-labelledby="login-title">
@@ -73,6 +86,8 @@ function LoginPanel() {
           {status && <p className="auth-status" role="status">{status}</p>}
           <button type="submit" disabled={submitting}>{submitting ? "Entrando..." : "Entrar"}</button>
         </form>
+        <div className="auth-divider"><span>ou</span></div>
+        <button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button>
         <button className="auth-link" type="button" onClick={resetPassword}>Solicitar novo código</button>
       </section>
     </main>

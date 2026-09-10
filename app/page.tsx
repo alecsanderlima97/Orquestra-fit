@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -9,7 +10,7 @@ import {
   ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
-import { auth } from "@/lib/firebase/client";
+import { auth, db } from "@/lib/firebase/client";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
@@ -413,11 +414,37 @@ function WorkspaceShell({ children, profile, theme, onThemeChange }: { children:
 }
 
 function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void; onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [roleToAdd, setRoleToAdd] = useState<"teacher" | "student" | null>(null);
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
   const roles = [
-    { label: "Dono / administrador", tone: "admin", description: "Controle total da academia, equipe, alunos, financeiro e configurações.", access: "Tudo" },
-    { label: "Professor", tone: "teacher", description: "Acompanha alunos vinculados e monta ou publica treinos.", access: "Professor + alunos" },
-    { label: "Aluno", tone: "student", description: "Acessa apenas seus treinos, evolução, agenda e perfil.", access: "Área do aluno" },
+    { id: "admin", label: "Dono / administrador", tone: "admin", description: "Controle total da academia, equipe, alunos, financeiro e configurações.", access: "Tudo" },
+    { id: "teacher", label: "Professor", tone: "teacher", description: "Acompanha alunos vinculados e monta ou publica treinos.", access: "Professor + alunos" },
+    { id: "student", label: "Aluno", tone: "student", description: "Acessa apenas seus treinos, evolução, agenda e perfil.", access: "Área do aluno" },
   ];
+
+  async function generateAccessCode() {
+    if (!db || !roleToAdd) return;
+    setGenerating(true);
+    const random = Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36).toUpperCase()).join("").slice(0, 8);
+    const code = `DF-${random}`;
+    try {
+      await setDoc(doc(db, "accessCodes", code), {
+        academyId: access.academyId,
+        role: roleToAdd,
+        active: true,
+        createdBy: access.userId,
+        createdAt: serverTimestamp(),
+      });
+      setGeneratedCode(code);
+    } catch {
+      onFeedback("Não foi possível gerar o código. Tente novamente.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="permissions-title">
       <section className="permissions-panel">
@@ -425,8 +452,9 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
         <section className="settings-section">
           <div className="settings-section-heading"><div><span>CONTROLE DE ACESSO</span><h3>Equipe e permissões</h3></div><small>Quem pode acessar cada área</small></div>
           <div className="permission-roles">
-          {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => onFeedback(`Cadastro de ${role.label.toLowerCase()} ficará disponível nesta etapa.`)}><Plus size={16} /> Adicionar</button></article>)}
+          {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => role.id === "admin" ? onFeedback("O dono da academia já possui acesso administrativo.") : setRoleToAdd(role.id as "teacher" | "student")}><Plus size={16} /> Adicionar</button></article>)}
           </div>
+          {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>Convite de {roleToAdd === "teacher" ? "professor" : "aluno"}</strong><p>Gere um código e envie para a pessoa entrar com a conta Google.</p></div><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
         </section>
         <section className="settings-section appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>

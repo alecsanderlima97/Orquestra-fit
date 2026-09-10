@@ -61,7 +61,11 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   }, [user.uid]);
 
   if (profile === undefined || member === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
-  if (!profile?.activeAcademyId) return <CreateAcademy user={user} onCreated={setProfile} />;
+  if (!profile?.activeAcademyId) {
+    return isDeveloperAccount(user)
+      ? <CreateAcademy user={user} onCreated={setProfile} />
+      : <ActivateAccess user={user} onCreated={setProfile} />;
+  }
   if (!member?.active || !member.role) return <main className="auth-loading">Seu acesso ainda não foi liberado pela academia.</main>;
 
   return (
@@ -76,6 +80,79 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
     >
       {children}
     </AccessProvider>
+  );
+}
+
+function ActivateAccess({ user, onCreated }: { user: User; onCreated: (profile: UserProfile) => void }) {
+  const [code, setCode] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !code.trim()) return;
+    setSubmitting(true);
+    setStatus(null);
+    const firestore = db;
+    const normalizedCode = code.trim().toUpperCase();
+
+    try {
+      const codeRef = doc(firestore, "accessCodes", normalizedCode);
+      const codeSnapshot = await getDoc(codeRef);
+      if (!codeSnapshot.exists() || codeSnapshot.data().active !== true) {
+        setStatus("Esse código é inválido, expirou ou já foi utilizado.");
+        return;
+      }
+
+      const invitation = codeSnapshot.data() as { academyId: string; role: "admin" | "teacher" | "student" };
+      const memberRef = doc(firestore, "academies", invitation.academyId, "members", user.uid);
+      const userRef = doc(firestore, "users", user.uid);
+      const batch = writeBatch(firestore);
+      const now = serverTimestamp();
+
+      batch.update(codeRef, { active: false, claimedBy: user.uid, claimedAt: now });
+      batch.set(memberRef, {
+        userId: user.uid,
+        displayName: user.displayName ?? user.email ?? "Usuário",
+        email: user.email ?? null,
+        role: invitation.role,
+        active: true,
+        activationCodeId: normalizedCode,
+        createdAt: now,
+      });
+      batch.set(userRef, {
+        displayName: user.displayName ?? user.email ?? "Usuário",
+        email: user.email ?? null,
+        accountType: invitation.role === "admin" ? "academy_admin" : undefined,
+        activeAcademyId: invitation.academyId,
+        academyIds: [invitation.academyId],
+        activationCodeId: normalizedCode,
+        createdAt: now,
+      }, { merge: true });
+      await batch.commit();
+      onCreated({ activeAcademyId: invitation.academyId, accountType: invitation.role === "admin" ? "academy_admin" : undefined });
+    } catch {
+      setStatus("Não foi possível ativar este acesso. Confira o código ou tente novamente.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-panel academy-onboarding" aria-labelledby="activation-title">
+        <div className="auth-mark"><ShieldCheck size={28} /></div>
+        <p>ORQUESTRA FIT</p>
+        <h1 id="activation-title">Ative seu acesso</h1>
+        <span>Entre com sua conta Google e informe o código recebido da academia para liberar seu perfil.</span>
+        <form onSubmit={submit}>
+          <label><ShieldCheck size={17} /> Código de ativação<input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} autoComplete="one-time-code" placeholder="Ex.: DF-7K4M2P" required /></label>
+          {status && <p className="auth-status" role="status">{status}</p>}
+          <button type="submit" disabled={submitting}>{submitting ? "Ativando..." : "Ativar acesso"}</button>
+        </form>
+        <p className="onboarding-note"><CheckCircle2 size={16} /> Este código só pode ser usado uma vez.</p>
+      </section>
+    </main>
   );
 }
 

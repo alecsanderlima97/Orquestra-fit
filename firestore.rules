@@ -32,12 +32,40 @@ service cloud.firestore {
         getAfter(/databases/$(database)/documents/academies/$(academyId)/members/$(request.auth.uid)).data.active == true;
     }
 
+    function claimedInvitation(codeId, academyId, role) {
+      return signedIn() &&
+        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.active == false &&
+        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.claimedBy == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.academyId == academyId &&
+        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.role == role;
+    }
+
+    match /accessCodes/{codeId} {
+      allow read: if signedIn() && resource.data.active == true;
+      allow create: if signedIn() && isAdmin(request.resource.data.academyId) &&
+        request.resource.data.active == true &&
+        request.resource.data.role in ['admin', 'teacher', 'student'];
+      allow update: if signedIn() && resource.data.active == true &&
+        request.resource.data.active == false &&
+        request.resource.data.claimedBy == request.auth.uid &&
+        request.resource.data.academyId == resource.data.academyId &&
+        request.resource.data.role == resource.data.role;
+      allow delete: if isAdmin(resource.data.academyId);
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
-      allow create: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId &&
+        ((request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
+          (request.resource.data.activationCodeId is string && request.resource.data.activeAcademyId is string &&
+            claimedInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
+              getAfter(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
       allow update: if signedIn() && request.auth.uid == userId &&
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']) ||
-          (request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)));
+          (request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
+          (request.resource.data.activationCodeId is string && request.resource.data.activeAcademyId is string &&
+            claimedInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
+              getAfter(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
       allow delete: if false;
     }
 
@@ -54,7 +82,9 @@ service cloud.firestore {
           request.resource.data.role == 'admin' &&
           request.resource.data.active == true &&
           getAfter(/databases/$(database)/documents/academies/$(academyId)).data.ownerId == request.auth.uid) ||
-        isAdmin(academyId)
+        isAdmin(academyId) ||
+        (request.resource.data.userId == request.auth.uid &&
+          claimedInvitation(request.resource.data.activationCodeId, academyId, request.resource.data.role))
       );
       allow update: if isAdmin(academyId) ||
         (memberId == request.auth.uid && request.resource.data.role == 'admin' &&
