@@ -384,6 +384,7 @@ const demoStudents = [
 
 function WorkspaceShell({ children, profile }: { children: React.ReactNode; profile: "Gestão" | "Professor" }) {
   const feedback = useFeedback();
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
   return (
     <section className="workspace-shell">
       <aside className="workspace-rail">
@@ -393,7 +394,7 @@ function WorkspaceShell({ children, profile }: { children: React.ReactNode; prof
             <button key={label} className={index === 0 ? "active" : ""} onClick={() => feedback(`${label}: módulo preparado para o próximo cadastro.`)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
-        <button className="rail-settings" onClick={() => feedback("Configurações disponíveis para o administrador.")}><Settings /><span>Configurações</span></button>
+        {profile === "Gestão" && <button className="rail-settings" onClick={() => setPermissionsOpen(true)}><Settings /><span>Permissões e equipe</span></button>}
         <div className="rail-powered"><small>PLATAFORMA</small><strong>Orquestra Fit</strong></div>
       </aside>
       <div className="workspace-main">
@@ -407,7 +408,27 @@ function WorkspaceShell({ children, profile }: { children: React.ReactNode; prof
         </header>
         {children}
       </div>
+      {permissionsOpen && <PermissionsPanel onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
+  );
+}
+
+function PermissionsPanel({ onClose, onFeedback }: { onClose: () => void; onFeedback: (message: string) => void }) {
+  const roles = [
+    { label: "Dono / administrador", tone: "admin", description: "Controle total da academia, equipe, alunos, financeiro e configurações.", access: "Tudo" },
+    { label: "Professor", tone: "teacher", description: "Acompanha alunos vinculados e monta ou publica treinos.", access: "Professor + alunos" },
+    { label: "Aluno", tone: "student", description: "Acessa apenas seus treinos, evolução, agenda e perfil.", access: "Área do aluno" },
+  ];
+  return (
+    <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="permissions-title">
+      <section className="permissions-panel">
+        <header><div><span>CONTROLE DE ACESSO</span><h2 id="permissions-title">Permissões e equipe</h2><p>Defina o que cada perfil pode acessar na academia.</p></div><button aria-label="Fechar permissões" onClick={onClose}><X /></button></header>
+        <div className="permission-roles">
+          {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => onFeedback(`Cadastro de ${role.label.toLowerCase()} ficará disponível nesta etapa.`)}><Plus size={16} /> Adicionar</button></article>)}
+        </div>
+        <div className="permissions-note"><ShieldCheck size={18} /><span>O acesso é protegido pelo Firebase. Usuários sem vínculo ativo com esta academia não conseguem abrir os dados.</span></div>
+      </section>
+    </div>
   );
 }
 

@@ -41,6 +41,22 @@ button { cursor: pointer; }
   font-weight: 700;
 }
 
+.permissions-backdrop { position: fixed; inset: 0; z-index: 35; display: grid; place-items: center; padding: 24px; background: #050607b8; }
+.permissions-panel { width: min(720px, 100%); max-height: min(720px, calc(100vh - 48px)); overflow: auto; border: 1px solid var(--line); background: #111315; box-shadow: 0 24px 70px #000b; padding: 28px; }
+.permissions-panel > header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.permissions-panel header span, .permission-role > div > span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.permissions-panel h2 { margin: 6px 0 4px; color: #f4f1ea; font-size: 28px; }
+.permissions-panel header p, .permission-role p { color: var(--steel-500); margin: 0; font-size: 13px; line-height: 1.5; }
+.permissions-panel header > button { border: 1px solid var(--line); background: transparent; color: #ddd; width: 38px; height: 38px; display: grid; place-items: center; }
+.permission-roles { display: grid; gap: 12px; padding: 22px 0; }
+.permission-role { display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 14px; border: 1px solid var(--line); padding: 16px; }
+.permission-role-icon { width: 38px; height: 38px; display: grid; place-items: center; color: var(--bronze-300); background: #201b15; }
+.permission-role strong { display: block; color: #f4f1ea; margin-bottom: 4px; }
+.permission-role > div > span { display: block; margin-top: 8px; color: var(--steel-400); letter-spacing: .04em; }
+.permission-role > button { border: 1px solid var(--bronze-500); background: transparent; color: var(--bronze-300); padding: 9px 12px; display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
+.permissions-note { display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--steel-500); font-size: 12px; line-height: 1.5; }
+@media (max-width: 640px) { .permissions-panel { padding: 20px; } .permission-role { grid-template-columns: 38px 1fr; } .permission-role > button { grid-column: 2; justify-self: start; } }
+
 .v3-page {
   min-height: 100vh;
   background:
