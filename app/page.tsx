@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
-import { collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -399,6 +399,13 @@ type RegisteredStudent = {
   active?: boolean;
 };
 
+type RegisteredTeacher = {
+  id: string;
+  name: string;
+  email?: string | null;
+  active?: boolean;
+};
+
 function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent }: { children: React.ReactNode; profile: "Gestão" | "Professor"; theme?: Theme; onThemeChange?: (theme: Theme) => void; onNewStudent?: () => void }) {
   const access = useAccess();
   const operatorName = accountName(access.user.displayName, access.user.email);
@@ -430,10 +437,88 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
+  );
+}
+
+function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(collection(db, "academies", access.academyId, "teachers"), (snapshot) => {
+      setTeachers(snapshot.docs.map((teacher) => {
+        const data = teacher.data() as { name?: string; email?: string | null; active?: boolean };
+        return { id: teacher.id, name: data.name ?? "Professor sem nome", email: data.email ?? null, active: data.active !== false };
+      }));
+    }, (error) => console.error("Não foi possível carregar os professores.", error));
+  }, [access.academyId]);
+
+  const filteredTeachers = teachers.filter((teacher) => `${teacher.name} ${teacher.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const selectedTeacher = teachers.find((teacher) => teacher.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!selectedTeacher) return;
+    setEditName(selectedTeacher.name);
+    setEditEmail(selectedTeacher.email ?? "");
+  }, [selectedTeacher]);
+
+  async function saveTeacher(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !selectedTeacher || !editName.trim()) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { name: editName.trim(), email: editEmail.trim() || null });
+      onFeedback("Dados do professor atualizados.");
+    } catch {
+      onFeedback("Não foi possível atualizar este professor.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleTeacher() {
+    if (!db || !selectedTeacher) return;
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { active: selectedTeacher.active === false });
+      batch.update(doc(db, "academies", access.academyId, "members", selectedTeacher.id), { active: selectedTeacher.active === false });
+      await batch.commit();
+      onFeedback(selectedTeacher.active === false ? "Acesso do professor ativado." : "Acesso do professor suspenso.");
+    } catch {
+      onFeedback("Não foi possível alterar o acesso do professor.");
+    }
+  }
+
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro"><div><span>EQUIPE · GESTÃO</span><h2>Professores</h2><p>Equipe vinculada, contatos e status de acesso.</p></div></section>
+      <section className="directory-layout">
+        <article className="workspace-panel directory-panel">
+          <header><div><span>PROFESSORES CADASTRADOS</span><h3>{teachers.length} {teachers.length === 1 ? "professor" : "professores"}</h3></div></header>
+          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
+          <div className="directory-list">
+            {filteredTeachers.length === 0 ? <div className="directory-empty"><UserRoundCheck /><p>{teachers.length === 0 ? "Nenhum professor cadastrado ainda." : "Nenhum professor encontrado."}</p></div> : filteredTeachers.map((teacher) => (
+              <button className={selectedId === teacher.id ? "directory-row selected" : "directory-row"} key={teacher.id} onClick={() => setSelectedId(teacher.id)}>
+                <i>{teacher.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{teacher.name}</strong><small>{teacher.email || "E-mail ainda não informado"}</small></span><em className={teacher.active === false ? "inactive" : ""}>{teacher.active === false ? "Suspenso" : "Ativo"}</em><ChevronRight />
+              </button>
+            ))}
+          </div>
+        </article>
+        <aside className="workspace-panel student-detail-panel">
+          {selectedTeacher ? <><header><div><span>PERFIL DO PROFESSOR</span><h3>Editar cadastro</h3></div><span className={selectedTeacher.active === false ? "detail-status inactive" : "detail-status"}>{selectedTeacher.active === false ? "Suspenso" : "Ativo"}</span></header><form className="student-detail-form" onSubmit={saveTeacher}><label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label><label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button></form><button className="detail-toggle" onClick={toggleTeacher}>{selectedTeacher.active === false ? "Reativar acesso" : "Suspender acesso"}</button></> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um professor</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
+        </aside>
+      </section>
+    </div>
   );
 }
 
