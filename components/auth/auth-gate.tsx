@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { GoogleAuthProvider, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, User } from "firebase/auth";
+import { GoogleAuthProvider, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithRedirect, User } from "firebase/auth";
 import { LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
@@ -41,7 +41,7 @@ function LoginPanel() {
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch {
-      setStatus("Não foi possível entrar. Confira seu e-mail e senha.");
+      setStatus("Não foi possível entrar. Confira seu e-mail e código de acesso.");
     } finally {
       setSubmitting(false);
     }
@@ -65,7 +65,7 @@ function LoginPanel() {
     setSubmitting(true);
     setStatus(null);
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      await signInWithRedirect(auth, new GoogleAuthProvider());
     } catch {
       setStatus("Não foi possível entrar com o Google agora.");
     } finally {
