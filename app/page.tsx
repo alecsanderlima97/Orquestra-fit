@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
-import { collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -437,10 +437,76 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <PlansModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
+  );
+}
+
+type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
+
+function PlansModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [plans, setPlans] = useState<AcademyPlan[]>([]);
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [interval, setInterval] = useState("Mensal");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
+      setPlans(snapshot.docs.map((plan) => {
+        const data = plan.data() as { name?: string; price?: number; interval?: string; active?: boolean };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", active: data.active !== false };
+      }));
+    }, (error) => console.error("Não foi possível carregar os planos.", error));
+  }, [access.academyId]);
+
+  async function createPlan(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !name.trim() || !price) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "plans"), {
+        name: name.trim(),
+        price: Number(price.replace(",", ".")),
+        interval,
+        active: true,
+        createdBy: access.userId,
+        createdAt: serverTimestamp(),
+      });
+      setName("");
+      setPrice("");
+      setInterval("Mensal");
+      onFeedback("Plano criado com sucesso.");
+    } catch {
+      onFeedback("Não foi possível criar o plano.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function togglePlan(plan: AcademyPlan) {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "plans", plan.id), { active: !plan.active });
+      onFeedback(plan.active ? "Plano desativado." : "Plano reativado.");
+    } catch {
+      onFeedback("Não foi possível alterar o plano.");
+    }
+  }
+
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Cadastre os planos que serão usados nas mensalidades dos alunos.</p></div></section>
+      <section className="plans-layout">
+        <article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Criar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Plano mensal" required /></label><label>Valor mensal<input value={price} onChange={(event) => setPrice(event.target.value)} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={interval} onChange={(event) => setInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Criar plano"}</button></form></article>
+        <article className="workspace-panel plans-list-panel"><header><div><span>PLANOS CADASTRADOS</span><h3>{plans.length} {plans.length === 1 ? "plano" : "planos"}</h3></div></header><div className="plans-list">{plans.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhum plano cadastrado ainda.</p></div> : plans.map((plan) => <div className="plan-row" key={plan.id}><div><strong>{plan.name}</strong><small>{plan.interval} · {plan.active ? "Disponível" : "Desativado"}</small></div><b>R$ {plan.price.toFixed(2).replace(".", ",")}</b><button className={plan.active ? "plan-disable" : "plan-enable"} onClick={() => togglePlan(plan)}>{plan.active ? "Desativar" : "Ativar"}</button></div>)}</div></article>
+      </section>
+      <div className="module-empty plans-next-step"><WalletCards /><h3>Mensalidades</h3><p>Depois dos planos, vamos gerar cobranças, vencimentos e status de pagamento por aluno.</p></div>
+    </div>
   );
 }
 
