@@ -481,12 +481,13 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
 function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const feedback = useFeedback();
   const access = useAccess();
+  const [newStudentOpen, setNewStudentOpen] = useState(false);
   return (
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange}>
       <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
-          <button onClick={() => feedback("Cadastro de aluno aberto para a próxima etapa.")}><Plus /> Novo aluno</button>
+          <button onClick={() => setNewStudentOpen(true)}><Plus /> Novo aluno</button>
         </section>
         <section className="metric-grid">
           <MetricCard icon={Users} label="Alunos ativos" value="184" note="+8 neste mês" />
@@ -527,7 +528,64 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
           <article className="occupancy"><div><span>OCUPAÇÃO AGORA</span><strong>37 <small>alunos</small></strong></div><div className="occupancy-bars">{[25,42,58,79,94,61,38,18].map((value, index) => <i key={index} style={{height: `${value}%`}} />)}</div></article>
         </section>
       </div>
+      {newStudentOpen && <NewStudentModal onClose={() => setNewStudentOpen(false)} onFeedback={feedback} />}
     </WorkspaceShell>
+  );
+}
+
+function NewStudentModal({ onClose, onFeedback }: { onClose: () => void; onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [plan, setPlan] = useState("Mensal");
+  const [code, setCode] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !name.trim()) return;
+    setSaving(true);
+    setError(null);
+    const random = Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36).toUpperCase()).join("").slice(0, 8);
+    const invitationCode = `DF-${random}`;
+    try {
+      await setDoc(doc(db, "accessCodes", invitationCode), {
+        academyId: access.academyId,
+        role: "student",
+        invitedName: name.trim(),
+        invitedEmail: email.trim() || null,
+        plan,
+        active: true,
+        createdBy: access.userId,
+        createdAt: serverTimestamp(),
+      });
+      setCode(invitationCode);
+      onFeedback("Aluno cadastrado. Envie o código para ativar o acesso.");
+    } catch {
+      setError("Não foi possível cadastrar este aluno agora.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-student-title">
+      <section className="student-modal">
+        <header><div><span>NOVO CADASTRO</span><h2 id="new-student-title">Cadastrar aluno</h2><p>Crie o convite para o primeiro acesso do aluno.</p></div><button aria-label="Fechar cadastro" onClick={onClose}><X /></button></header>
+        {!code ? (
+          <form className="student-form" onSubmit={submit}>
+            <label>Nome completo<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required /></label>
+            <label>E-mail Google <small>(opcional)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
+            <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>
+            {error && <p className="auth-status" role="status">{error}</p>}
+            <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
+          </form>
+        ) : (
+          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código ao aluno. Ele deverá entrar com o Google e informar o código uma única vez.</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div><button className="student-modal-close" onClick={onClose}>Concluir</button></div>
+        )}
+      </section>
+    </div>
   );
 }
 

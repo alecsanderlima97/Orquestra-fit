@@ -118,7 +118,13 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         return;
       }
 
-      const invitation = codeSnapshot.data() as { academyId: string; role: "admin" | "teacher" | "student" };
+      const invitation = codeSnapshot.data() as {
+        academyId: string;
+        role: "admin" | "teacher" | "student";
+        invitedName?: string;
+        invitedEmail?: string;
+        plan?: string;
+      };
       const memberRef = doc(firestore, "academies", invitation.academyId, "members", user.uid);
       const userRef = doc(firestore, "users", user.uid);
       const batch = writeBatch(firestore);
@@ -127,13 +133,24 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
       batch.update(codeRef, { active: false, claimedBy: user.uid, claimedAt: now });
       batch.set(memberRef, {
         userId: user.uid,
-        displayName: user.displayName ?? user.email ?? "Usuário",
+        displayName: invitation.invitedName ?? user.displayName ?? user.email ?? "Usuário",
         email: user.email ?? null,
         role: invitation.role,
         active: true,
         activationCodeId: normalizedCode,
         createdAt: now,
       });
+      if (invitation.role === "student") {
+        batch.set(doc(firestore, "academies", invitation.academyId, "students", user.uid), {
+          userId: user.uid,
+          name: invitation.invitedName ?? user.displayName ?? user.email ?? "Aluno",
+          email: invitation.invitedEmail ?? user.email ?? null,
+          plan: invitation.plan ?? null,
+          active: true,
+          activationCodeId: normalizedCode,
+          createdAt: now,
+        });
+      }
       const userData = {
         displayName: user.displayName ?? user.email ?? "Usuário",
         email: user.email ?? null,

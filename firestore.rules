@@ -93,7 +93,11 @@ service cloud.firestore {
 
     match /academies/{academyId}/students/{studentId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) || (isStudent(academyId) && studentId == request.auth.uid);
-      allow create, update: if isAdmin(academyId) || isTeacher(academyId);
+      allow create: if isAdmin(academyId) || isTeacher(academyId) ||
+        (studentId == request.auth.uid &&
+          request.resource.data.activationCodeId is string &&
+          validInvitation(request.resource.data.activationCodeId, academyId, 'student'));
+      allow update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId);
     }
 
