@@ -22,6 +22,14 @@ function useFeedback() {
   return useContext(FeedbackContext);
 }
 
+function accountName(displayName: string | null, email: string | null) {
+  return displayName?.trim() || email?.split("@")[0] || "Usuário";
+}
+
+function firstName(displayName: string | null, email: string | null) {
+  return accountName(displayName, email).split(/\s+/)[0];
+}
+
 const navItems = [
   ["inicio", House, "Início"],
   ["treinos", Dumbbell, "Treinos"],
@@ -171,11 +179,12 @@ function AcademyBrand() {
 }
 
 function StudentHome({ onStart, onEvolution }: { onStart: () => void; onEvolution: () => void }) {
+  const access = useAccess();
   const feedback = useFeedback();
   return (
     <div className="student-view home-view">
       <section className="welcome-row">
-        <div><p>SEGUNDA, 1 DE SETEMBRO</p><h1>Boa tarde, Alecsander.</h1><span>Seu ritmo começa aqui.</span></div>
+        <div><p>SEGUNDA, 1 DE SETEMBRO</p><h1>Olá, {firstName(access.user.displayName, access.user.email)}.</h1><span>Seu ritmo começa aqui.</span></div>
         <div className="streak" aria-label="Sequência de treinos"><Flame size={20} /><strong>4</strong><small>semanas</small></div>
       </section>
 
@@ -310,7 +319,7 @@ function Profile() {
   ];
   return (
     <div className="student-view profile-view">
-      <div className="profile-identity"><span>AL</span><small>ALUNO</small><h1>Alecsander Lima</h1><p>Ambiente demonstrativo</p></div>
+      <div className="profile-identity"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><small>ALUNO</small><h1>{accountName(access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
       {links.map(({ icon: Icon, label }) => <button className="profile-link" key={label}><Icon /><span>{label}</span><ChevronRight /></button>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => auth && signOut(auth)}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
@@ -383,6 +392,9 @@ const demoStudents = [
 ];
 
 function WorkspaceShell({ children, profile, theme, onThemeChange }: { children: React.ReactNode; profile: "Gestão" | "Professor"; theme?: Theme; onThemeChange?: (theme: Theme) => void }) {
+  const access = useAccess();
+  const operatorName = accountName(access.user.displayName, access.user.email);
+  const operatorInitials = operatorName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const feedback = useFeedback();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   return (
@@ -403,7 +415,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange }: { children:
           <div className="workspace-actions">
             <button aria-label="Buscar"><Search /></button>
             <button aria-label="Notificações"><Bell /></button>
-            <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{profile === "Gestão" ? "GL" : "RC"}</span><div><strong>{profile === "Gestão" ? "Grazielle Lima" : "Rômulo Corrêa"}</strong><small>{profile} · sair</small></div></button>
+            <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
         {children}
@@ -468,11 +480,12 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
 
 function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const feedback = useFeedback();
+  const access = useAccess();
   return (
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange}>
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Boa tarde, Grazielle.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
+          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
           <button onClick={() => feedback("Cadastro de aluno aberto para a próxima etapa.")}><Plus /> Novo aluno</button>
         </section>
         <section className="metric-grid">
@@ -519,6 +532,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
 }
 
 function ProfessorWorkspace() {
+  const access = useAccess();
   const feedback = useFeedback();
   const today = [
     { time: "17:30", name: "Ana Paula Martins", focus: "Revisão · Força A", status: "Aguardando" },
@@ -529,7 +543,7 @@ function ProfessorWorkspace() {
     <WorkspaceShell profile="Professor">
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Seus alunos, no ritmo certo.</h2><p>Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
+          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
           <button onClick={() => feedback("Editor de treino aberto para a próxima etapa.")}><Plus /> Criar treino</button>
         </section>
         <section className="professor-summary">
@@ -579,11 +593,12 @@ function StudentNav({ activeTab, onChange }: { activeTab: StudentTab; onChange: 
 }
 
 function StudentDrawer({ onClose, onChange }: { onClose: () => void; onChange: (tab: StudentTab) => void }) {
+  const access = useAccess();
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="student-drawer" onClick={(event) => event.stopPropagation()}>
         <header><AcademyBrand /><button aria-label="Fechar" onClick={onClose}><X /></button></header>
-        <div className="drawer-profile"><span>AL</span><div><strong>Alecsander Lima</strong><small>Aluno · plano ativo</small></div></div>
+        <div className="drawer-profile"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><div><strong>{accountName(access.user.displayName, access.user.email)}</strong><small>Aluno · plano ativo</small></div></div>
         <nav>{navItems.map(([id, Icon, label]) => <button key={id} onClick={() => { onChange(id); onClose(); }}><Icon /><span>{label}</span><ChevronRight /></button>)}</nav>
         <div className="drawer-footer"><small>TECNOLOGIA</small><strong>Orquestra Fit</strong><span>Ambiente demonstrativo</span></div>
       </aside>

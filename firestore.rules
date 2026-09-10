@@ -32,12 +32,11 @@ service cloud.firestore {
         getAfter(/databases/$(database)/documents/academies/$(academyId)/members/$(request.auth.uid)).data.active == true;
     }
 
-    function claimedInvitation(codeId, academyId, role) {
+    function validInvitation(codeId, academyId, role) {
       return signedIn() &&
-        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.active == false &&
-        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.claimedBy == request.auth.uid &&
-        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.academyId == academyId &&
-        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.role == role;
+        get(/databases/$(database)/documents/accessCodes/$(codeId)).data.active == true &&
+        get(/databases/$(database)/documents/accessCodes/$(codeId)).data.academyId == academyId &&
+        get(/databases/$(database)/documents/accessCodes/$(codeId)).data.role == role;
     }
 
     match /accessCodes/{codeId} {
@@ -58,14 +57,14 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == userId &&
         ((request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
           (request.resource.data.activationCodeId is string && request.resource.data.activeAcademyId is string &&
-            claimedInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
-              getAfter(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
+            validInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
+              get(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
       allow update: if signedIn() && request.auth.uid == userId &&
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']) ||
           (request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
           (request.resource.data.activationCodeId is string && request.resource.data.activeAcademyId is string &&
-            claimedInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
-              getAfter(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
+            validInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
+              get(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
       allow delete: if false;
     }
 
@@ -84,7 +83,7 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/academies/$(academyId)).data.ownerId == request.auth.uid) ||
         isAdmin(academyId) ||
         (request.resource.data.userId == request.auth.uid &&
-          claimedInvitation(request.resource.data.activationCodeId, academyId, request.resource.data.role))
+          validInvitation(request.resource.data.activationCodeId, academyId, request.resource.data.role))
       );
       allow update: if isAdmin(academyId) ||
         (memberId == request.auth.uid && request.resource.data.role == 'admin' &&
