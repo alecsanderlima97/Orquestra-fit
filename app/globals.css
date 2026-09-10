@@ -136,8 +136,30 @@ button { cursor: pointer; }
 .plan-row .plan-disable { border-color: #704543; color: #e0a49e; }
 .plans-next-step { margin-top: 14px; }
 .billing-layout { display: grid; grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); gap: 14px; margin-top: 18px; }
+.training-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 14px; margin-top: 18px; }
+.training-form-panel { overflow: hidden; }
+.training-form-panel > header, .published-workouts > header { padding: 22px; border-bottom: 1px solid var(--line); }
+.training-form-panel header span, .published-workouts header span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.training-form-panel h3, .published-workouts h3 { margin: 6px 0 0; color: var(--paper); font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
+.exercise-picker { display: grid; gap: 8px; border: 1px solid var(--line); padding: 12px; }
+.exercise-picker legend { padding: 0 5px; color: var(--steel-300); font-size: 11px; font-weight: 700; }
+.exercise-picker label { display: flex; align-items: center; gap: 9px; color: var(--paper); font-size: 12px; }
+.exercise-picker label span, .exercise-picker label small { display: block; }
+.exercise-picker label small { margin-top: 3px; color: var(--steel-500); font-size: 10px; }
+.exercise-library { display: grid; gap: 0; padding: 0 22px 20px; }
+.exercise-library div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 10px 0; }
+.exercise-library strong { color: var(--paper); font-size: 12px; }
+.exercise-library small { color: var(--steel-500); font-size: 10px; }
+.published-workouts { margin-top: 14px; overflow: hidden; }
+.published-list { padding: 4px 22px 16px; }
+.published-list > div { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--line); padding: 14px 0; }
+.published-list strong, .published-list small { display: block; }
+.published-list strong { color: var(--paper); font-size: 13px; }
+.published-list small { margin-top: 5px; color: var(--steel-500); font-size: 10px; }
+.published-list em { border: 1px solid #4b5b45; color: #b7d59c; padding: 5px 7px; font-size: 9px; font-style: normal; }
 @media (max-width: 900px) { .billing-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .plans-layout { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .training-layout { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .module-overview-grid { grid-template-columns: 1fr; } }
 .settings-section { padding-top: 22px; }
 .settings-section + .settings-section { border-top: 1px solid var(--line); margin-top: 22px; }

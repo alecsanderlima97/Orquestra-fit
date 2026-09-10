@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
-import { addDoc, collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -242,6 +242,15 @@ function StudentHome({ onStart, onEvolution }: { onStart: () => void; onEvolutio
 }
 
 function WorkoutLibrary({ onStart }: { onStart: () => void }) {
+  const access = useAccess();
+  const [publishedWorkouts, setPublishedWorkouts] = useState<WorkoutRecord[]>([]);
+  useEffect(() => {
+    if (!db) return;
+    const workoutsQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
+    return onSnapshot(workoutsQuery, (snapshot) => {
+      setPublishedWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], status: "published" }; }));
+    }, (error) => console.error("Não foi possível carregar os treinos.", error));
+  }, [access.academyId, access.userId]);
   const plans = [
     { title: "Força A", subtitle: "Pernas e estabilidade", time: "52 min", active: true },
     { title: "Força B", subtitle: "Costas e bíceps", time: "48 min" },
@@ -256,7 +265,11 @@ function WorkoutLibrary({ onStart }: { onStart: () => void }) {
         <div className="program-line"><i /></div>
       </div>
       <div className="workout-list">
-        {plans.map((plan, index) => (
+        {publishedWorkouts.length > 0 ? publishedWorkouts.map((workout, index) => (
+          <button key={workout.id} className={index === 0 ? "active" : ""} onClick={onStart}>
+            <span className="workout-index">0{index + 1}</span><div><small>{index === 0 ? "PROGRAMADO PARA HOJE" : "TREINO PUBLICADO"}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios</p></div><span className="play-button"><Play size={18} fill="currentColor" /></span>
+          </button>
+        )) : plans.map((plan, index) => (
           <button key={plan.title} className={plan.active ? "active" : ""} onClick={onStart}>
             <span className="workout-index">0{index + 1}</span>
             <div><small>{plan.active ? "PROGRAMADO PARA HOJE" : "PRÓXIMO TREINO"}</small><strong>{plan.title}</strong><p>{plan.subtitle} · {plan.time}</p></div>
@@ -437,7 +450,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
@@ -448,6 +461,69 @@ type AcademyPlan = { id: string; name: string; price: number; interval: string; 
 type BillingStudent = { id: string; name: string; active: boolean };
 type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid" };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string };
+type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; status: "draft" | "published" };
+
+function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [students, setStudents] = useState<BillingStudent[]>([]);
+  const [exercises, setExercises] = useState<ExerciseRecord[]>([]);
+  const [workouts, setWorkouts] = useState<WorkoutRecord[]>([]);
+  const [exerciseName, setExerciseName] = useState("");
+  const [muscleGroup, setMuscleGroup] = useState("");
+  const [workoutName, setWorkoutName] = useState("");
+  const [studentId, setStudentId] = useState("");
+  const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db) return;
+    const academy = ["academies", access.academyId];
+    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
+      setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false }; }));
+    });
+    const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as { name?: string; muscleGroup?: string }; return { id: exercise.id, name: data.name ?? "Exercício", muscleGroup: data.muscleGroup ?? "Geral" }; }));
+    });
+    const unsubscribeWorkouts = onSnapshot(collection(db, "academies", access.academyId, "workouts"), (snapshot) => {
+      setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
+    });
+    return () => { void academy; unsubscribeStudents(); unsubscribeExercises(); unsubscribeWorkouts(); };
+  }, [access.academyId]);
+
+  async function createExercise(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), createdBy: access.userId, createdAt: serverTimestamp() });
+      setExerciseName(""); setMuscleGroup(""); onFeedback("Exercício cadastrado.");
+    } catch { onFeedback("Não foi possível cadastrar o exercício."); }
+  }
+
+  async function createWorkout(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !workoutName.trim() || !studentId || selectedExercises.length === 0) return;
+    const student = students.find((item) => item.id === studentId);
+    if (!student) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, status: "published", createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
+      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); onFeedback("Treino publicado para o aluno.");
+    } catch { onFeedback("Não foi possível publicar o treino."); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Cadastre exercícios e publique fichas vinculadas aos alunos.</p></div></section>
+      <section className="training-layout">
+        <article className="workspace-panel training-form-panel"><header><div><span>NOVA FICHA</span><h3>Publicar treino</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <label key={exercise.id}><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => setSelectedExercises((current) => current.includes(exercise.id) ? current.filter((id) => id !== exercise.id) : [...current, exercise.id])} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>)}</fieldset><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></form></article>
+        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Pernas" required /></label><button className="detail-save" type="submit">Cadastrar exercício</button></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><strong>{exercise.name}</strong><small>{exercise.muscleGroup}</small></div>)}</div></article>
+      </section>
+      <section className="workspace-panel published-workouts"><header><div><span>PUBLICADOS</span><h3>{workouts.length} {workouts.length === 1 ? "treino" : "treinos"}</h3></div></header>{workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Nenhum treino publicado ainda.</p></div> : <div className="published-list">{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
+    </div>
+  );
+}
 
 function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();

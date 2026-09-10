@@ -124,6 +124,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /academies/{academyId}/exercises/{exerciseId} {
+      allow read: if isAdmin(academyId) || isTeacher(academyId);
+      allow create, update: if isAdmin(academyId) || isTeacher(academyId);
+      allow delete: if isAdmin(academyId);
+    }
+
+    match /academies/{academyId}/workouts/{workoutId} {
+      allow read: if isAdmin(academyId) || isTeacher(academyId) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+      allow create, update: if isAdmin(academyId) || isTeacher(academyId);
+      allow delete: if isAdmin(academyId) || isTeacher(academyId);
+    }
+
     match /academies/{academyId}/{document=**} {
       allow read: if isAdmin(academyId);
       allow write: if isAdmin(academyId);
