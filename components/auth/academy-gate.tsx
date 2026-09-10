@@ -1,10 +1,10 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { signOut, type User } from "firebase/auth";
 import { collection, doc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
-import { db } from "@/lib/firebase/client";
-import type { User } from "firebase/auth";
+import { auth, db } from "@/lib/firebase/client";
 import { AccessProvider, AccessRole } from "./access-context";
 
 type AcademyGateProps = { user: User; children: ReactNode };
@@ -152,6 +152,7 @@ function ActivateAccess({ user, onCreated }: { user: User; onCreated: (profile: 
           <button type="submit" disabled={submitting}>{submitting ? "Ativando..." : "Ativar acesso"}</button>
         </form>
         <p className="onboarding-note"><CheckCircle2 size={16} /> Este código só pode ser usado uma vez.</p>
+        <button className="auth-link" type="button" onClick={() => auth && signOut(auth)}>Voltar para entrada</button>
       </section>
     </main>
   );
