@@ -55,6 +55,14 @@ button { cursor: pointer; }
 .permission-role > div > span { display: block; margin-top: 8px; color: var(--steel-400); letter-spacing: .04em; }
 .permission-role > button { border: 1px solid var(--bronze-500); background: transparent; color: var(--bronze-300); padding: 9px 12px; display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
 .permissions-note { display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--steel-500); font-size: 12px; line-height: 1.5; }
+.settings-section { padding-top: 22px; }
+.settings-section + .settings-section { border-top: 1px solid var(--line); margin-top: 22px; }
+.settings-section-heading { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 14px; }
+.settings-section-heading span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.settings-section-heading h3 { margin: 5px 0 0; color: #f4f1ea; font-family: Georgia, serif; font-size: 21px; font-weight: 500; }
+.settings-section-heading small { color: var(--steel-500); font-size: 11px; }
+.appearance-section .theme-switcher { position: static; z-index: auto; height: auto; width: fit-content; max-width: 100%; box-shadow: none; backdrop-filter: none; background: #0b0d0e; }
+@media (max-width: 520px) { .appearance-section .theme-switcher { position: static; left: auto; bottom: auto; height: auto; flex-wrap: wrap; } }
 @media (max-width: 640px) { .permissions-panel { padding: 20px; } .permission-role { grid-template-columns: 38px 1fr; } .permission-role > button { grid-column: 2; justify-self: start; } }
 
 .v3-page {

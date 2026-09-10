@@ -74,7 +74,6 @@ export default function Home() {
         {access.accountType === "developer" && (
           <RoleSwitcher role={demoRole} onChange={(nextRole) => { setDemoRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
         )}
-        <ThemeSwitcher theme={theme} onChange={setTheme} />
         {role === "aluno" && (
         <section className={sessionOpen ? "student-app session-active" : "student-app"}>
           {sessionOpen ? (
@@ -104,7 +103,7 @@ export default function Home() {
         </section>
       )}
         {role === "professor" && <ProfessorWorkspace />}
-        {role === "gestao" && <AdminWorkspace />}
+        {role === "gestao" && <AdminWorkspace theme={theme} onThemeChange={setTheme} />}
         {feedback && <div className="action-feedback" role="status">{feedback}</div>}
       </main>
     </FeedbackContext.Provider>
@@ -382,7 +381,7 @@ const demoStudents = [
   { initials: "JH", name: "João Henrique", plan: "Mensal", status: "Em atraso", visits: "7", next: "Sem treino" },
 ];
 
-function WorkspaceShell({ children, profile }: { children: React.ReactNode; profile: "Gestão" | "Professor" }) {
+function WorkspaceShell({ children, profile, theme, onThemeChange }: { children: React.ReactNode; profile: "Gestão" | "Professor"; theme?: Theme; onThemeChange?: (theme: Theme) => void }) {
   const feedback = useFeedback();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   return (
@@ -394,7 +393,7 @@ function WorkspaceShell({ children, profile }: { children: React.ReactNode; prof
             <button key={label} className={index === 0 ? "active" : ""} onClick={() => feedback(`${label}: módulo preparado para o próximo cadastro.`)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
-        {profile === "Gestão" && <button className="rail-settings" onClick={() => setPermissionsOpen(true)}><Settings /><span>Permissões e equipe</span></button>}
+        {profile === "Gestão" && <button className="rail-settings" onClick={() => setPermissionsOpen(true)}><Settings /><span>Configurações</span></button>}
         <div className="rail-powered"><small>PLATAFORMA</small><strong>Orquestra Fit</strong></div>
       </aside>
       <div className="workspace-main">
@@ -408,12 +407,12 @@ function WorkspaceShell({ children, profile }: { children: React.ReactNode; prof
         </header>
         {children}
       </div>
-      {permissionsOpen && <PermissionsPanel onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
+      {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
   );
 }
 
-function PermissionsPanel({ onClose, onFeedback }: { onClose: () => void; onFeedback: (message: string) => void }) {
+function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void; onFeedback: (message: string) => void }) {
   const roles = [
     { label: "Dono / administrador", tone: "admin", description: "Controle total da academia, equipe, alunos, financeiro e configurações.", access: "Tudo" },
     { label: "Professor", tone: "teacher", description: "Acompanha alunos vinculados e monta ou publica treinos.", access: "Professor + alunos" },
@@ -422,20 +421,27 @@ function PermissionsPanel({ onClose, onFeedback }: { onClose: () => void; onFeed
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="permissions-title">
       <section className="permissions-panel">
-        <header><div><span>CONTROLE DE ACESSO</span><h2 id="permissions-title">Permissões e equipe</h2><p>Defina o que cada perfil pode acessar na academia.</p></div><button aria-label="Fechar permissões" onClick={onClose}><X /></button></header>
-        <div className="permission-roles">
+        <header><div><span>CONFIGURAÇÕES DA ACADEMIA</span><h2 id="permissions-title">Configurações</h2><p>Organize equipe, permissões e aparência do ambiente.</p></div><button aria-label="Fechar configurações" onClick={onClose}><X /></button></header>
+        <section className="settings-section">
+          <div className="settings-section-heading"><div><span>CONTROLE DE ACESSO</span><h3>Equipe e permissões</h3></div><small>Quem pode acessar cada área</small></div>
+          <div className="permission-roles">
           {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => onFeedback(`Cadastro de ${role.label.toLowerCase()} ficará disponível nesta etapa.`)}><Plus size={16} /> Adicionar</button></article>)}
-        </div>
+          </div>
+        </section>
+        <section className="settings-section appearance-section">
+          <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
+          <ThemeSwitcher theme={theme} onChange={onThemeChange} />
+        </section>
         <div className="permissions-note"><ShieldCheck size={18} /><span>O acesso é protegido pelo Firebase. Usuários sem vínculo ativo com esta academia não conseguem abrir os dados.</span></div>
       </section>
     </div>
   );
 }
 
-function AdminWorkspace() {
+function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const feedback = useFeedback();
   return (
-    <WorkspaceShell profile="Gestão">
+    <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange}>
       <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Boa tarde, Grazielle.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
