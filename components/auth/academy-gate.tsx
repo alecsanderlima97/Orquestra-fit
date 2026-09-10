@@ -10,7 +10,13 @@ type AcademyGateProps = { user: User; children: ReactNode };
 
 type UserProfile = {
   activeAcademyId: string;
+  accountType?: "developer" | "academy_admin";
 };
+
+function isDeveloperAccount(user: User) {
+  const developerEmail = process.env.NEXT_PUBLIC_DEVELOPER_EMAIL?.trim().toLowerCase();
+  return Boolean(developerEmail && user.email?.trim().toLowerCase() === developerEmail);
+}
 
 export function AcademyGate({ user, children }: AcademyGateProps) {
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
@@ -29,7 +35,8 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
 }
 
 function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: UserProfile) => void }) {
-  const [academyName, setAcademyName] = useState("Dama de Ferro Academia");
+  const developer = isDeveloperAccount(user);
+  const [academyName, setAcademyName] = useState(developer ? "Orquestra Fit - Ambiente de Testes" : "");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -49,6 +56,9 @@ function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: U
       batch.set(academyRef, {
         name: academyName.trim(),
         ownerId: user.uid,
+        accountType: developer ? "developer" : "academy_admin",
+        environment: developer ? "test" : "production",
+        demoData: developer,
         plan: "basic",
         status: "active",
         createdAt: now,
@@ -64,12 +74,13 @@ function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: U
       batch.set(userRef, {
         displayName: user.displayName ?? user.email ?? "Administrador",
         email: user.email ?? null,
+        accountType: developer ? "developer" : "academy_admin",
         activeAcademyId: academyRef.id,
         academyIds: [academyRef.id],
         createdAt: now,
       });
       await batch.commit();
-      onCreated({ activeAcademyId: academyRef.id });
+      onCreated({ activeAcademyId: academyRef.id, accountType: developer ? "developer" : "academy_admin" });
     } catch {
       setStatus("Não foi possível criar a academia. Confirme se as regras do Firestore foram publicadas.");
     } finally {
@@ -82,8 +93,8 @@ function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: U
       <section className="auth-panel academy-onboarding" aria-labelledby="academy-title">
         <div className="auth-mark"><Building2 size={28} /></div>
         <p>ORQUESTRA FIT</p>
-        <h1 id="academy-title">Vamos criar sua academia</h1>
-        <span>Este primeiro acesso será o administrador da academia e poderá cadastrar equipe, alunos e planos.</span>
+        <h1 id="academy-title">Vamos preparar seu ambiente</h1>
+        <span>{developer ? "Este é um ambiente interno de testes. Não use dados reais de clientes aqui." : "Este primeiro acesso será o administrador da sua academia e poderá cadastrar equipe, alunos e planos."}</span>
         <form onSubmit={submit}>
           <label><ShieldCheck size={17} /> Nome da academia<input value={academyName} onChange={(event) => setAcademyName(event.target.value)} autoComplete="organization" required /></label>
           {status && <p className="auth-status" role="status">{status}</p>}

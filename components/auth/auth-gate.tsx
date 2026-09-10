@@ -65,7 +65,7 @@ function LoginPanel() {
       <section className="auth-panel" aria-labelledby="login-title">
         <div className="auth-mark"><ShieldCheck size={28} /></div>
         <p>ORQUESTRA FIT</p>
-        <h1 id="login-title">Acesso à Dama de Ferro</h1>
+        <h1 id="login-title">Acesso ao Orquestra Fit</h1>
         <span>Entre para acompanhar sua rotina, seus alunos ou a gestão da academia.</span>
         <form onSubmit={submit}>
           <label><Mail size={17} /> E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
