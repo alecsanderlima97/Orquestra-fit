@@ -27,6 +27,7 @@ function isDeveloperAccount(user: User) {
 export function AcademyGate({ user, children }: AcademyGateProps) {
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
   const [member, setMember] = useState<MemberProfile | null | undefined>(undefined);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (!db) {
@@ -37,12 +38,17 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
 
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
-      if (!cancelled) setProfile(null);
+      if (!cancelled) {
+        setProfile(null);
+        setMember(null);
+      }
     }, 8000);
 
     getDocFromServer(doc(firestore, "users", user.uid))
       .then(async (snapshot) => {
+        if (cancelled) return;
         if (!snapshot.exists()) {
+          window.clearTimeout(timeoutId);
           setProfile(null);
           setMember(null);
           return;
@@ -50,9 +56,16 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
         const nextProfile = snapshot.data() as UserProfile;
         setProfile(nextProfile);
         const memberSnapshot = await getDocFromServer(doc(firestore, "academies", nextProfile.activeAcademyId, "members", user.uid));
+        if (cancelled) return;
+        window.clearTimeout(timeoutId);
         setMember(memberSnapshot.exists() ? (memberSnapshot.data() as MemberProfile) : null);
       })
-      .catch(() => setProfile(null));
+      .catch(() => {
+        if (!cancelled) {
+          window.clearTimeout(timeoutId);
+          setLoadError(true);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -60,11 +73,12 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
     };
   }, [user.uid]);
 
+  if (loadError) return <main className="auth-loading">Não foi possível confirmar seu acesso agora. Atualize a página para tentar novamente.</main>;
   if (profile === undefined || member === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
   if (!profile?.activeAcademyId) {
     return isDeveloperAccount(user)
       ? <CreateAcademy user={user} onCreated={(nextProfile) => { setProfile(nextProfile); setMember({ role: "admin", active: true }); }} />
-      : <ActivateAccess user={user} />;
+      : <ActivateAccess user={user} onActivated={(nextProfile, nextMember) => { setProfile(nextProfile); setMember(nextMember); }} />;
   }
   if (!member?.active || !member.role) return <main className="auth-loading">Seu acesso ainda não foi liberado pela academia.</main>;
 
@@ -83,7 +97,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   );
 }
 
-function ActivateAccess({ user }: { user: User }) {
+function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profile: UserProfile, member: MemberProfile) => void }) {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -131,9 +145,13 @@ function ActivateAccess({ user }: { user: User }) {
       };
       batch.set(userRef, userData, { merge: true });
       await batch.commit();
-      window.location.reload();
-    } catch {
-      setStatus("Não foi possível ativar este acesso. Confira o código ou tente novamente.");
+      onActivated(
+        { activeAcademyId: invitation.academyId, accountType: invitation.role === "admin" ? "academy_admin" : undefined },
+        { role: invitation.role, active: true },
+      );
+    } catch (error) {
+      const errorCode = (error as { code?: string }).code;
+      setStatus(errorCode ? `Não foi possível ativar este acesso (${errorCode}).` : "Não foi possível ativar este acesso. Confira o código ou tente novamente.");
     } finally {
       setSubmitting(false);
     }
