@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -391,6 +391,13 @@ const demoStudents = [
   { initials: "JH", name: "João Henrique", plan: "Mensal", status: "Em atraso", visits: "7", next: "Sem treino" },
 ];
 
+type RegisteredStudent = {
+  id: string;
+  name: string;
+  plan: string;
+  active?: boolean;
+};
+
 function WorkspaceShell({ children, profile, theme, onThemeChange }: { children: React.ReactNode; profile: "Gestão" | "Professor"; theme?: Theme; onThemeChange?: (theme: Theme) => void }) {
   const access = useAccess();
   const operatorName = accountName(access.user.displayName, access.user.email);
@@ -482,6 +489,28 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const feedback = useFeedback();
   const access = useAccess();
   const [newStudentOpen, setNewStudentOpen] = useState(false);
+  const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
+
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
+      setRegisteredStudents(snapshot.docs.map((student) => {
+        const data = student.data() as { name?: string; plan?: string; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", plan: data.plan ?? "Sem plano", active: data.active };
+      }));
+    }, (error) => console.error("Não foi possível atualizar a lista de alunos.", error));
+  }, [access.academyId]);
+
+  const students = registeredStudents.length > 0
+    ? registeredStudents.map((student) => ({
+      initials: student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
+      name: student.name,
+      plan: student.plan,
+      status: student.active === false ? "Inativo" : "Ativo",
+      visits: "—",
+      next: "A definir",
+    }))
+    : demoStudents;
   return (
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange}>
       <div className="workspace-content">
@@ -501,7 +530,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
             <div className="workspace-search"><Search /><input placeholder="Buscar aluno" /></div>
             <div className="student-table">
               <div className="table-row table-head"><span>Aluno</span><span>Plano</span><span>Situação</span><span>Visitas</span><span>Próximo treino</span><span /></div>
-              {demoStudents.map((student) => (
+              {students.map((student) => (
                 <div className="table-row" key={student.name}>
                   <span className="table-person"><i>{student.initials}</i><strong>{student.name}</strong></span>
                   <span>{student.plan}</span>
