@@ -25,11 +25,19 @@ service cloud.firestore {
       return belongsToAcademy(academyId) && membership(academyId).data.role == 'student';
     }
 
+    function isOnboardingOwner(academyId) {
+      return signedIn() &&
+        getAfter(/databases/$(database)/documents/academies/$(academyId)).data.ownerId == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/academies/$(academyId)/members/$(request.auth.uid)).data.role == 'admin' &&
+        getAfter(/databases/$(database)/documents/academies/$(academyId)/members/$(request.auth.uid)).data.active == true;
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn() && request.auth.uid == userId;
       allow update: if signedIn() && request.auth.uid == userId &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']);
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']) ||
+          (request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)));
       allow delete: if false;
     }
 
@@ -48,7 +56,10 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/academies/$(academyId)).data.ownerId == request.auth.uid) ||
         isAdmin(academyId)
       );
-      allow update, delete: if isAdmin(academyId);
+      allow update: if isAdmin(academyId) ||
+        (memberId == request.auth.uid && request.resource.data.role == 'admin' &&
+          request.resource.data.active == true && isOnboardingOwner(academyId));
+      allow delete: if isAdmin(academyId);
     }
 
     match /academies/{academyId}/students/{studentId} {
