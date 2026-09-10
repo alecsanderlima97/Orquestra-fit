@@ -301,23 +301,46 @@ function Evolution() {
 }
 
 function Agenda() {
+  const access = useAccess();
   const feedback = useFeedback();
+  const [classes, setClasses] = useState<ClassRecord[]>([]);
+  const [reservationIds, setReservationIds] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState(0);
-  const [reserved, setReserved] = useState(false);
+  useEffect(() => {
+    if (!db) return;
+    const unsubscribeClasses = onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
+      setClasses(snapshot.docs.map((item) => { const data = item.data() as Partial<ClassRecord>; return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false }; }).filter((item) => item.active));
+    });
+    const reservationQuery = query(collection(db, "academies", access.academyId, "reservations"), where("studentId", "==", access.userId), where("status", "==", "active"));
+    const unsubscribeReservations = onSnapshot(reservationQuery, (snapshot) => setReservationIds(snapshot.docs.map((item) => (item.data() as { classId: string }).classId)));
+    return () => { unsubscribeClasses(); unsubscribeReservations(); };
+  }, [access.academyId, access.userId]);
+
+  async function reserve(item: ClassRecord) {
+    if (!db) return;
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "reservations"), { classId: item.id, className: item.name, studentId: access.userId, studentName: accountName(access.user.displayName, access.user.email), status: "active", createdAt: serverTimestamp() });
+      feedback("Reserva confirmada.");
+    } catch { feedback("Não foi possível reservar esta aula."); }
+  }
+
+  async function cancel(item: ClassRecord) {
+    if (!db) return;
+    const firestore = db;
+    try {
+      const reservationSnapshot = await new Promise<string | null>((resolve) => {
+        const unsubscribe = onSnapshot(query(collection(firestore, "academies", access.academyId, "reservations"), where("classId", "==", item.id), where("studentId", "==", access.userId), where("status", "==", "active")), (snapshot) => { unsubscribe(); resolve(snapshot.docs[0]?.id ?? null); });
+      });
+      if (reservationSnapshot) await updateDoc(doc(firestore, "academies", access.academyId, "reservations", reservationSnapshot), { status: "canceled" });
+      feedback("Reserva cancelada.");
+    } catch { feedback("Não foi possível cancelar a reserva."); }
+  }
+
   return (
     <div className="student-view">
       <PageIntro kicker="AULAS E RESERVAS" title="Sua agenda" copy="Organize a semana sem perder o ritmo." />
-      <div className="date-selector">
-        {["SEG\n01", "TER\n02", "QUA\n03", "QUI\n04", "SEX\n05"].map((day, index) => (
-          <button className={selectedDay === index ? "active" : ""} key={day} onClick={() => { setSelectedDay(index); setReserved(false); }}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>
-        ))}
-      </div>
-      <article className="class-card">
-        <div className="class-time"><strong>19:00</strong><span>50 min</span></div>
-        <div><small>FUNCIONAL</small><h2>Força & Mobilidade</h2><p>Prof. Camila · 8 vagas restantes</p></div>
-        <button onClick={() => { setReserved(true); feedback("Aula reservada com sucesso."); }}>{reserved ? "Reserva confirmada" : "Reservar"}</button>
-      </article>
-      <div className="empty-agenda"><CalendarDays /><h3>Nenhuma outra aula hoje</h3><p>Explore os próximos dias para encontrar mais horários.</p></div>
+      <div className="date-selector">{["SEG\n01", "TER\n02", "QUA\n03", "QUI\n04", "SEX\n05"].map((day, index) => <button className={selectedDay === index ? "active" : ""} key={day} onClick={() => setSelectedDay(index)}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>)}</div>
+      {classes.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>Nenhuma aula disponível</h3><p>As próximas turmas da academia aparecerão aqui.</p></div> : classes.map((item) => { const reserved = reservationIds.includes(item.id); return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><small>{item.name.toUpperCase()}</small><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><button onClick={() => reserved ? cancel(item) : reserve(item)}>{reserved ? "Cancelar reserva" : "Reservar"}</button></article>; })}
     </div>
   );
 }
@@ -450,7 +473,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
@@ -463,6 +486,52 @@ type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid" };
 type ExerciseRecord = { id: string; name: string; muscleGroup: string };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; status: "draft" | "published" };
+type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
+
+function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [classes, setClasses] = useState<ClassRecord[]>([]);
+  const [name, setName] = useState("");
+  const [instructor, setInstructor] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [capacity, setCapacity] = useState("10");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
+      setClasses(snapshot.docs.map((item) => {
+        const data = item.data() as Partial<ClassRecord>;
+        return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false };
+      }).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)));
+    }, (error) => console.error("Não foi possível carregar as aulas.", error));
+  }, [access.academyId]);
+
+  async function createClass(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !name.trim() || !date || !time) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "classes"), { name: name.trim(), instructor: instructor.trim() || "Equipe da academia", date, time, capacity: Number(capacity) || 10, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
+      setName(""); setInstructor(""); setDate(""); setTime(""); setCapacity("10"); onFeedback("Aula criada na agenda.");
+    } catch { onFeedback("Não foi possível criar a aula."); }
+    finally { setSaving(false); }
+  }
+
+  async function toggleClass(item: ClassRecord) {
+    if (!db) return;
+    try { await updateDoc(doc(db, "academies", access.academyId, "classes", item.id), { active: !item.active }); onFeedback(item.active ? "Aula desativada." : "Aula reativada."); }
+    catch { onFeedback("Não foi possível alterar a aula."); }
+  }
+
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro"><div><span>AGENDA · GESTÃO</span><h2>Aulas e reservas</h2><p>Configure turmas, horários e limite de vagas para os alunos.</p></div></section>
+      <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AULA</span><h3>Criar turma</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor<input value={instructor} onChange={(event) => setInstructor(event.target.value)} placeholder="Ex.: Prof. Rafael" /></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Criar aula"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{classes.length} {classes.length === 1 ? "aula" : "aulas"}</h3></div></header><div className="plans-list">{classes.length === 0 ? <div className="directory-empty"><CalendarDays /><p>Nenhuma aula cadastrada ainda.</p></div> : classes.map((item) => <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor} · {item.capacity} vagas</small></div><button className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button></div>)}</div></article></section>
+    </div>
+  );
+}
 
 function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();
