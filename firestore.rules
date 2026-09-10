@@ -101,6 +101,16 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId);
     }
 
+    match /academies/{academyId}/teachers/{teacherId} {
+      allow read: if isAdmin(academyId) || (isTeacher(academyId) && teacherId == request.auth.uid);
+      allow create: if isAdmin(academyId) ||
+        (teacherId == request.auth.uid &&
+          request.resource.data.activationCodeId is string &&
+          validInvitation(request.resource.data.activationCodeId, academyId, 'teacher'));
+      allow update: if isAdmin(academyId);
+      allow delete: if isAdmin(academyId);
+    }
+
     match /academies/{academyId}/{document=**} {
       allow read: if isAdmin(academyId);
       allow write: if isAdmin(academyId);

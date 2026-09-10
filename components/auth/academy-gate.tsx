@@ -150,6 +150,15 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           activationCodeId: normalizedCode,
           createdAt: now,
         });
+      } else if (invitation.role === "teacher") {
+        batch.set(doc(firestore, "academies", invitation.academyId, "teachers", user.uid), {
+          userId: user.uid,
+          name: invitation.invitedName ?? user.displayName ?? user.email ?? "Professor",
+          email: invitation.invitedEmail ?? user.email ?? null,
+          active: true,
+          activationCodeId: normalizedCode,
+          createdAt: now,
+        });
       }
       const userData = {
         displayName: user.displayName ?? user.email ?? "Usuário",

@@ -488,7 +488,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
 function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const feedback = useFeedback();
   const access = useAccess();
-  const [newStudentOpen, setNewStudentOpen] = useState(false);
+  const [newMemberRole, setNewMemberRole] = useState<"student" | "teacher" | null>(null);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
 
   useEffect(() => {
@@ -516,7 +516,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
       <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
-          <button onClick={() => setNewStudentOpen(true)}><Plus /> Novo aluno</button>
+          <button onClick={() => setNewMemberRole("student")}><Plus /> Novo aluno</button>
         </section>
         <section className="metric-grid">
           <MetricCard icon={Users} label="Alunos ativos" value="184" note="+8 neste mês" />
@@ -553,16 +553,16 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
           </aside>
         </section>
         <section className="admin-lower">
-          <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button onClick={() => feedback("Cadastro de professor aberto para a próxima etapa.")}><UserRoundCheck />Cadastrar professor</button><button onClick={() => feedback("Montagem de ficha de treino selecionada.")}><ClipboardList />Montar ficha de treino</button><button onClick={() => feedback("Cadastro de aula selecionado.")}><CalendarDays />Criar aula</button></div></article>
+          <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button onClick={() => setNewMemberRole("teacher")}><UserRoundCheck />Cadastrar professor</button><button onClick={() => feedback("Montagem de ficha de treino selecionada.")}><ClipboardList />Montar ficha de treino</button><button onClick={() => feedback("Cadastro de aula selecionado.")}><CalendarDays />Criar aula</button></div></article>
           <article className="occupancy"><div><span>OCUPAÇÃO AGORA</span><strong>37 <small>alunos</small></strong></div><div className="occupancy-bars">{[25,42,58,79,94,61,38,18].map((value, index) => <i key={index} style={{height: `${value}%`}} />)}</div></article>
         </section>
       </div>
-      {newStudentOpen && <NewStudentModal onClose={() => setNewStudentOpen(false)} onFeedback={feedback} />}
+      {newMemberRole && <NewMemberModal role={newMemberRole} onClose={() => setNewMemberRole(null)} onFeedback={feedback} />}
     </WorkspaceShell>
   );
 }
 
-function NewStudentModal({ onClose, onFeedback }: { onClose: () => void; onFeedback: (message: string) => void }) {
+function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teacher"; onClose: () => void; onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -581,10 +581,10 @@ function NewStudentModal({ onClose, onFeedback }: { onClose: () => void; onFeedb
     try {
       await setDoc(doc(db, "accessCodes", invitationCode), {
         academyId: access.academyId,
-        role: "student",
+        role,
         invitedName: name.trim(),
         invitedEmail: email.trim() || null,
-        plan,
+        ...(role === "student" ? { plan } : {}),
         active: true,
         createdBy: access.userId,
         createdAt: serverTimestamp(),
@@ -601,17 +601,17 @@ function NewStudentModal({ onClose, onFeedback }: { onClose: () => void; onFeedb
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-student-title">
       <section className="student-modal">
-        <header><div><span>NOVO CADASTRO</span><h2 id="new-student-title">Cadastrar aluno</h2><p>Crie o convite para o primeiro acesso do aluno.</p></div><button aria-label="Fechar cadastro" onClick={onClose}><X /></button></header>
+        <header><div><span>NOVO CADASTRO</span><h2 id="new-student-title">Cadastrar {role === "student" ? "aluno" : "professor"}</h2><p>Crie o convite para o primeiro acesso.</p></div><button aria-label="Fechar cadastro" onClick={onClose}><X /></button></header>
         {!code ? (
           <form className="student-form" onSubmit={submit}>
             <label>Nome completo<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required /></label>
             <label>E-mail Google <small>(opcional)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
-            <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>
+            {role === "student" && <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>}
             {error && <p className="auth-status" role="status">{error}</p>}
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
           </form>
         ) : (
-          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código ao aluno. Ele deverá entrar com o Google e informar o código uma única vez.</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div><button className="student-modal-close" onClick={onClose}>Concluir</button></div>
+          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código. A pessoa deverá entrar com o Google e informar o código uma única vez.</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div><button className="student-modal-close" onClick={onClose}>Concluir</button></div>
         )}
       </section>
     </div>
