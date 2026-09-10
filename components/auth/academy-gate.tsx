@@ -64,7 +64,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   if (!profile?.activeAcademyId) {
     return isDeveloperAccount(user)
       ? <CreateAcademy user={user} onCreated={(nextProfile) => { setProfile(nextProfile); setMember({ role: "admin", active: true }); }} />
-      : <ActivateAccess user={user} onCreated={(nextProfile, nextMember) => { setProfile(nextProfile); setMember(nextMember); }} />;
+      : <ActivateAccess user={user} />;
   }
   if (!member?.active || !member.role) return <main className="auth-loading">Seu acesso ainda não foi liberado pela academia.</main>;
 
@@ -83,7 +83,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   );
 }
 
-function ActivateAccess({ user, onCreated }: { user: User; onCreated: (profile: UserProfile, member: MemberProfile) => void }) {
+function ActivateAccess({ user }: { user: User }) {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -131,7 +131,7 @@ function ActivateAccess({ user, onCreated }: { user: User; onCreated: (profile: 
       };
       batch.set(userRef, userData, { merge: true });
       await batch.commit();
-      onCreated({ activeAcademyId: invitation.academyId, ...(invitation.role === "admin" ? { accountType: "academy_admin" as const } : {}) }, { role: invitation.role, active: true });
+      window.location.reload();
     } catch {
       setStatus("Não foi possível ativar este acesso. Confira o código ou tente novamente.");
     } finally {
