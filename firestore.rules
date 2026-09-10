@@ -117,6 +117,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /academies/{academyId}/monthlyCharges/{chargeId} {
+      allow read: if isAdmin(academyId) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+      allow create, update: if isAdmin(academyId);
+      allow delete: if false;
+    }
+
     match /academies/{academyId}/{document=**} {
       allow read: if isAdmin(academyId);
       allow write: if isAdmin(academyId);

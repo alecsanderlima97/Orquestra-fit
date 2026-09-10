@@ -437,7 +437,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <PlansModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
@@ -445,6 +445,77 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
 }
 
 type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
+type BillingStudent = { id: string; name: string; active: boolean };
+type BillingPlan = { id: string; name: string; price: number; active: boolean };
+type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid" };
+
+function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [students, setStudents] = useState<BillingStudent[]>([]);
+  const [plans, setPlans] = useState<BillingPlan[]>([]);
+  const [charges, setCharges] = useState<MonthlyCharge[]>([]);
+  const [studentId, setStudentId] = useState("");
+  const [planId, setPlanId] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db) return;
+    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
+      setStudents(snapshot.docs.map((student) => {
+        const data = student.data() as { name?: string; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false };
+      }));
+    });
+    const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
+      setPlans(snapshot.docs.map((plan) => {
+        const data = plan.data() as { name?: string; price?: number; active?: boolean };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), active: data.active !== false };
+      }));
+    });
+    const unsubscribeCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
+      setCharges(snapshot.docs.map((charge) => {
+        const data = charge.data() as Omit<MonthlyCharge, "id">;
+        const status: MonthlyCharge["status"] = data.status === "paid" ? "paid" : "pending";
+        return { id: charge.id, ...data, amount: Number(data.amount ?? 0), status };
+      }).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
+    });
+    return () => { unsubscribeStudents(); unsubscribePlans(); unsubscribeCharges(); };
+  }, [access.academyId]);
+
+  async function createCharge(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !studentId || !planId || !dueDate) return;
+    const student = students.find((item) => item.id === studentId);
+    const plan = plans.find((item) => item.id === planId);
+    if (!student || !plan) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "monthlyCharges"), { studentId, studentName: student.name, planId: plan.id, planName: plan.name, amount: plan.price, dueDate, status: "pending", createdBy: access.userId, createdAt: serverTimestamp() });
+      setStudentId(""); setPlanId(""); setDueDate("");
+      onFeedback("Mensalidade criada.");
+    } catch { onFeedback("Não foi possível criar a mensalidade."); }
+    finally { setSaving(false); }
+  }
+
+  async function toggleCharge(charge: MonthlyCharge) {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "monthlyCharges", charge.id), { status: charge.status === "paid" ? "pending" : "paid" });
+      onFeedback(charge.status === "paid" ? "Mensalidade voltou para pendente." : "Mensalidade marcada como paga.");
+    } catch { onFeedback("Não foi possível atualizar a mensalidade."); }
+  }
+
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
+      <section className="billing-layout">
+        <article className="workspace-panel plan-form-panel"><header><div><span>NOVA MENSALIDADE</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label><label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || plans.length === 0}>{saving ? "Gerando..." : "Gerar mensalidade"}</button></form></article>
+        <article className="workspace-panel plans-list-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "cobrança" : "cobranças"}</h3></div></header><div className="plans-list">{charges.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhuma mensalidade gerada ainda.</p></div> : charges.map((charge) => <div className="plan-row" key={charge.id}><div><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {charge.dueDate}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><button className={charge.status === "paid" ? "plan-enable" : "plan-disable"} onClick={() => toggleCharge(charge)}>{charge.status === "paid" ? "Paga" : "Pendente"}</button></div>)}</div></article>
+      </section>
+    </div>
+  );
+}
 
 function PlansModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();
