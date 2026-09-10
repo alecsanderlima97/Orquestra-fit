@@ -26,6 +26,21 @@ body { margin: 0; background: #050606; color: var(--paper); font-family: var(--f
 button, input { font: inherit; }
 button { cursor: pointer; }
 
+.action-feedback {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 40;
+  max-width: min(360px, calc(100vw - 44px));
+  padding: 13px 16px;
+  border: 1px solid var(--bronze-400);
+  background: #171310;
+  color: #f1eee7;
+  box-shadow: 0 12px 30px #0008;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .v3-page {
   min-height: 100vh;
   background:

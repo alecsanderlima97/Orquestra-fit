@@ -5,12 +5,18 @@ import { collection, doc, getDoc, serverTimestamp, writeBatch } from "firebase/f
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
 import { db } from "@/lib/firebase/client";
 import type { User } from "firebase/auth";
+import { AccessProvider, AccessRole } from "./access-context";
 
 type AcademyGateProps = { user: User; children: ReactNode };
 
 type UserProfile = {
   activeAcademyId: string;
   accountType?: "developer" | "academy_admin";
+};
+
+type MemberProfile = {
+  role?: AccessRole;
+  active?: boolean;
 };
 
 function isDeveloperAccount(user: User) {
@@ -20,20 +26,32 @@ function isDeveloperAccount(user: User) {
 
 export function AcademyGate({ user, children }: AcademyGateProps) {
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
+  const [member, setMember] = useState<MemberProfile | null | undefined>(undefined);
 
   useEffect(() => {
     if (!db) {
       setProfile(null);
       return;
     }
+    const firestore = db;
 
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
       if (!cancelled) setProfile(null);
     }, 8000);
 
-    getDoc(doc(db, "users", user.uid))
-      .then((snapshot) => setProfile(snapshot.exists() ? (snapshot.data() as UserProfile) : null))
+    getDoc(doc(firestore, "users", user.uid))
+      .then(async (snapshot) => {
+        if (!snapshot.exists()) {
+          setProfile(null);
+          setMember(null);
+          return;
+        }
+        const nextProfile = snapshot.data() as UserProfile;
+        setProfile(nextProfile);
+        const memberSnapshot = await getDoc(doc(firestore, "academies", nextProfile.activeAcademyId, "members", user.uid));
+        setMember(memberSnapshot.exists() ? (memberSnapshot.data() as MemberProfile) : null);
+      })
       .catch(() => setProfile(null));
 
     return () => {
@@ -42,10 +60,23 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
     };
   }, [user.uid]);
 
-  if (profile === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
+  if (profile === undefined || member === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
   if (!profile?.activeAcademyId) return <CreateAcademy user={user} onCreated={setProfile} />;
+  if (!member?.active || !member.role) return <main className="auth-loading">Seu acesso ainda não foi liberado pela academia.</main>;
 
-  return <>{children}</>;
+  return (
+    <AccessProvider
+      value={{
+        user,
+        userId: user.uid,
+        academyId: profile.activeAcademyId,
+        role: member.role,
+        accountType: profile.accountType,
+      }}
+    >
+      {children}
+    </AccessProvider>
+  );
 }
 
 function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: UserProfile) => void }) {

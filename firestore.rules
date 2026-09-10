@@ -17,10 +17,19 @@ service cloud.firestore {
       return belongsToAcademy(academyId) && membership(academyId).data.role == 'admin';
     }
 
+    function isTeacher(academyId) {
+      return belongsToAcademy(academyId) && membership(academyId).data.role == 'teacher';
+    }
+
+    function isStudent(academyId) {
+      return belongsToAcademy(academyId) && membership(academyId).data.role == 'student';
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']);
       allow delete: if false;
     }
 
@@ -31,7 +40,7 @@ service cloud.firestore {
     }
 
     match /academies/{academyId}/members/{memberId} {
-      allow read: if signedIn() && (memberId == request.auth.uid || belongsToAcademy(academyId));
+      allow read: if signedIn() && (memberId == request.auth.uid || isAdmin(academyId));
       allow create: if signedIn() && (
         (memberId == request.auth.uid &&
           request.resource.data.role == 'admin' &&
@@ -43,13 +52,13 @@ service cloud.firestore {
     }
 
     match /academies/{academyId}/students/{studentId} {
-      allow read: if belongsToAcademy(academyId);
-      allow create, update: if isAdmin(academyId) || membership(academyId).data.role == 'teacher';
+      allow read: if isAdmin(academyId) || isTeacher(academyId) || (isStudent(academyId) && studentId == request.auth.uid);
+      allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId);
     }
 
     match /academies/{academyId}/{document=**} {
-      allow read: if belongsToAcademy(academyId);
+      allow read: if isAdmin(academyId);
       allow write: if isAdmin(academyId);
     }
   }

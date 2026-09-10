@@ -66,14 +66,14 @@ function LoginPanel() {
         <div className="auth-mark"><ShieldCheck size={28} /></div>
         <p>ORQUESTRA FIT</p>
         <h1 id="login-title">Acesso ao Orquestra Fit</h1>
-        <span>Entre para acompanhar sua rotina, seus alunos ou a gestão da academia.</span>
+        <span>Use seu e-mail cadastrado e o código de acesso fornecido pela academia.</span>
         <form onSubmit={submit}>
           <label><Mail size={17} /> E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
-          <label><LockKeyhole size={17} /> Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
+          <label><LockKeyhole size={17} /> Código de acesso<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
           {status && <p className="auth-status" role="status">{status}</p>}
           <button type="submit" disabled={submitting}>{submitting ? "Entrando..." : "Entrar"}</button>
         </form>
-        <button className="auth-link" type="button" onClick={resetPassword}>Esqueci minha senha</button>
+        <button className="auth-link" type="button" onClick={resetPassword}>Solicitar novo código</button>
       </section>
     </main>
   );

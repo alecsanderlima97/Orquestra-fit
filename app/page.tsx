@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { signOut } from "firebase/auth";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Search, Settings,
   ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X,
 } from "lucide-react";
+import { useAccess } from "@/components/auth/access-context";
+import { auth } from "@/lib/firebase/client";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
 type Theme = "bronze" | "prata";
+
+const FeedbackContext = createContext<(message: string) => void>(() => undefined);
+
+function useFeedback() {
+  return useContext(FeedbackContext);
+}
 
 const navItems = [
   ["inicio", House, "Início"],
@@ -28,12 +37,16 @@ const workoutPlan = [
 ];
 
 export default function Home() {
-  const [role, setRole] = useState<Role>("aluno");
+  const access = useAccess();
+  const accountRole: Role = access.role === "admin" ? "gestao" : access.role === "teacher" ? "professor" : "aluno";
+  const [demoRole, setDemoRole] = useState<Role>(accountRole);
+  const role = access.accountType === "developer" ? demoRole : accountRole;
   const [theme, setTheme] = useState<Theme>("bronze");
   const [activeTab, setActiveTab] = useState<StudentTab>("inicio");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [completedSets, setCompletedSets] = useState<string[]>([]);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("orquestra_fit_theme");
@@ -46,15 +59,23 @@ export default function Home() {
     window.localStorage.setItem("orquestra_fit_theme", theme);
   }, [theme]);
 
+  function announce(message: string) {
+    setFeedback(message);
+    window.setTimeout(() => setFeedback(null), 2600);
+  }
+
   return (
-    <main
-      className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"}
-      data-theme={theme === "prata" ? "ferro" : "forja"}
-    >
-      <div className="prototype-flag"><Sparkles size={14} /> Protótipo demonstrativo</div>
-      <RoleSwitcher role={role} onChange={(nextRole) => { setRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
-      <ThemeSwitcher theme={theme} onChange={setTheme} />
-      {role === "aluno" && (
+    <FeedbackContext.Provider value={announce}>
+      <main
+        className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"}
+        data-theme={theme === "prata" ? "ferro" : "forja"}
+      >
+        <div className="prototype-flag"><Sparkles size={14} /> {access.accountType === "developer" ? "Ambiente interno de testes" : "Ambiente da academia"}</div>
+        {access.accountType === "developer" && (
+          <RoleSwitcher role={demoRole} onChange={(nextRole) => { setDemoRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
+        )}
+        <ThemeSwitcher theme={theme} onChange={setTheme} />
+        {role === "aluno" && (
         <section className={sessionOpen ? "student-app session-active" : "student-app"}>
           {sessionOpen ? (
             <WorkoutSession
@@ -70,7 +91,7 @@ export default function Home() {
             <>
               <StudentHeader onMenu={() => setMenuOpen(true)} />
               <div className="student-scroll">
-                {activeTab === "inicio" && <StudentHome onStart={() => setSessionOpen(true)} />}
+                {activeTab === "inicio" && <StudentHome onStart={() => setSessionOpen(true)} onEvolution={() => setActiveTab("evolucao")} />}
                 {activeTab === "treinos" && <WorkoutLibrary onStart={() => setSessionOpen(true)} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
@@ -82,9 +103,11 @@ export default function Home() {
           {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={setActiveTab} />}
         </section>
       )}
-      {role === "professor" && <ProfessorWorkspace />}
-      {role === "gestao" && <AdminWorkspace />}
-    </main>
+        {role === "professor" && <ProfessorWorkspace />}
+        {role === "gestao" && <AdminWorkspace />}
+        {feedback && <div className="action-feedback" role="status">{feedback}</div>}
+      </main>
+    </FeedbackContext.Provider>
   );
 }
 
@@ -125,11 +148,12 @@ function RoleSwitcher({ role, onChange }: { role: Role; onChange: (role: Role) =
 }
 
 function StudentHeader({ onMenu }: { onMenu: () => void }) {
+  const feedback = useFeedback();
   return (
     <header className="student-header">
       <AcademyBrand />
       <div className="header-actions">
-        <button aria-label="Notificações" className="icon-button"><Bell size={20} /><i /></button>
+        <button aria-label="Notificações" className="icon-button" onClick={() => feedback("Você não tem novas notificações.")}><Bell size={20} /><i /></button>
         <button aria-label="Abrir menu" className="icon-button bronze" onClick={onMenu}><Menu size={22} /></button>
       </div>
     </header>
@@ -146,7 +170,8 @@ function AcademyBrand() {
   );
 }
 
-function StudentHome({ onStart }: { onStart: () => void }) {
+function StudentHome({ onStart, onEvolution }: { onStart: () => void; onEvolution: () => void }) {
+  const feedback = useFeedback();
   return (
     <div className="student-view home-view">
       <section className="welcome-row">
@@ -173,11 +198,11 @@ function StudentHome({ onStart }: { onStart: () => void }) {
       </article>
 
       <section className="status-grid">
-        <article>
+        <article role="button" tabIndex={0} onClick={() => feedback("Seu plano está ativo e renovará em 18 dias.")}>
           <span className="status-icon"><ShieldCheck /></span>
           <div><small>Plano</small><strong>Ativo</strong><p>Renova em 18 dias</p></div><ChevronRight />
         </article>
-        <article>
+        <article role="button" tabIndex={0} onClick={() => onEvolution()}>
           <span className="status-icon"><Activity /></span>
           <div><small>Frequência</small><strong>9 visitas</strong><p>Meta: 12 no mês</p></div>
           <div className="mini-progress"><i /></div>
@@ -186,7 +211,7 @@ function StudentHome({ onStart }: { onStart: () => void }) {
 
       <section className="section-block">
         <div className="section-heading">
-          <div><span>SEU DESEMPENHO</span><h2>Semana em movimento</h2></div><button>Ver detalhes</button>
+          <div><span>SEU DESEMPENHO</span><h2>Semana em movimento</h2></div><button onClick={onEvolution}>Ver detalhes</button>
         </div>
         <article className="weekly-card">
           <div className="week-bars">
@@ -254,18 +279,21 @@ function Evolution() {
 }
 
 function Agenda() {
+  const feedback = useFeedback();
+  const [selectedDay, setSelectedDay] = useState(0);
+  const [reserved, setReserved] = useState(false);
   return (
     <div className="student-view">
       <PageIntro kicker="AULAS E RESERVAS" title="Sua agenda" copy="Organize a semana sem perder o ritmo." />
       <div className="date-selector">
         {["SEG\n01", "TER\n02", "QUA\n03", "QUI\n04", "SEX\n05"].map((day, index) => (
-          <button className={index === 0 ? "active" : ""} key={day}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>
+          <button className={selectedDay === index ? "active" : ""} key={day} onClick={() => { setSelectedDay(index); setReserved(false); }}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>
         ))}
       </div>
       <article className="class-card">
         <div className="class-time"><strong>19:00</strong><span>50 min</span></div>
         <div><small>FUNCIONAL</small><h2>Força & Mobilidade</h2><p>Prof. Camila · 8 vagas restantes</p></div>
-        <button>Reservar</button>
+        <button onClick={() => { setReserved(true); feedback("Aula reservada com sucesso."); }}>{reserved ? "Reserva confirmada" : "Reservar"}</button>
       </article>
       <div className="empty-agenda"><CalendarDays /><h3>Nenhuma outra aula hoje</h3><p>Explore os próximos dias para encontrar mais horários.</p></div>
     </div>
@@ -273,6 +301,7 @@ function Agenda() {
 }
 
 function Profile() {
+  const access = useAccess();
   const links = [
     { icon: User, label: "Dados pessoais" },
     { icon: WalletCards, label: "Plano e mensalidades" },
@@ -283,12 +312,14 @@ function Profile() {
     <div className="student-view profile-view">
       <div className="profile-identity"><span>AL</span><small>ALUNO</small><h1>Alecsander Lima</h1><p>Ambiente demonstrativo</p></div>
       {links.map(({ icon: Icon, label }) => <button className="profile-link" key={label}><Icon /><span>{label}</span><ChevronRight /></button>)}
-      <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>versão demonstrativa</small></div>
+      <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
+      <button className="profile-link" type="button" onClick={() => auth && signOut(auth)}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
     </div>
   );
 }
 
 function WorkoutSession({ completedSets, onBack, onToggleSet }: { completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
+  const feedback = useFeedback();
   const totalSets = workoutPlan.reduce((sum, item) => sum + item.sets, 0);
   const progress = Math.round((completedSets.length / totalSets) * 100);
   const [seconds, setSeconds] = useState(0);
@@ -329,7 +360,7 @@ function WorkoutSession({ completedSets, onBack, onToggleSet }: { completedSets:
           </article>
         ))}
       </div>
-      <button className="finish-workout" disabled={completedSets.length < totalSets}><Trophy size={20} /> Concluir treino</button>
+      <button className="finish-workout" disabled={completedSets.length < totalSets} onClick={() => { feedback("Treino concluído. Seu histórico foi atualizado."); onBack(); }}><Trophy size={20} /> Concluir treino</button>
     </div>
   );
 }
@@ -352,16 +383,17 @@ const demoStudents = [
 ];
 
 function WorkspaceShell({ children, profile }: { children: React.ReactNode; profile: "Gestão" | "Professor" }) {
+  const feedback = useFeedback();
   return (
     <section className="workspace-shell">
       <aside className="workspace-rail">
         <AcademyBrand />
         <nav>
           {workspaceNav.map(([label, Icon], index) => (
-            <button key={label} className={index === 0 ? "active" : ""}><Icon /><span>{label}</span></button>
+            <button key={label} className={index === 0 ? "active" : ""} onClick={() => feedback(`${label}: módulo preparado para o próximo cadastro.`)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
-        <button className="rail-settings"><Settings /><span>Configurações</span></button>
+        <button className="rail-settings" onClick={() => feedback("Configurações disponíveis para o administrador.")}><Settings /><span>Configurações</span></button>
         <div className="rail-powered"><small>PLATAFORMA</small><strong>Orquestra Fit</strong></div>
       </aside>
       <div className="workspace-main">
@@ -370,7 +402,7 @@ function WorkspaceShell({ children, profile }: { children: React.ReactNode; prof
           <div className="workspace-actions">
             <button aria-label="Buscar"><Search /></button>
             <button aria-label="Notificações"><Bell /></button>
-            <div className="operator"><span>{profile === "Gestão" ? "GL" : "RC"}</span><div><strong>{profile === "Gestão" ? "Grazielle Lima" : "Rômulo Corrêa"}</strong><small>{profile}</small></div></div>
+            <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{profile === "Gestão" ? "GL" : "RC"}</span><div><strong>{profile === "Gestão" ? "Grazielle Lima" : "Rômulo Corrêa"}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
         {children}
@@ -380,12 +412,13 @@ function WorkspaceShell({ children, profile }: { children: React.ReactNode; prof
 }
 
 function AdminWorkspace() {
+  const feedback = useFeedback();
   return (
     <WorkspaceShell profile="Gestão">
       <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Boa tarde, Grazielle.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
-          <button><Plus /> Novo aluno</button>
+          <button onClick={() => feedback("Cadastro de aluno aberto para a próxima etapa.")}><Plus /> Novo aluno</button>
         </section>
         <section className="metric-grid">
           <MetricCard icon={Users} label="Alunos ativos" value="184" note="+8 neste mês" />
@@ -395,7 +428,7 @@ function AdminWorkspace() {
         </section>
         <section className="operations-grid">
           <article className="workspace-panel student-table-panel">
-            <header><div><span>OPERAÇÃO</span><h3>Alunos para acompanhar</h3><p>Planos, frequência e próximos treinos.</p></div><button>Ver todos <ArrowRight /></button></header>
+            <header><div><span>OPERAÇÃO</span><h3>Alunos para acompanhar</h3><p>Planos, frequência e próximos treinos.</p></div><button onClick={() => feedback("Lista completa de alunos selecionada.")}>Ver todos <ArrowRight /></button></header>
             <div className="workspace-search"><Search /><input placeholder="Buscar aluno" /></div>
             <div className="student-table">
               <div className="table-row table-head"><span>Aluno</span><span>Plano</span><span>Situação</span><span>Visitas</span><span>Próximo treino</span><span /></div>
@@ -404,7 +437,7 @@ function AdminWorkspace() {
                   <span className="table-person"><i>{student.initials}</i><strong>{student.name}</strong></span>
                   <span>{student.plan}</span>
                   <span><em className={student.status === "Em atraso" ? "late" : student.status === "Vence hoje" ? "due" : ""}>{student.status}</em></span>
-                  <span>{student.visits}</span><span>{student.next}</span><button aria-label={`Abrir ${student.name}`}><ChevronRight /></button>
+                  <span>{student.visits}</span><span>{student.next}</span><button aria-label={`Abrir ${student.name}`} onClick={() => feedback(`Perfil de ${student.name} selecionado.`)}><ChevronRight /></button>
                 </div>
               ))}
             </div>
@@ -418,11 +451,11 @@ function AdminWorkspace() {
               <div><span><i className="pending" />Pendente</span><strong>R$ 3.320</strong></div>
               <div><span><i className="overdue" />Em atraso</span><strong>R$ 1.400</strong></div>
             </div>
-            <button className="outline-action">Abrir financeiro <ArrowRight /></button>
+            <button className="outline-action" onClick={() => feedback("Módulo financeiro selecionado.")}>Abrir financeiro <ArrowRight /></button>
           </aside>
         </section>
         <section className="admin-lower">
-          <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button><UserRoundCheck />Cadastrar professor</button><button><ClipboardList />Montar ficha de treino</button><button><CalendarDays />Criar aula</button></div></article>
+          <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button onClick={() => feedback("Cadastro de professor aberto para a próxima etapa.")}><UserRoundCheck />Cadastrar professor</button><button onClick={() => feedback("Montagem de ficha de treino selecionada.")}><ClipboardList />Montar ficha de treino</button><button onClick={() => feedback("Cadastro de aula selecionado.")}><CalendarDays />Criar aula</button></div></article>
           <article className="occupancy"><div><span>OCUPAÇÃO AGORA</span><strong>37 <small>alunos</small></strong></div><div className="occupancy-bars">{[25,42,58,79,94,61,38,18].map((value, index) => <i key={index} style={{height: `${value}%`}} />)}</div></article>
         </section>
       </div>
@@ -431,6 +464,7 @@ function AdminWorkspace() {
 }
 
 function ProfessorWorkspace() {
+  const feedback = useFeedback();
   const today = [
     { time: "17:30", name: "Ana Paula Martins", focus: "Revisão · Força A", status: "Aguardando" },
     { time: "18:30", name: "Mariana Souza", focus: "Avaliação física", status: "Confirmado" },
@@ -441,13 +475,13 @@ function ProfessorWorkspace() {
       <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Seus alunos, no ritmo certo.</h2><p>Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
-          <button><Plus /> Criar treino</button>
+          <button onClick={() => feedback("Editor de treino aberto para a próxima etapa.")}><Plus /> Criar treino</button>
         </section>
         <section className="professor-summary">
           <article className="professor-focus">
             <span>PRÓXIMO ATENDIMENTO</span><div className="focus-time">17:30 <small>HOJE</small></div>
             <div className="focus-student"><i>AP</i><div><strong>Ana Paula Martins</strong><p>Revisão do treino Força A</p></div></div>
-            <button>Abrir perfil da aluna <ArrowRight /></button>
+            <button onClick={() => feedback("Perfil da aluna selecionado.")}>Abrir perfil da aluna <ArrowRight /></button>
           </article>
           <div className="professor-metrics">
             <MetricCard icon={Users} label="Meus alunos" value="38" note="34 ativos esta semana" />
@@ -458,13 +492,13 @@ function ProfessorWorkspace() {
           <article className="workspace-panel agenda-panel">
             <header><div><span>AGENDA DE HOJE</span><h3>Atendimentos</h3></div><button>Ver semana <ArrowRight /></button></header>
             {today.map((item) => (
-              <div className="appointment" key={item.time}><strong>{item.time}</strong><div><h4>{item.name}</h4><p>{item.focus}</p></div><em className={item.status === "Confirmado" ? "confirmed" : ""}>{item.status}</em><button aria-label="Abrir"><ChevronRight /></button></div>
+              <div className="appointment" key={item.time}><strong>{item.time}</strong><div><h4>{item.name}</h4><p>{item.focus}</p></div><em className={item.status === "Confirmado" ? "confirmed" : ""}>{item.status}</em><button aria-label="Abrir" onClick={() => feedback(`Atendimento de ${item.name} selecionado.`)}><ChevronRight /></button></div>
             ))}
           </article>
           <article className="workspace-panel attention-panel">
             <header><div><span>ACOMPANHAMENTO</span><h3>Precisam de atenção</h3></div></header>
             {demoStudents.slice(1).map((student, index) => (
-              <button key={student.name}><i>{student.initials}</i><div><strong>{student.name}</strong><span>{["Ficha vence em 2 dias", "14 dias sem treinar", "Avaliação pendente"][index]}</span></div><ChevronRight /></button>
+              <button key={student.name} onClick={() => feedback(`Acompanhamento de ${student.name} selecionado.`)}><i>{student.initials}</i><div><strong>{student.name}</strong><span>{["Ficha vence em 2 dias", "14 dias sem treinar", "Avaliação pendente"][index]}</span></div><ChevronRight /></button>
             ))}
           </article>
         </section>
