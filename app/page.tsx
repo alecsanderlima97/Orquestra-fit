@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
-import { collection, doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -394,11 +394,12 @@ const demoStudents = [
 type RegisteredStudent = {
   id: string;
   name: string;
+  email?: string | null;
   plan: string;
   active?: boolean;
 };
 
-function WorkspaceShell({ children, profile, theme, onThemeChange }: { children: React.ReactNode; profile: "Gestão" | "Professor"; theme?: Theme; onThemeChange?: (theme: Theme) => void }) {
+function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent }: { children: React.ReactNode; profile: "Gestão" | "Professor"; theme?: Theme; onThemeChange?: (theme: Theme) => void; onNewStudent?: () => void }) {
   const access = useAccess();
   const operatorName = accountName(access.user.displayName, access.user.email);
   const operatorInitials = operatorName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
@@ -429,10 +430,103 @@ function WorkspaceShell({ children, profile, theme, onThemeChange }: { children:
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
+  );
+}
+
+function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => void; onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [students, setStudents] = useState<RegisteredStudent[]>([]);
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPlan, setEditPlan] = useState("Mensal");
+
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
+      setStudents(snapshot.docs.map((student) => {
+        const data = student.data() as { name?: string; email?: string | null; plan?: string; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, plan: data.plan ?? "Sem plano", active: data.active !== false };
+      }));
+    }, (error) => console.error("Não foi possível carregar os alunos.", error));
+  }, [access.academyId]);
+
+  const filteredStudents = students.filter((student) => `${student.name} ${student.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!selectedStudent) return;
+    setEditName(selectedStudent.name);
+    setEditEmail(selectedStudent.email ?? "");
+    setEditPlan(selectedStudent.plan);
+  }, [selectedStudent]);
+
+  async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !selectedStudent || !editName.trim()) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), {
+        name: editName.trim(),
+        email: editEmail.trim() || null,
+        plan: editPlan,
+      });
+      onFeedback("Dados do aluno atualizados.");
+    } catch {
+      onFeedback("Não foi possível atualizar este aluno.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleStudent() {
+    if (!db || !selectedStudent) return;
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), { active: selectedStudent.active === false });
+      onFeedback(selectedStudent.active === false ? "Acesso do aluno ativado." : "Acesso do aluno suspenso.");
+    } catch {
+      onFeedback("Não foi possível alterar o acesso do aluno.");
+    }
+  }
+
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro">
+        <div><span>RELACIONAMENTO · GESTÃO</span><h2>Alunos</h2><p>Cadastros, planos e status de acesso da academia.</p></div>
+        {onNewStudent && <button onClick={onNewStudent}><Plus /> Novo aluno</button>}
+      </section>
+      <section className="directory-layout">
+        <article className="workspace-panel directory-panel">
+          <header><div><span>CADASTROS ATIVOS</span><h3>{students.length} {students.length === 1 ? "aluno" : "alunos"}</h3></div></header>
+          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
+          <div className="directory-list">
+            {filteredStudents.length === 0 ? <div className="directory-empty"><Users /><p>{students.length === 0 ? "Nenhum aluno cadastrado ainda." : "Nenhum aluno encontrado."}</p></div> : filteredStudents.map((student) => (
+              <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => setSelectedId(student.id)}>
+                <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small></span><em className={student.active === false ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.plan}</em><ChevronRight />
+              </button>
+            ))}
+          </div>
+        </article>
+        <aside className="workspace-panel student-detail-panel">
+          {selectedStudent ? <>
+            <header><div><span>PERFIL DO ALUNO</span><h3>Editar cadastro</h3></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
+            <form className="student-detail-form" onSubmit={saveStudent}>
+              <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label>
+              <label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
+              <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>
+              <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
+            </form>
+            <button className="detail-toggle" onClick={toggleStudent}>{selectedStudent.active === false ? "Reativar acesso" : "Suspender acesso"}</button>
+          </> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um aluno</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
+        </aside>
+      </section>
+    </div>
   );
 }
 
@@ -541,7 +635,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
     }))
     : demoStudents;
   return (
-    <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange}>
+    <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange} onNewStudent={() => setNewMemberRole("student")}>
       <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
