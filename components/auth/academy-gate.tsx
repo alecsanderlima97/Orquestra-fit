@@ -63,8 +63,8 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   if (profile === undefined || member === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
   if (!profile?.activeAcademyId) {
     return isDeveloperAccount(user)
-      ? <CreateAcademy user={user} onCreated={setProfile} />
-      : <ActivateAccess user={user} onCreated={setProfile} />;
+      ? <CreateAcademy user={user} onCreated={(nextProfile) => { setProfile(nextProfile); setMember({ role: "admin", active: true }); }} />
+      : <ActivateAccess user={user} onCreated={(nextProfile, nextMember) => { setProfile(nextProfile); setMember(nextMember); }} />;
   }
   if (!member?.active || !member.role) return <main className="auth-loading">Seu acesso ainda não foi liberado pela academia.</main>;
 
@@ -83,7 +83,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   );
 }
 
-function ActivateAccess({ user, onCreated }: { user: User; onCreated: (profile: UserProfile) => void }) {
+function ActivateAccess({ user, onCreated }: { user: User; onCreated: (profile: UserProfile, member: MemberProfile) => void }) {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -120,17 +120,18 @@ function ActivateAccess({ user, onCreated }: { user: User; onCreated: (profile: 
         activationCodeId: normalizedCode,
         createdAt: now,
       });
-      batch.set(userRef, {
+      const userData = {
         displayName: user.displayName ?? user.email ?? "Usuário",
         email: user.email ?? null,
-        accountType: invitation.role === "admin" ? "academy_admin" : undefined,
         activeAcademyId: invitation.academyId,
         academyIds: [invitation.academyId],
         activationCodeId: normalizedCode,
         createdAt: now,
-      }, { merge: true });
+        ...(invitation.role === "admin" ? { accountType: "academy_admin" as const } : {}),
+      };
+      batch.set(userRef, userData, { merge: true });
       await batch.commit();
-      onCreated({ activeAcademyId: invitation.academyId, accountType: invitation.role === "admin" ? "academy_admin" : undefined });
+      onCreated({ activeAcademyId: invitation.academyId, ...(invitation.role === "admin" ? { accountType: "academy_admin" as const } : {}) }, { role: invitation.role, active: true });
     } catch {
       setStatus("Não foi possível ativar este acesso. Confira o código ou tente novamente.");
     } finally {
