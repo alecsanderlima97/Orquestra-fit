@@ -404,13 +404,17 @@ function WorkspaceShell({ children, profile, theme, onThemeChange }: { children:
   const operatorInitials = operatorName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const feedback = useFeedback();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [activeModule, setActiveModule] = useState("Visão geral");
+  const visibleNav = profile === "Professor"
+    ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Avaliações"].includes(label))
+    : workspaceNav;
   return (
     <section className="workspace-shell">
       <aside className="workspace-rail">
         <AcademyBrand />
         <nav>
-          {workspaceNav.map(([label, Icon], index) => (
-            <button key={label} className={index === 0 ? "active" : ""} onClick={() => feedback(`${label}: módulo preparado para o próximo cadastro.`)}><Icon /><span>{label}</span></button>
+          {visibleNav.map(([label, Icon]) => (
+            <button key={label} className={activeModule === label ? "active" : ""} onClick={() => setActiveModule(label)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
         {profile === "Gestão" && <button className="rail-settings" onClick={() => setPermissionsOpen(true)}><Settings /><span>Configurações</span></button>}
@@ -418,17 +422,42 @@ function WorkspaceShell({ children, profile, theme, onThemeChange }: { children:
       </aside>
       <div className="workspace-main">
         <header className="workspace-topbar">
-          <div><span>DAMA DE FERRO ACADEMIA</span><h1>{profile === "Gestão" ? "Visão geral" : "Área do professor"}</h1></div>
+          <div><span>DAMA DE FERRO ACADEMIA</span><h1>{activeModule === "Visão geral" ? (profile === "Gestão" ? "Visão geral" : "Área do professor") : activeModule}</h1></div>
           <div className="workspace-actions">
             <button aria-label="Buscar"><Search /></button>
             <button aria-label="Notificações"><Bell /></button>
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {children}
+        {activeModule === "Visão geral" ? children : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
+  );
+}
+
+function WorkspaceModule({ title, profile, onFeedback }: { title: string; profile: "Gestão" | "Professor"; onFeedback: (message: string) => void }) {
+  const content: Record<string, { kicker: string; description: string; action: string }> = {
+    Alunos: { kicker: "RELACIONAMENTO", description: "Consulte alunos, planos, frequência e próximos treinos em um único lugar.", action: "Adicionar aluno" },
+    Professores: { kicker: "EQUIPE", description: "Organize os professores vinculados à academia e acompanhe seus acessos.", action: "Cadastrar professor" },
+    "Planos e mensalidades": { kicker: "RECEITA", description: "Crie planos, acompanhe vencimentos e organize os recebimentos da academia.", action: "Novo plano" },
+    Treinos: { kicker: "PRESCRIÇÃO", description: "Monte fichas, exercícios e ciclos de treino para os alunos.", action: "Criar treino" },
+    "Aulas e reservas": { kicker: "AGENDA", description: "Configure turmas, horários, vagas e reservas dos alunos.", action: "Criar aula" },
+    Avaliações: { kicker: "EVOLUÇÃO", description: "Registre avaliações físicas e acompanhe a evolução dos alunos.", action: "Nova avaliação" },
+  };
+  const module = content[title] ?? { kicker: "MÓDULO", description: "Este espaço está pronto para receber os dados da academia.", action: "Adicionar registro" };
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro">
+        <div><span>{module.kicker} · {profile === "Gestão" ? "GESTÃO" : "PROFESSOR"}</span><h2>{title}</h2><p>{module.description}</p></div>
+        <button onClick={() => onFeedback(`${module.action}: próxima etapa do módulo.`)}><Plus /> {module.action}</button>
+      </section>
+      <section className="module-overview-grid">
+        <article className="workspace-panel module-card"><span>VISÃO DO MÓDULO</span><strong>{title}</strong><p>Os dados serão organizados aqui conforme forem cadastrados.</p><button onClick={() => onFeedback(`${title}: ação registrada.`)}>Abrir módulo <ArrowRight /></button></article>
+        <article className="workspace-panel module-card"><span>PRÓXIMO PASSO</span><strong>Dados conectados</strong><p>O próximo cadastro ficará vinculado à academia atual.</p><button onClick={() => onFeedback("Configuração selecionada.")}>Configurar <ArrowRight /></button></article>
+      </section>
+      <div className="module-empty"><Sparkles /><h3>Área de {title.toLowerCase()}</h3><p>Esta tela já está separada no sistema. Vamos preencher suas ações específicas por etapas.</p></div>
+    </div>
   );
 }
 
