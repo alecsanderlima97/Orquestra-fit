@@ -1330,6 +1330,10 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
   const [editEmail, setEditEmail] = useState("");
   const [editPlan, setEditPlan] = useState("Mensal");
   const [editTeacherId, setEditTeacherId] = useState("");
+  const [studentWorkouts, setStudentWorkouts] = useState<WorkoutRecord[]>([]);
+  const [studentAssessments, setStudentAssessments] = useState<AssessmentRecord[]>([]);
+  const [studentCharges, setStudentCharges] = useState<MonthlyCharge[]>([]);
+  const [studentExecutions, setStudentExecutions] = useState<WorkoutExecution[]>([]);
 
   useEffect(() => {
     if (!db) return;
@@ -1367,6 +1371,26 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
     setEditPlan(selectedStudent.plan);
     setEditTeacherId(selectedStudent.teacherId ?? "");
   }, [selectedStudent]);
+
+  useEffect(() => {
+    if (!db || !selectedId) {
+      setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]);
+      return;
+    }
+    const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", selectedId)), (snapshot) => {
+      setStudentWorkouts(snapshot.docs.map((item) => { const data = item.data() as Omit<WorkoutRecord, "id">; return { id: item.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: (data.status === "draft" ? "draft" : "published") as WorkoutRecord["status"] }; }).filter((item) => item.status === "published"));
+    });
+    const unsubscribeAssessments = onSnapshot(query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", selectedId)), (snapshot) => {
+      setStudentAssessments(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AssessmentRecord, "id">) })).sort((a, b) => b.date.localeCompare(a.date)));
+    });
+    const unsubscribeCharges = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", selectedId)), (snapshot) => {
+      setStudentCharges(snapshot.docs.map((item) => { const data = item.data() as Omit<MonthlyCharge, "id">; return { id: item.id, ...data, amount: Number(data.amount ?? 0), status: (data.status === "paid" ? "paid" : "pending") as MonthlyCharge["status"] }; }).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
+    });
+    const unsubscribeExecutions = onSnapshot(query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", selectedId)), (snapshot) => {
+      setStudentExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => (b.completedAt?.toDate?.().getTime() ?? 0) - (a.completedAt?.toDate?.().getTime() ?? 0)));
+    });
+    return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); };
+  }, [access.academyId, selectedId]);
 
   async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1417,7 +1441,11 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
         </article>
         <aside className="workspace-panel student-detail-panel">
           {selectedStudent ? <>
-            <header><div><span>PERFIL DO ALUNO</span><h3>Editar cadastro</h3></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
+            <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
+            <div className="student-profile-overview"><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>VISITAS REGISTRADAS</small><strong>{studentExecutions.length}</strong></div></div>
+            <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{workout.name}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
+            <div className="student-profile-actions"><button type="button" onClick={() => onFeedback("Para criar ou alterar o treino, abra a aba Treinos com este aluno selecionado.")}>Gerenciar treino</button><button type="button" onClick={() => onFeedback("Para registrar uma nova avaliação, abra a aba Avaliações.")}>Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onFeedback("O financeiro deste aluno está disponível em Planos e mensalidades.")}>Ver financeiro</button>}</div>
+            <div className="student-profile-divider"><span>CADASTRO E ACESSO</span></div>
             <form className="student-detail-form" onSubmit={saveStudent}>
               <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label>
               <label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
