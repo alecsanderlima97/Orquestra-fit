@@ -503,6 +503,7 @@ type RegisteredStudent = {
   name: string;
   email?: string | null;
   plan: string;
+  teacherId?: string | null;
   active?: boolean;
 };
 
@@ -552,7 +553,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
 }
 
 type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
-type BillingStudent = { id: string; name: string; active: boolean };
+type BillingStudent = { id: string; name: string; active: boolean; teacherId?: string | null };
 type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid" };
 type ExerciseRecord = { id: string; name: string; muscleGroup: string };
@@ -663,8 +664,10 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   useEffect(() => {
     if (!db) return;
     const academy = ["academies", access.academyId];
-    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
-      setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false }; }));
+    const studentsRef = collection(db, "academies", access.academyId, "students");
+    const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
+    const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
+      setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; teacherId?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
       setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as { name?: string; muscleGroup?: string }; return { id: exercise.id, name: data.name ?? "Exercício", muscleGroup: data.muscleGroup ?? "Geral" }; }));
@@ -673,7 +676,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
     });
     return () => { void academy; unsubscribeStudents(); unsubscribeExercises(); unsubscribeWorkouts(); };
-  }, [access.academyId]);
+  }, [access.academyId, access.role, access.userId]);
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -926,22 +929,34 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
 function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => void; onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
+  const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPlan, setEditPlan] = useState("Mensal");
+  const [editTeacherId, setEditTeacherId] = useState("");
 
   useEffect(() => {
     if (!db) return;
-    return onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
+    const studentsRef = collection(db, "academies", access.academyId, "students");
+    const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
+    const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; email?: string | null; plan?: string; active?: boolean };
-        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, plan: data.plan ?? "Sem plano", active: data.active !== false };
+        const data = student.data() as { name?: string; email?: string | null; plan?: string; teacherId?: string | null; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
-  }, [access.academyId]);
+    if (access.role !== "admin") return unsubscribeStudents;
+    const unsubscribeTeachers = onSnapshot(collection(db, "academies", access.academyId, "teachers"), (snapshot) => {
+      setTeachers(snapshot.docs.map((teacher) => {
+        const data = teacher.data() as { name?: string; email?: string | null; active?: boolean };
+        return { id: teacher.id, name: data.name ?? "Professor sem nome", email: data.email ?? null, active: data.active !== false };
+      }));
+    }, (error) => console.error("Não foi possível carregar os professores.", error));
+    return () => { unsubscribeStudents(); unsubscribeTeachers(); };
+  }, [access.academyId, access.role, access.userId]);
 
   const filteredStudents = students.filter((student) => `${student.name} ${student.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
@@ -951,6 +966,7 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
     setEditName(selectedStudent.name);
     setEditEmail(selectedStudent.email ?? "");
     setEditPlan(selectedStudent.plan);
+    setEditTeacherId(selectedStudent.teacherId ?? "");
   }, [selectedStudent]);
 
   async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
@@ -962,6 +978,7 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
         name: editName.trim(),
         email: editEmail.trim() || null,
         plan: editPlan,
+        ...(access.role === "admin" ? { teacherId: editTeacherId || null } : {}),
       });
       onFeedback("Dados do aluno atualizados.");
     } catch {
@@ -1006,6 +1023,7 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
               <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label>
               <label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
               <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>
+              {access.role === "admin" && <label>Professor responsável<select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)}><option value="">Sem professor definido</option>{teachers.filter((teacher) => teacher.active !== false).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>}
               <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
             </form>
             <button className="detail-toggle" onClick={toggleStudent}>{selectedStudent.active === false ? "Reativar acesso" : "Suspender acesso"}</button>

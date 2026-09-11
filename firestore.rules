@@ -92,12 +92,15 @@ service cloud.firestore {
     }
 
     match /academies/{academyId}/students/{studentId} {
-      allow read: if isAdmin(academyId) || isTeacher(academyId) || (isStudent(academyId) && studentId == request.auth.uid);
+      allow read: if isAdmin(academyId) ||
+        (isTeacher(academyId) && resource.data.teacherId == request.auth.uid) ||
+        (isStudent(academyId) && studentId == request.auth.uid);
       allow create: if isAdmin(academyId) || isTeacher(academyId) ||
         (studentId == request.auth.uid &&
           request.resource.data.activationCodeId is string &&
           validInvitation(request.resource.data.activationCodeId, academyId, 'student'));
-      allow update: if isAdmin(academyId) || isTeacher(academyId);
+      allow update: if isAdmin(academyId) ||
+        (isTeacher(academyId) && resource.data.teacherId == request.auth.uid && request.resource.data.teacherId == request.auth.uid);
       allow delete: if isAdmin(academyId);
     }
 
