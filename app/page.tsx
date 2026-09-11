@@ -1738,23 +1738,19 @@ function ProfessorWorkspace() {
   const access = useAccess();
   const feedback = useFeedback();
   const [trainingOpen, setTrainingOpen] = useState(false);
-  const today = [
-    { time: "17:30", name: "Ana Paula Martins", focus: "Revisão · Força A", status: "Aguardando" },
-    { time: "18:30", name: "Mariana Souza", focus: "Avaliação física", status: "Confirmado" },
-    { time: "20:00", name: "Carlos Eduardo", focus: "Novo ciclo de treino", status: "Pendente" },
-  ];
+  const today: Array<{ time: string; name: string; focus: string; status: string }> = [];
   return (
     <WorkspaceShell profile="Professor">
       {trainingOpen ? <TrainingModule onFeedback={feedback} /> : <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
+          <div><span>ACOMPANHAMENTO · PROFESSOR</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
           <button onClick={() => setTrainingOpen(true)}><Plus /> Criar treino</button>
         </section>
         <section className="professor-summary">
           <article className="professor-focus">
-            <span>PRÓXIMO ATENDIMENTO</span><div className="focus-time">17:30 <small>HOJE</small></div>
-            <div className="focus-student"><i>AP</i><div><strong>Ana Paula Martins</strong><p>Revisão do treino Força A</p></div></div>
-            <button onClick={() => feedback("Perfil da aluna selecionado.")}>Abrir perfil da aluna <ArrowRight /></button>
+            <span>PRÓXIMO ATENDIMENTO</span><div className="focus-time">— <small>AGUARDANDO AGENDA</small></div>
+            <div className="focus-student"><i>—</i><div><strong>Nenhum atendimento agendado</strong><p>Os próximos compromissos aparecerão aqui.</p></div></div>
+            <button onClick={() => feedback("A agenda ainda não possui atendimentos cadastrados.")}>Ver agenda <ArrowRight /></button>
           </article>
           <div className="professor-metrics">
             <MetricCard icon={Users} label="Meus alunos" value="38" note="34 ativos esta semana" />
@@ -1764,9 +1760,9 @@ function ProfessorWorkspace() {
         <section className="professor-grid">
           <article className="workspace-panel agenda-panel">
             <header><div><span>AGENDA DE HOJE</span><h3>Atendimentos</h3></div><button>Ver semana <ArrowRight /></button></header>
-            {today.map((item) => (
+            {today.length > 0 ? today.map((item) => (
               <div className="appointment" key={item.time}><strong>{item.time}</strong><div><h4>{item.name}</h4><p>{item.focus}</p></div><em className={item.status === "Confirmado" ? "confirmed" : ""}>{item.status}</em><button aria-label="Abrir" onClick={() => feedback(`Atendimento de ${item.name} selecionado.`)}><ChevronRight /></button></div>
-            ))}
+            )) : <div className="directory-empty"><CalendarDays /><p>Nenhum atendimento cadastrado ainda.</p></div>}
           </article>
           <article className="workspace-panel attention-panel">
             <header><div><span>ACOMPANHAMENTO</span><h3>Precisam de atenção</h3></div></header>
