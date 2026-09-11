@@ -54,6 +54,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<StudentTab>("inicio");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
+  const [activeWorkout, setActiveWorkout] = useState<WorkoutRecord | null>(null);
   const [completedSets, setCompletedSets] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -87,6 +88,7 @@ export default function Home() {
         <section className={sessionOpen ? "student-app session-active" : "student-app"}>
           {sessionOpen ? (
             <WorkoutSession
+              workout={activeWorkout ?? undefined}
               completedSets={completedSets}
               onBack={() => setSessionOpen(false)}
               onToggleSet={(id) =>
@@ -99,8 +101,8 @@ export default function Home() {
             <>
               <StudentHeader onMenu={() => setMenuOpen(true)} />
               <div className="student-scroll">
-                {activeTab === "inicio" && <StudentHome onStart={() => setSessionOpen(true)} onEvolution={() => setActiveTab("evolucao")} />}
-                {activeTab === "treinos" && <WorkoutLibrary onStart={() => setSessionOpen(true)} />}
+                {activeTab === "inicio" && <StudentHome onStart={(workout) => { setActiveWorkout(workout ?? null); setCompletedSets([]); setSessionOpen(true); }} onEvolution={() => setActiveTab("evolucao")} />}
+                {activeTab === "treinos" && <WorkoutLibrary onStart={(workout) => { setActiveWorkout(workout ?? null); setCompletedSets([]); setSessionOpen(true); }} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
                 {activeTab === "perfil" && <Profile />}
@@ -178,7 +180,7 @@ function AcademyBrand() {
   );
 }
 
-function StudentHome({ onStart, onEvolution }: { onStart: () => void; onEvolution: () => void }) {
+function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutRecord) => void; onEvolution: () => void }) {
   const access = useAccess();
   const feedback = useFeedback();
   return (
@@ -197,7 +199,7 @@ function StudentHome({ onStart, onEvolution }: { onStart: () => void; onEvolutio
             <span><Clock3 size={16} /> 52 min</span>
             <span><Dumbbell size={16} /> 8 exercícios</span>
           </div>
-          <button onClick={onStart}>Iniciar treino <ArrowRight size={19} /></button>
+          <button onClick={() => onStart()}>Iniciar treino <ArrowRight size={19} /></button>
         </div>
         <div className="workout-art" aria-hidden="true">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -241,14 +243,14 @@ function StudentHome({ onStart, onEvolution }: { onStart: () => void; onEvolutio
   );
 }
 
-function WorkoutLibrary({ onStart }: { onStart: () => void }) {
+function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => void }) {
   const access = useAccess();
   const [publishedWorkouts, setPublishedWorkouts] = useState<WorkoutRecord[]>([]);
   useEffect(() => {
     if (!db) return;
     const workoutsQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
     return onSnapshot(workoutsQuery, (snapshot) => {
-      setPublishedWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], status: "published" }; }));
+      setPublishedWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" }; }));
     }, (error) => console.error("Não foi possível carregar os treinos.", error));
   }, [access.academyId, access.userId]);
   const plans = [
@@ -266,11 +268,11 @@ function WorkoutLibrary({ onStart }: { onStart: () => void }) {
       </div>
       <div className="workout-list">
         {publishedWorkouts.length > 0 ? publishedWorkouts.map((workout, index) => (
-          <button key={workout.id} className={index === 0 ? "active" : ""} onClick={onStart}>
+          <button key={workout.id} className={index === 0 ? "active" : ""} onClick={() => onStart(workout)}>
             <span className="workout-index">0{index + 1}</span><div><small>{index === 0 ? "PROGRAMADO PARA HOJE" : "TREINO PUBLICADO"}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios</p></div><span className="play-button"><Play size={18} fill="currentColor" /></span>
           </button>
         )) : plans.map((plan, index) => (
-          <button key={plan.title} className={plan.active ? "active" : ""} onClick={onStart}>
+          <button key={plan.title} className={plan.active ? "active" : ""} onClick={() => onStart()}>
             <span className="workout-index">0{index + 1}</span>
             <div><small>{plan.active ? "PROGRAMADO PARA HOJE" : "PRÓXIMO TREINO"}</small><strong>{plan.title}</strong><p>{plan.subtitle} · {plan.time}</p></div>
             <span className="play-button"><Play size={18} fill="currentColor" /></span>
@@ -373,9 +375,10 @@ function Profile() {
   );
 }
 
-function WorkoutSession({ completedSets, onBack, onToggleSet }: { completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
+function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
   const feedback = useFeedback();
-  const totalSets = workoutPlan.reduce((sum, item) => sum + item.sets, 0);
+  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: "Treino", sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
+  const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const progress = Math.round((completedSets.length / totalSets) * 100);
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
@@ -391,11 +394,11 @@ function WorkoutSession({ completedSets, onBack, onToggleSet }: { completedSets:
         <div><small>TREINO EM ANDAMENTO</small><strong>{elapsed}</strong></div><span>{progress}%</span>
       </header>
       <section className="session-title">
-        <div><span>FORÇA A</span><h1>Pernas e estabilidade</h1><p>{completedSets.length} de {totalSets} séries concluídas</p></div>
+        <div><span>{workout ? "TREINO PUBLICADO" : "FORÇA A"}</span><h1>{workout?.name ?? "Pernas e estabilidade"}</h1><p>{completedSets.length} de {totalSets} séries concluídas</p></div>
         <div className="progress-ring" style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}><strong>{progress}%</strong></div>
       </section>
       <div className="session-exercises">
-        {workoutPlan.map((exercise, exerciseIndex) => (
+        {exercises.map((exercise, exerciseIndex) => (
           <article className="exercise-card" key={exercise.name}>
             <header><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2></div><button aria-label="Ver demonstração"><Play size={17} fill="currentColor" /></button></header>
             <div className="set-labels"><span>Série</span><span>Carga</span><span>Repetições</span><span>Feito</span></div>
