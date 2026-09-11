@@ -186,6 +186,7 @@ button { cursor: pointer; }
 @media (max-width: 720px) { .billing-overview > header, .charges-panel > header { display: grid; } .billing-overview header > small { text-align: left; } .charge-filters { justify-content: flex-start; } .charge-row { grid-template-columns: 1fr auto; gap: 10px; } .charge-row > b { grid-column: 2; grid-row: 1; } .charge-status { grid-column: 1; width: fit-content; } .charge-action { grid-column: 2; grid-row: 2; } }
 .training-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 14px; margin-top: 18px; }
 .training-layout-redesigned { align-items: start; }
+.training-layout-redesigned > article:first-child > .exercise-library { margin: 0 22px 22px; border-top: 1px solid var(--line); padding-top: 18px; }
 .panel-helper { color: var(--steel-500); font-size: 11px; line-height: 1.45; margin: 8px 0 0; }
 .optional-label { color: var(--steel-500); font-size: 9px; font-weight: 400; }
 .classes-layout { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 14px; margin-top: 18px; }
