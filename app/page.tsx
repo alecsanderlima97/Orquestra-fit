@@ -1598,7 +1598,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
             <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}>Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}>Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onNavigate("Planos e mensalidades", selectedStudent.id)}>Ver financeiro</button>}</div>
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <div className="student-profile-divider"><span>CADASTRO E ACESSO</span></div>
-            {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
+              {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
               <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} autoComplete="name" required /></label>
               <label>Login de contato<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} autoComplete="email" placeholder="E-mail opcional" /></label>
               <label>Telefone<input value={editPhone} onChange={(event) => setEditPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label>
@@ -1606,7 +1606,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
               {access.role === "admin" ? <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option value="Sem plano">Sem plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.name}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <div className="protected-field"><span>Plano atual</span><strong>{selectedStudent.plan}</strong><small>Alteração exclusiva da gestão.</small></div>}
               {access.role === "admin" && <label>Professor responsável<select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)}><option value="">Sem professor definido</option>{teachers.filter((teacher) => teacher.active !== false).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>}
               <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
-            </form> : <div className="protected-field student-personal-locked"><span>CADASTRO PROTEGIDO</span><strong>Dados pessoais somente para a gestão</strong><small>O professor pode acompanhar o aluno e atuar em treinos, avaliações, mensagens e aulas, sem editar este cadastro.</small></div>}
+            </form> : null}
             {access.role === "admin" && <button className="detail-toggle" onClick={toggleStudent}>{selectedStudent.active === false ? "Reativar acesso" : "Suspender acesso"}</button>}
           </> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um aluno</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
         </aside>
