@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { GoogleAuthProvider, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithRedirect, User } from "firebase/auth";
+import { GoogleAuthProvider, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, User } from "firebase/auth";
 import { LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
@@ -95,14 +95,18 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
     setSubmitting(true);
     setStatus(null);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
     try {
-      // O redirecionamento evita que popups fiquem presos em navegadores embutidos.
-      await signInWithRedirect(auth, provider);
+      await signInWithPopup(auth, provider);
     } catch (error) {
       const code = (error as { code?: string }).code;
+      if (code === "auth/popup-blocked" || code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
       setStatus(code === "auth/unauthorized-domain"
-        ? "Este endereço ainda não foi autorizado no Firebase. Adicione orquestra-fit.vercel.app aos domínios autorizados."
-        : "Não foi possível entrar com o Google agora.");
+        ? "Este endereço não está autorizado no Firebase. Confirme localhost e orquestra-fit.vercel.app nos domínios autorizados."
+        : `Não foi possível entrar com o Google${code ? ` (${code})` : ""}.`);
     } finally {
       setSubmitting(false);
     }
