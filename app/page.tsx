@@ -512,7 +512,7 @@ function Profile({ onNavigate }: { onNavigate: (tab: StudentTab) => void }) {
   return (
     <div className="student-view profile-view">
       <div className="profile-identity"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><small>ALUNO</small><h1>{accountName(access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
-      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta Google.</small></>}{label === "Plano e mensalidades" && <><strong>Informações do plano</strong><span>Consulte a equipe da academia para valores, vencimentos e pagamentos.</span><small>O financeiro detalhado permanece protegido para a gestão.</small></>}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>Seu acesso usa sua conta Google vinculada à academia.</span><small>Para solicitar correção ou remoção de dados, fale com a academia.</small></>}</div>}</div>)}
+      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>Você pode entrar com Google ou com e-mail e senha. O Firebase mantém sua sessão ativa neste dispositivo para evitar novo login a cada abertura.</span><small>Sua senha não fica salva no aplicativo. Para corrigir ou remover dados, fale com a academia.</small></>}</div>}</div>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
     </div>
@@ -679,6 +679,25 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
   );
+}
+
+function StudentPlanPanel() {
+  const access = useAccess();
+  const [student, setStudent] = useState<{ plan?: string; planStartedAt?: string; planEndsAt?: string } | null>(null);
+  const [charges, setCharges] = useState<MonthlyCharge[]>([]);
+  useEffect(() => {
+    if (!db) return;
+    const unsubscribeStudent = onSnapshot(doc(db, "academies", access.academyId, "students", access.userId), (snapshot) => setStudent(snapshot.exists() ? snapshot.data() as { plan?: string; planStartedAt?: string; planEndsAt?: string } : null));
+    const unsubscribeCharges = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => {
+      setCharges(snapshot.docs.map((item) => { const data = item.data() as Omit<MonthlyCharge, "id">; return { id: item.id, ...data, amount: Number(data.amount ?? 0), status: (data.status === "paid" ? "paid" : "pending") as MonthlyCharge["status"] }; }).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
+    });
+    return () => { unsubscribeStudent(); unsubscribeCharges(); };
+  }, [access.academyId, access.userId]);
+  const nextCharge = charges.find((charge) => charge.status !== "paid") ?? charges[charges.length - 1];
+  const paidTotal = charges.filter((charge) => charge.status === "paid").reduce((total, charge) => total + charge.amount, 0);
+  const start = student?.planStartedAt ? formatDate(student.planStartedAt) : "Ainda não informado";
+  const end = student?.planEndsAt ? formatDate(student.planEndsAt) : nextCharge ? formatDate(nextCharge.dueDate) : "Ainda não informado";
+  return <div className="student-plan-detail"><strong>{student?.plan || nextCharge?.planName || "Plano ainda não definido"}</strong><div className="student-plan-grid"><div><small>Pago</small><b>R$ {paidTotal.toFixed(2).replace(".", ",")}</b></div><div><small>Dias restantes</small><b>{nextCharge ? Math.max(daysUntil(nextCharge.dueDate), 0) : "—"}</b></div><div><small>Início</small><b>{start}</b></div><div><small>Válido até</small><b>{end}</b></div></div><small>{nextCharge ? `Próximo vencimento: ${formatDate(nextCharge.dueDate)} · ${chargeStatusLabel(chargeViewStatus(nextCharge))}` : "A academia ainda não lançou cobranças para este aluno."}</small></div>;
 }
 
 type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
