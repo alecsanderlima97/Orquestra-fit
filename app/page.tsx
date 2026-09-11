@@ -572,7 +572,8 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
 type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
 type BillingStudent = { id: string; name: string; active: boolean; teacherId?: string | null };
 type BillingPlan = { id: string; name: string; price: number; active: boolean };
-type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid" };
+type PaymentMethod = "pix" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
+type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod };
 type ExerciseRecord = { id: string; name: string; muscleGroup: string };
 type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
@@ -779,6 +780,9 @@ function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }
   const [dueDate, setDueDate] = useState("");
   const [filter, setFilter] = useState<"all" | ChargeViewStatus>("all");
   const [saving, setSaving] = useState(false);
+  const [paymentCharge, setPaymentCharge] = useState<MonthlyCharge | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
+  const [savingPayment, setSavingPayment] = useState(false);
 
   useEffect(() => {
     if (!db) return;
@@ -819,10 +823,21 @@ function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }
     finally { setSaving(false); }
   }
 
+  async function confirmPayment() {
+    if (!db || !paymentCharge) return;
+    setSavingPayment(true);
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "monthlyCharges", paymentCharge.id), { status: "paid", paymentMethod, paidAt: serverTimestamp(), paidBy: access.userId });
+      setPaymentCharge(null);
+      onFeedback("Pagamento registrado e mensalidade baixada.");
+    } catch { onFeedback("Não foi possível registrar o pagamento."); }
+    finally { setSavingPayment(false); }
+  }
+
   async function toggleCharge(charge: MonthlyCharge) {
     if (!db) return;
     try {
-      await updateDoc(doc(db, "academies", access.academyId, "monthlyCharges", charge.id), { status: charge.status === "paid" ? "pending" : "paid" });
+      await updateDoc(doc(db, "academies", access.academyId, "monthlyCharges", charge.id), { status: "pending" });
       onFeedback(charge.status === "paid" ? "Mensalidade voltou para pendente." : "Mensalidade marcada como paga.");
     } catch { onFeedback("Não foi possível atualizar a mensalidade."); }
   }
@@ -845,7 +860,8 @@ function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }
         <article className="workspace-panel plan-form-panel"><header><div><span>NOVA MENSALIDADE</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label><label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || plans.length === 0}>{saving ? "Gerando..." : "Gerar mensalidade"}</button></form></article>
         <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
-      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => toggleCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
+      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${charge.paymentMethod}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
+      {paymentCharge && <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="payment-title"><section className="payment-modal"><header><div><span>BAIXA MANUAL</span><h2 id="payment-title">Registrar pagamento</h2><p>{paymentCharge.studentName} · R$ {paymentCharge.amount.toFixed(2).replace(".", ",")}</p></div><button aria-label="Fechar registro de pagamento" onClick={() => setPaymentCharge(null)}><X /></button></header><div className="payment-method-grid">{([['pix', 'Pix'], ['maquininha', 'Maquininha'], ['dinheiro', 'Dinheiro'], ['transferencia', 'Transferência'], ['boleto', 'Boleto']] as const).map(([value, label]) => <button key={value} className={paymentMethod === value ? "active" : ""} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><div className="payment-modal-actions"><button className="modal-secondary" onClick={() => setPaymentCharge(null)}>Cancelar</button><button className="detail-save" onClick={confirmPayment} disabled={savingPayment}>{savingPayment ? "Salvando..." : "Confirmar pagamento"}</button></div></section></div>}
     </div>
   );
 }
