@@ -632,7 +632,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
     if (profile === "Professor" && activeModule === "Planos e mensalidades") setActiveModule("Visão geral");
   }, [activeModule, profile]);
   const visibleNav = profile === "Professor"
-    ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Avaliações"].includes(label))
+    ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Aulas e reservas", "Avaliações"].includes(label))
     : workspaceNav;
   return (
     <section className="workspace-shell" data-access-role={access.role}>
@@ -844,7 +844,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
 
   return (
     <div className="workspace-content module-view">
-      <section className="workspace-intro"><div><span>AGENDA · GESTÃO</span><h2>Aulas e reservas</h2><p>Configure turmas, horários e limite de vagas para os alunos.</p></div></section>
+      <section className="workspace-intro"><div><span>AGENDA · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Aulas e reservas</h2><p>Organize horários, vagas e reservas dos alunos.</p></div></section>
       <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>{editingClassId ? "EDITAR AULA" : "NOVA AULA"}</span><h3>{editingClassId ? "Atualizar turma" : "Criar turma"}</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor<input value={instructor} onChange={(event) => setInstructor(event.target.value)} placeholder="Nome do professor" /></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingClassId ? "Salvar alterações" : "Criar aula"}</button>{editingClassId && <button className="secondary-action" type="button" onClick={clearForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{classes.length} {classes.length === 1 ? "aula" : "aulas"}</h3></div></header><div className="plans-list">{classes.length === 0 ? <div className="directory-empty"><CalendarDays /><p>Nenhuma aula cadastrada ainda.</p></div> : classes.map((item) => { const reserved = reservationCounts[item.id] ?? 0; return <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor}</small><small>{reserved} {reserved === 1 ? "reserva" : "reservas"} de {item.capacity} vagas</small></div><div className="row-actions"><button type="button" className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button><button type="button" className="plan-edit" onClick={() => editClass(item)}>Editar</button>{access.role === "admin" && <button type="button" className="plan-delete" onClick={() => removeClass(item)}>Excluir</button>}</div></div>; })}</div></article></section>
     </div>
   );
