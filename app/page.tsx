@@ -1171,6 +1171,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
 function ProfessorWorkspace() {
   const access = useAccess();
   const feedback = useFeedback();
+  const [trainingOpen, setTrainingOpen] = useState(false);
   const today = [
     { time: "17:30", name: "Ana Paula Martins", focus: "Revisão · Força A", status: "Aguardando" },
     { time: "18:30", name: "Mariana Souza", focus: "Avaliação física", status: "Confirmado" },
@@ -1178,10 +1179,10 @@ function ProfessorWorkspace() {
   ];
   return (
     <WorkspaceShell profile="Professor">
-      <div className="workspace-content">
+      {trainingOpen ? <TrainingModule onFeedback={feedback} /> : <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
-          <button onClick={() => feedback("Editor de treino aberto para a próxima etapa.")}><Plus /> Criar treino</button>
+          <button onClick={() => setTrainingOpen(true)}><Plus /> Criar treino</button>
         </section>
         <section className="professor-summary">
           <article className="professor-focus">
@@ -1208,7 +1209,7 @@ function ProfessorWorkspace() {
             ))}
           </article>
         </section>
-      </div>
+      </div>}
     </WorkspaceShell>
   );
 }
