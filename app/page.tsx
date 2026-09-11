@@ -191,7 +191,6 @@ function AcademyBrand() {
 
 function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutRecord) => void; onEvolution: () => void }) {
   const access = useAccess();
-  const feedback = useFeedback();
   return (
     <div className="student-view home-view">
       <section className="welcome-row">
@@ -218,10 +217,7 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
       </article>
 
       <section className="status-grid">
-        <article role="button" tabIndex={0} onClick={() => feedback("Seu plano está ativo e renovará em 18 dias.")}>
-          <span className="status-icon"><ShieldCheck /></span>
-          <div><small>Plano</small><strong>Ativo</strong><p>Renova em 18 dias</p></div><ChevronRight />
-        </article>
+        <StudentPaymentStatus />
         <article role="button" tabIndex={0} onClick={() => onEvolution()}>
           <span className="status-icon"><Activity /></span>
           <div><small>Frequência</small><strong>9 visitas</strong><p>Meta: 12 no mês</p></div>
@@ -249,6 +245,34 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
         <ChevronRight />
       </article>
     </div>
+  );
+}
+
+function StudentPaymentStatus() {
+  const access = useAccess();
+  const feedback = useFeedback();
+  const [charges, setCharges] = useState<MonthlyCharge[]>([]);
+
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => {
+      setCharges(snapshot.docs.map((charge) => {
+        const data = charge.data() as Omit<MonthlyCharge, "id">;
+        const status: MonthlyCharge["status"] = data.status === "paid" ? "paid" : "pending";
+        return { id: charge.id, ...data, amount: Number(data.amount ?? 0), status };
+      }).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
+    }, (error) => console.error("Não foi possível carregar o status financeiro do aluno.", error));
+  }, [access.academyId, access.userId]);
+
+  const charge = charges.find((item) => item.status !== "paid") ?? charges[0];
+  const status = charge ? chargeViewStatus(charge) : "paid";
+  const detail = !charge ? "Nenhuma cobrança registrada" : status === "paid" ? "Nenhuma pendência no momento" : status === "overdue" ? `Vencida há ${Math.abs(daysUntil(charge.dueDate))} dias` : daysUntil(charge.dueDate) === 0 ? "Vence hoje" : `Vence em ${daysUntil(charge.dueDate)} dias`;
+
+  return (
+    <article className={`student-payment-status ${status}`} role="button" tabIndex={0} onClick={() => feedback(charge ? `${charge.planName}: ${chargeStatusLabel(status)}.` : "A academia ainda não lançou uma mensalidade.")}>
+      <span className="status-icon"><ShieldCheck /></span>
+      <div><small>Mensalidade</small><strong>{charge ? chargeStatusLabel(status) : "Sem cobrança"}</strong><p>{detail}</p></div><ChevronRight />
+    </article>
   );
 }
 
@@ -563,6 +587,42 @@ type ClassRecord = { id: string; name: string; instructor: string; date: string;
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; notes: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; completedAt?: { toDate?: () => Date } };
 
+type ChargeViewStatus = "paid" | "overdue" | "dueSoon" | "pending";
+
+function todayIso() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function daysUntil(dateString: string) {
+  if (!dateString) return 0;
+  const [year, month, day] = dateString.split("-").map(Number);
+  const due = Date.UTC(year, (month || 1) - 1, day || 1);
+  const today = todayIso().split("-").map(Number);
+  return Math.round((due - Date.UTC(today[0], today[1] - 1, today[2])) / 86400000);
+}
+
+function chargeViewStatus(charge: Pick<MonthlyCharge, "status" | "dueDate">): ChargeViewStatus {
+  if (charge.status === "paid") return "paid";
+  const days = daysUntil(charge.dueDate);
+  if (days < 0) return "overdue";
+  if (days <= 7) return "dueSoon";
+  return "pending";
+}
+
+function chargeStatusLabel(status: ChargeViewStatus) {
+  return status === "paid" ? "Paga" : status === "overdue" ? "Vencida" : status === "dueSoon" ? "Vence em breve" : "Pendente";
+}
+
+function formatDate(dateString: string) {
+  if (!dateString) return "Sem vencimento";
+  const [year, month, day] = dateString.split("-");
+  return `${day}/${month}/${year}`;
+}
+
 function AssessmentsModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [students, setStudents] = useState<BillingStudent[]>([]);
@@ -724,6 +784,7 @@ function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }
   const [studentId, setStudentId] = useState("");
   const [planId, setPlanId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [filter, setFilter] = useState<"all" | ChargeViewStatus>("all");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -773,13 +834,25 @@ function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }
     } catch { onFeedback("Não foi possível atualizar a mensalidade."); }
   }
 
+  const chargeRows = charges.map((charge) => ({ ...charge, viewStatus: chargeViewStatus(charge) }));
+  const totals = chargeRows.reduce((summary, charge) => {
+    summary.total += charge.amount;
+    if (charge.viewStatus === "paid") summary.received += charge.amount;
+    if (charge.viewStatus === "overdue") summary.overdue += charge.amount;
+    if (charge.viewStatus === "pending" || charge.viewStatus === "dueSoon") summary.open += charge.amount;
+    return summary;
+  }, { total: 0, received: 0, overdue: 0, open: 0 });
+  const visibleCharges = chargeRows.filter((charge) => filter === "all" || charge.viewStatus === filter);
+  const upcomingCount = chargeRows.filter((charge) => charge.viewStatus === "dueSoon").length;
+
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
       <section className="billing-layout">
         <article className="workspace-panel plan-form-panel"><header><div><span>NOVA MENSALIDADE</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label><label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || plans.length === 0}>{saving ? "Gerando..." : "Gerar mensalidade"}</button></form></article>
-        <article className="workspace-panel plans-list-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "cobrança" : "cobranças"}</h3></div></header><div className="plans-list">{charges.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhuma mensalidade gerada ainda.</p></div> : charges.map((charge) => <div className="plan-row" key={charge.id}><div><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {charge.dueDate}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><button className={charge.status === "paid" ? "plan-enable" : "plan-disable"} onClick={() => toggleCharge(charge)}>{charge.status === "paid" ? "Paga" : "Pendente"}</button></div>)}</div></article>
+        <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
+      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => toggleCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
     </div>
   );
 }
