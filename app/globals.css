@@ -215,6 +215,9 @@ button { cursor: pointer; }
 .exercise-library div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 10px 0; }
 .exercise-library strong { color: var(--paper); font-size: 12px; }
 .exercise-library small { color: var(--steel-500); font-size: 10px; }
+.training-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+.training-actions .detail-save, .training-actions .detail-secondary { margin: 0; flex: 1; min-width: 150px; }
+.detail-secondary { border: 1px solid var(--bronze-500); background: transparent; color: var(--bronze-300); padding: 11px 13px; font-weight: 800; }
 .published-workouts { margin-top: 14px; overflow: hidden; }
 .published-list { padding: 4px 22px 16px; }
 .published-list > div { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--line); padding: 14px 0; }
