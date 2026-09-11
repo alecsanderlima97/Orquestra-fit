@@ -318,21 +318,40 @@ function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => voi
 
 function Evolution() {
   const access = useAccess();
-  const [latestAssessment, setLatestAssessment] = useState<AssessmentRecord | null>(null);
+  const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
   useEffect(() => {
     if (!db) return;
     const assessmentQuery = query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", access.userId));
     const executionQuery = query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", access.userId));
     const unsubscribeAssessments = onSnapshot(assessmentQuery, (snapshot) => {
-      const latest = snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
-      setLatestAssessment(latest);
+      setAssessments(snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date)));
     }, (error) => console.error("Não foi possível carregar a avaliação.", error));
     const unsubscribeExecutions = onSnapshot(executionQuery, (snapshot) => {
       setExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => (b.completedAt?.toDate?.().getTime() ?? 0) - (a.completedAt?.toDate?.().getTime() ?? 0)));
     }, (error) => console.error("Não foi possível carregar o histórico de treinos.", error));
     return () => { unsubscribeAssessments(); unsubscribeExecutions(); };
   }, [access.academyId, access.userId]);
+  const latestAssessment = assessments[0] ?? null;
+  const previousAssessment = assessments[1] ?? null;
+  const comparisonMetrics: Array<{ label: string; key: "weight" | "bodyFat" | "biceps" | "waist" | "chest" | "thigh"; unit: string }> = [
+    { label: "Peso", key: "weight", unit: "kg" },
+    { label: "Gordura corporal", key: "bodyFat", unit: "%" },
+    { label: "Bíceps", key: "biceps", unit: "cm" },
+    { label: "Cintura", key: "waist", unit: "cm" },
+    { label: "Peito", key: "chest", unit: "cm" },
+    { label: "Coxa", key: "thigh", unit: "cm" }
+  ];
+  function assessmentValue(assessment: AssessmentRecord | null, key: typeof comparisonMetrics[number]["key"]) {
+    const value = assessment?.[key];
+    return value ? Number(value.replace(",", ".")) : null;
+  }
+  function assessmentDelta(key: typeof comparisonMetrics[number]["key"]) {
+    const current = assessmentValue(latestAssessment, key);
+    const previous = assessmentValue(previousAssessment, key);
+    if (current === null || previous === null) return null;
+    return current - previous;
+  }
   const bestLoads = Array.from(executions.flatMap((execution) => execution.sets ?? []).reduce((records, item) => {
     const load = Number(item.load.replace(",", ".")) || 0;
     const current = records.get(item.exerciseName);
@@ -347,13 +366,24 @@ function Evolution() {
         <article><Trophy /><small>Último treino</small><strong>{executions[0]?.workoutName ?? "—"}</strong><p>{executions[0] ? `${executions[0].completedSets} séries concluídas` : "Ainda sem execução registrada"}</p></article>
         <article><Activity /><small>Séries concluídas</small><strong>{executions.reduce((total, item) => total + item.completedSets, 0)}</strong><p>Registradas nos seus treinos</p></article>
       </section>
+      <section className="assessment-comparison">
+        <div className="section-heading"><div><span>AVALIAÇÃO FÍSICA</span><h2>Seu progresso</h2></div><small>{latestAssessment ? formatDate(latestAssessment.date) : "Sem avaliação"}</small></div>
+        {!latestAssessment ? <div className="directory-empty"><Activity /><p>Faça uma avaliação física para acompanhar suas medidas.</p></div> : <>
+          <div className="assessment-summary"><strong>{latestAssessment.weight} kg</strong><span>Peso atual</span><p>{previousAssessment ? `Comparação com ${formatDate(previousAssessment.date)}` : "Primeira avaliação registrada"}</p></div>
+          <div className="comparison-list">{comparisonMetrics.map((metric) => {
+            const current = assessmentValue(latestAssessment, metric.key);
+            const delta = assessmentDelta(metric.key);
+            return <div className="comparison-row" key={metric.key}><div><strong>{metric.label}</strong><small>{current === null ? "Não informado" : `${current} ${metric.unit}`}</small></div><span className={delta === null ? "comparison-neutral" : delta > 0 ? "comparison-up" : delta < 0 ? "comparison-down" : "comparison-neutral"}>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${metric.unit}`}</span></div>;
+          })}</div>
+        </>}
+      </section>
       <section className="history-panel">
         <div className="section-heading"><div><span>HISTÓRICO</span><h2>Últimos registros</h2></div></div>
         {bestLoads.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Conclua um treino para ver suas cargas registradas aqui.</p></div> : bestLoads.map((item) => (
           <div className="history-row" key={item.exerciseName}><span>{item.exerciseName}</span><strong>{item.load > 0 ? `${item.load} kg` : "Sem carga"}</strong><small>{item.reps} rep · melhor carga</small></div>
         ))}
       </section>
-      <article className="latest-assessment"><span>ÚLTIMA AVALIAÇÃO</span>{latestAssessment ? <><strong>{latestAssessment.weight} kg · {latestAssessment.height} cm</strong><p>{latestAssessment.bodyFat ? `${latestAssessment.bodyFat}% de gordura corporal` : "Medidas registradas pela equipe"} · {latestAssessment.date}</p></> : <><strong>Ainda não registrada</strong><p>Peça uma avaliação física à equipe da academia.</p></>}</article>
+      <article className="latest-assessment"><span>ALTURA REGISTRADA</span>{latestAssessment ? <><strong>{latestAssessment.height} cm</strong><p>{latestAssessment.notes || "Medidas registradas pela equipe."}</p></> : <><strong>Ainda não registrada</strong><p>Peça uma avaliação física à equipe da academia.</p></>}</article>
     </div>
   );
 }
