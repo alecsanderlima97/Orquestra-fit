@@ -175,6 +175,19 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId);
     }
 
+    match /academies/{academyId}/messages/{messageId} {
+      allow read: if isAdmin(academyId) ||
+        (isTeacher(academyId) && get(/databases/$(database)/documents/academies/$(academyId)/students/$(resource.data.studentId)).data.teacherId == request.auth.uid) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+      allow create: if isAdmin(academyId) ||
+        (isTeacher(academyId) && request.resource.data.senderId == request.auth.uid &&
+          get(/databases/$(database)/documents/academies/$(academyId)/students/$(request.resource.data.studentId)).data.teacherId == request.auth.uid);
+      allow update: if isAdmin(academyId) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+      allow delete: if isAdmin(academyId);
+    }
+
     match /academies/{academyId}/{document=**} {
       allow read: if isAdmin(academyId);
       allow write: if isAdmin(academyId);
