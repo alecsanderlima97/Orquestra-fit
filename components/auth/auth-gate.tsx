@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { GoogleAuthProvider, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, User } from "firebase/auth";
+import { GoogleAuthProvider, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithRedirect, User } from "firebase/auth";
 import { LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
@@ -14,10 +14,22 @@ export function AuthGate({ children }: AuthGateProps) {
 
   useEffect(() => {
     if (!auth) return;
-    return onAuthStateChanged(auth, (nextUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setLoading(false);
     });
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          setUser(result.user);
+          setLoading(false);
+        }
+      })
+      .catch((error) => {
+        console.error("Não foi possível concluir o retorno do Google.", error);
+        setLoading(false);
+      });
+    return unsubscribe;
   }, []);
 
   if (!isFirebaseConfigured) return <>{children}</>;
