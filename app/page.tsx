@@ -908,6 +908,8 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   async function createWorkout(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!db || !workoutName.trim() || !studentId || selectedExercises.length === 0) return;
+    const preparationCount = selectedExercises.filter((exerciseId) => exercises.find((exercise) => exercise.id === exerciseId)?.phase === "Preparação").length;
+    if (preparationCount < 1 || preparationCount > 3) { onFeedback("Inclua de 1 a 3 exercícios de preparação antes de publicar o treino."); return; }
     const student = students.find((item) => item.id === studentId);
     if (!student) return;
     setSaving(true);
@@ -924,6 +926,8 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
 
   async function saveTemplate() {
     if (!db || !workoutName.trim() || selectedExercises.length === 0) return;
+    const preparationCount = selectedExercises.filter((exerciseId) => exercises.find((exercise) => exercise.id === exerciseId)?.phase === "Preparação").length;
+    if (preparationCount < 1 || preparationCount > 3) { onFeedback("Inclua de 1 a 3 exercícios de preparação no modelo."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
       return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
