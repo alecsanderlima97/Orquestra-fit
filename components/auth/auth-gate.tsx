@@ -66,13 +66,10 @@ function LoginPanel() {
     setStatus(null);
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      // O redirecionamento evita que popups fiquem presos em navegadores embutidos.
+      await signInWithRedirect(auth, provider);
     } catch (error) {
       const code = (error as { code?: string }).code;
-      if (code === "auth/popup-blocked" || code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
-        await signInWithRedirect(auth, provider);
-        return;
-      }
       setStatus(code === "auth/unauthorized-domain"
         ? "Este endereço ainda não foi autorizado no Firebase. Adicione orquestra-fit.vercel.app aos domínios autorizados."
         : "Não foi possível entrar com o Google agora.");
