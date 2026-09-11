@@ -79,10 +79,26 @@ const starterExercises = [
   ["Panturrilha em pé", "Panturrilhas", "", "Panturrilhas"],
   ["Prancha abdominal", "Core", "Abdômen, ombros", "Abdômen e tronco"],
   ["Abdominal na máquina", "Abdômen", "Core", "Abdômen"],
+  ["Flexão de braços", "Peito", "Tríceps, ombros", "Peitoral"],
+  ["Agachamento com peso corporal", "Quadríceps", "Glúteos, posteriores", "Coxas e glúteos"],
+  ["Avanço com peso corporal", "Quadríceps", "Glúteos, posteriores", "Coxas e glúteos"],
+  ["Alongamento de peitoral", "Peito", "Ombros", "Peitoral"],
+  ["Alongamento de quadríceps", "Quadríceps", "", "Parte frontal da coxa"],
+  ["Mobilidade de quadril", "Mobilidade", "Glúteos, adutores", "Quadril"],
   ["Bicicleta ergométrica", "Cardio", "Pernas", "Condicionamento cardiovascular"],
   ["Esteira", "Cardio", "Pernas", "Condicionamento cardiovascular"],
   ["Elíptico", "Cardio", "Pernas, braços", "Condicionamento cardiovascular"]
 ] as const;
+
+function starterClassification(name: string, muscleGroup: string): { bodyRegion: BodyRegion; phase: ExercisePhase; exerciseType: ExerciseType } {
+  if (["Alongamento de peitoral", "Alongamento de quadríceps", "Mobilidade de quadril"].includes(name)) return { bodyRegion: muscleGroup === "Peito" ? "Tronco anterior" : "Membros inferiores", phase: "Preparação", exerciseType: "Alongamento" };
+  if (["Prancha abdominal", "Abdominal na máquina"].includes(name)) return { bodyRegion: "Região central", phase: "Treino principal", exerciseType: name.startsWith("Prancha") ? "Peso corporal" : "Força" };
+  if (["Bicicleta ergométrica", "Esteira", "Elíptico"].includes(name)) return { bodyRegion: "Membros inferiores", phase: "Cardio", exerciseType: "Cardio" };
+  if (["Flexão de braços", "Agachamento com peso corporal", "Avanço com peso corporal"].includes(name)) return { bodyRegion: muscleGroup === "Peito" ? "Tronco anterior" : "Membros inferiores", phase: "Treino principal", exerciseType: "Peso corporal" };
+  if (["Puxada frontal", "Remada baixa", "Remada unilateral com halter", "Levantamento terra romeno", "Mesa flexora"].includes(name)) return { bodyRegion: "Tronco posterior", phase: "Treino principal", exerciseType: "Força" };
+  if (["Supino reto com barra", "Supino inclinado com halteres", "Crucifixo na máquina", "Desenvolvimento com halteres", "Elevação lateral", "Face pull", "Rosca direta com barra", "Rosca alternada com halteres", "Rosca martelo", "Tríceps na polia", "Tríceps francês", "Rosca de punho"].includes(name)) return { bodyRegion: muscleGroup === "Peito" ? "Tronco anterior" : "Membros superiores", phase: "Treino principal", exerciseType: "Força" };
+  return { bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: "Força" };
+}
 
 export default function Home() {
   const access = useAccess();
@@ -636,8 +652,11 @@ type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type PaymentMethod = "pix" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod; chargeType?: ChargeType };
-type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string };
-type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string };
+type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
+type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
+type ExerciseType = "Força" | "Peso corporal" | "Alongamento" | "Cardio";
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type WorkoutTemplateRecord = { id: string; name: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
@@ -791,6 +810,9 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [anatomyRegion, setAnatomyRegion] = useState("");
   const [instructions, setInstructions] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [bodyRegion, setBodyRegion] = useState<BodyRegion>("Membros superiores");
+  const [phase, setPhase] = useState<ExercisePhase>("Treino principal");
+  const [exerciseType, setExerciseType] = useState<ExerciseType>("Força");
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [workoutName, setWorkoutName] = useState("");
   const [studentId, setStudentId] = useState("");
@@ -807,7 +829,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; teacherId?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; return { id: exercise.id, name: data.name ?? "Exercício", muscleGroup: data.muscleGroup ?? "Geral", secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "" }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; return { id: exercise.id, name: data.name ?? "Exercício", muscleGroup: data.muscleGroup ?? "Geral", secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", bodyRegion: data.bodyRegion, phase: data.phase, exerciseType: data.exerciseType }; }));
     });
     const unsubscribeWorkouts = onSnapshot(collection(db, "academies", access.academyId, "workouts"), (snapshot) => {
       setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
@@ -822,23 +844,23 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     event.preventDefault();
     if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
     try {
-      await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), createdBy: access.userId, createdAt: serverTimestamp() });
+      await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), bodyRegion: "Membros superiores", phase: "Treino principal", exerciseType: "Força", createdBy: access.userId, createdAt: serverTimestamp() });
       setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); onFeedback("Exercício cadastrado.");
     } catch { onFeedback("Não foi possível cadastrar o exercício."); }
   }
 
   function editExercise(exercise: ExerciseRecord) {
-    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? "");
+    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
   }
 
   function clearExerciseForm() {
-    setEditingExerciseId(null); setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl("");
+    setEditingExerciseId(null); setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
   }
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
-    const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), updatedBy: access.userId, updatedAt: serverTimestamp() };
+    const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), bodyRegion, phase, exerciseType, updatedBy: access.userId, updatedAt: serverTimestamp() };
     try {
       if (editingExerciseId) {
         await updateDoc(doc(db, "academies", access.academyId, "exercises", editingExerciseId), data);
@@ -872,7 +894,8 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     const batch = writeBatch(firestore);
     pending.forEach(([name, primary, secondary, region]) => {
       const exerciseRef = doc(collection(firestore, "academies", access.academyId, "exercises"));
-      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", createdBy: access.userId, createdAt: serverTimestamp(), source: "starter-library" });
+      const classification = starterClassification(name, primary);
+      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, createdBy: access.userId, createdAt: serverTimestamp(), source: "starter-library" });
     });
     try {
       await batch.commit();
@@ -891,7 +914,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     try {
       const details = selectedExercises.map((exerciseId) => {
         const exercise = exercises.find((item) => item.id === exerciseId);
-        return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, ...exerciseDetails[exerciseId] };
+        return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
       });
       await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details, status: "published", createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
       setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); onFeedback("Treino publicado para o aluno.");
@@ -903,7 +926,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     if (!db || !workoutName.trim() || selectedExercises.length === 0) return;
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     try {
       await addDoc(collection(db, "academies", access.academyId, "workoutTemplates"), { name: workoutName.trim(), exerciseIds: selectedExercises, exerciseDetails: details, createdBy: access.userId, createdAt: serverTimestamp() });
@@ -925,7 +948,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Cadastre exercícios e publique fichas vinculadas aos alunos.</p></div></section>
       <section className="training-layout">
         <article className="workspace-panel training-form-panel"><header><div><span>FICHA DE TREINO</span><h3>Montar e publicar</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Usar modelo pronto<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Começar do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <div className="exercise-choice" key={exercise.id}><label><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => { const selected = selectedExercises.includes(exercise.id); setSelectedExercises((current) => selected ? current.filter((id) => id !== exercise.id) : [...current, exercise.id]); if (!selected) setExerciseDetails((current) => ({ ...current, [exercise.id]: { sets: "3", reps: "10", load: "0", rest: "60" } })); }} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>{selectedExercises.includes(exercise.id) && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], sets: event.target.value } }))} /></label><label>Reps<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], reps: event.target.value } }))} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], load: event.target.value } }))} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], rest: event.target.value } }))} /></label></div>}</div>)}</fieldset><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar como modelo</button><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></div></form></article>
-        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><div className="starter-library-box"><p>Comece com uma base pronta e personalize os exercícios depois.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.muscleGroup}{exercise.anatomyRegion ? ` · ${exercise.anatomyRegion}` : ""}</small></div><div className="exercise-actions"><button type="button" onClick={() => editExercise(exercise)}>Editar</button>{access.role === "admin" && <button type="button" onClick={() => void removeExercise(exercise)}>Excluir</button>}</div></div>)}</div></article>
+        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><div className="starter-library-box"><p>Comece com uma base pronta e personalize os exercícios depois.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.bodyRegion ?? "Não classificado"} · {exercise.phase ?? "Treino principal"} · {exercise.muscleGroup}</small></div><div className="exercise-actions"><button type="button" onClick={() => editExercise(exercise)}>Editar</button>{access.role === "admin" && <button type="button" onClick={() => void removeExercise(exercise)}>Excluir</button>}</div></div>)}</div></article>
       </section>
       <section className="workspace-panel published-workouts"><header><div><span>BIBLIOTECA E PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{templates.length === 0 && workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha como modelo para reutilizá-la.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><em>Modelo</em></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
     </div>
