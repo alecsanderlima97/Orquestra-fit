@@ -632,6 +632,17 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [activeModule, setActiveModule] = useState("Visão geral");
   const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
+  function navigateToModule(module: string, studentId?: string) {
+    if (profile === "Professor" && module === "Planos e mensalidades") {
+      feedback("O módulo financeiro é exclusivo da gestão.");
+      return;
+    }
+    setFocusStudentId(studentId ?? null);
+    setActiveModule(module);
+  }
+  useEffect(() => {
+    if (profile === "Professor" && activeModule === "Planos e mensalidades") setActiveModule("Visão geral");
+  }, [activeModule, profile]);
   const visibleNav = profile === "Professor"
     ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Avaliações"].includes(label))
     : workspaceNav;
@@ -641,7 +652,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
         <AcademyBrand />
         <nav>
           {visibleNav.map(([label, Icon]) => (
-            <button key={label} className={activeModule === label ? "active" : ""} onClick={() => setActiveModule(label)}><Icon /><span>{label}</span></button>
+            <button key={label} className={activeModule === label ? "active" : ""} onClick={() => navigateToModule(label)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
         {profile === "Gestão" && <button className="rail-settings" onClick={() => setPermissionsOpen(true)}><Settings /><span>Configurações</span></button>}
@@ -656,7 +667,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => void logout()} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={(module, studentId) => { setFocusStudentId(studentId); setActiveModule(module); }} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
