@@ -639,6 +639,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const operatorInitials = operatorName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const feedback = useFeedback();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeModule, setActiveModule] = useState("Visão geral");
   const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
   function navigateToModule(module: string, studentId?: string) {
@@ -669,7 +670,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
       </aside>
       <div className="workspace-main">
         <header className="workspace-topbar">
-          <div><span>DAMA DE FERRO ACADEMIA</span><h1>{activeModule === "Visão geral" ? (profile === "Gestão" ? "Visão geral" : "Área do professor") : activeModule}</h1></div>
+          <div className="workspace-heading"><button className="workspace-mobile-menu" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}><Menu /></button><div><span>DAMA DE FERRO ACADEMIA</span><h1>{activeModule === "Visão geral" ? (profile === "Gestão" ? "Visão geral" : "Área do professor") : activeModule}</h1></div></div>
           <div className="workspace-actions">
             <button aria-label="Buscar"><Search /></button>
             <button aria-label="Notificações"><Bell /></button>
@@ -678,8 +679,23 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
         </header>
         {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
+      {mobileMenuOpen && <WorkspaceMobileDrawer profile={profile} visibleNav={visibleNav} activeModule={activeModule} onNavigate={navigateToModule} onClose={() => setMobileMenuOpen(false)} operatorName={operatorName} operatorInitials={operatorInitials} />}
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
+  );
+}
+
+function WorkspaceMobileDrawer({ profile, visibleNav, activeModule, onNavigate, onClose, operatorName, operatorInitials }: { profile: "Gestão" | "Professor"; visibleNav: ReadonlyArray<readonly [string, React.ElementType]>; activeModule: string; onNavigate: (module: string) => void; onClose: () => void; operatorName: string; operatorInitials: string }) {
+  return (
+    <div className="workspace-drawer-backdrop" role="presentation" onClick={onClose}>
+      <aside className="workspace-mobile-drawer" role="dialog" aria-modal="true" aria-label="Menu principal" onClick={(event) => event.stopPropagation()}>
+        <header><AcademyBrand /><button aria-label="Fechar menu" onClick={onClose}><X /></button></header>
+        <div className="workspace-drawer-profile"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile}</small></div></div>
+        <nav>{visibleNav.map(([label, Icon]) => <button key={label} className={activeModule === label ? "active" : ""} onClick={() => { onNavigate(label); onClose(); }}><Icon /><span>{label}</span><ChevronRight /></button>)}</nav>
+        <button className="workspace-drawer-logout" onClick={() => void logout()}><User /><span>Sair da conta</span></button>
+        <div className="drawer-footer"><small>PLATAFORMA</small><strong>Orquestra Fit</strong></div>
+      </aside>
+    </div>
   );
 }
 
