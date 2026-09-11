@@ -939,6 +939,28 @@ button { cursor: pointer; }
 .finance-bar { height: 6px; margin: 0 20px 22px; display: flex; background: #4a3330; }
 .finance-bar i { display: block; width: 82%; background: var(--bronze-400); }
 .finance-bar b { display: block; width: 13%; background: #747a7d; }
+
+/* Bronze theme: keep supporting text readable against the iron background. */
+[data-theme="forja"] .workspace-rail nav button,
+[data-theme="forja"] .rail-settings { color: #b5bbbe; }
+[data-theme="forja"] .rail-powered small,
+[data-theme="forja"] .workspace-topbar > div:first-child span,
+[data-theme="forja"] .workspace-intro > div > span,
+[data-theme="forja"] .metric-card > span,
+[data-theme="forja"] .workspace-panel > header span { color: #e2ad70; }
+[data-theme="forja"] .operator small,
+[data-theme="forja"] .workspace-intro p,
+[data-theme="forja"] .workspace-panel > header p,
+[data-theme="forja"] .workspace-panel > header button,
+[data-theme="forja"] .billing-overview header > small,
+[data-theme="forja"] .billing-progress-label { color: #b4bbbe; }
+[data-theme="forja"] .metric-card > small,
+[data-theme="forja"] .finance-total span { color: #aeb5b8; }
+[data-theme="forja"] .workspace-search { color: #aeb5b8; }
+[data-theme="forja"] .workspace-search input { color: #f2f0eb; }
+[data-theme="forja"] .table-row { color: #d1d5d6; }
+[data-theme="forja"] .table-head { color: #aeb5b8; }
+[data-theme="forja"] .table-row > button { color: #aeb5b8; }
 .finance-legend { padding: 0 20px 18px; display: grid; gap: 13px; }
 .finance-legend > div { display: flex; align-items: center; justify-content: space-between; color: #a9adaf; font-size: 10px; }
 .finance-legend span { display: flex; align-items: center; gap: 8px; }
