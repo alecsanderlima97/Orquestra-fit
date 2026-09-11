@@ -160,7 +160,7 @@ export default function Home() {
                 {activeTab === "treinos" && <WorkoutLibrary onStart={(workout) => { setActiveWorkout(workout ?? null); setCompletedSets([]); setSessionOpen(true); }} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
-                {activeTab === "perfil" && <Profile />}
+                {activeTab === "perfil" && <Profile onNavigate={setActiveTab} />}
               </div>
               <StudentNav activeTab={activeTab} onChange={setActiveTab} />
             </>
@@ -493,18 +493,26 @@ function Agenda() {
   );
 }
 
-function Profile() {
+function Profile({ onNavigate }: { onNavigate: (tab: StudentTab) => void }) {
   const access = useAccess();
+  const [openPanel, setOpenPanel] = useState<string | null>(null);
   const links = [
     { icon: User, label: "Dados pessoais" },
     { icon: WalletCards, label: "Plano e mensalidades" },
     { icon: Activity, label: "Avaliações físicas" },
     { icon: ShieldCheck, label: "Privacidade e segurança" },
   ];
+  function handleLink(label: string) {
+    if (label === "Avaliações físicas") {
+      onNavigate("evolucao");
+      return;
+    }
+    setOpenPanel((current) => current === label ? null : label);
+  }
   return (
     <div className="student-view profile-view">
       <div className="profile-identity"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><small>ALUNO</small><h1>{accountName(access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
-      {links.map(({ icon: Icon, label }) => <button className="profile-link" key={label}><Icon /><span>{label}</span><ChevronRight /></button>)}
+      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta Google.</small></>}{label === "Plano e mensalidades" && <><strong>Informações do plano</strong><span>Consulte a equipe da academia para valores, vencimentos e pagamentos.</span><small>O financeiro detalhado permanece protegido para a gestão.</small></>}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>Seu acesso usa sua conta Google vinculada à academia.</span><small>Para solicitar correção ou remoção de dados, fale com a academia.</small></>}</div>}</div>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
     </div>

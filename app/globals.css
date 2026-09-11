@@ -591,7 +591,9 @@ button { cursor: pointer; }
 .class-card small { color: var(--bronze-400); font-size: 8px; font-weight: 900; letter-spacing: 1px; }
 .class-card h2 { font-family: Georgia, serif; font-size: 18px; margin: 4px 0; }
 .class-card p { color: var(--steel-500); font-size: 9px; margin: 0; }
-.class-card > button { grid-column: 1/-1; height: 42px; border: 0; background: var(--bronze-400); color: #19110b; font-weight: 900; margin-top: 7px; }
+.class-card-actions { grid-column: 1/-1; display: grid; gap: 7px; margin-top: 7px; }
+.class-card-actions > button { width: 100%; min-height: 42px; border: 0; background: var(--bronze-400); color: #19110b; font-weight: 900; }
+.class-card-actions > .secondary-action { border: 1px solid var(--line); background: transparent; color: var(--steel-300); }
 .empty-agenda { padding: 54px 24px; text-align: center; color: #555b5f; }
 .empty-agenda svg { width: 35px; height: 35px; }
 .empty-agenda h3 { color: #a8acae; font-size: 15px; margin: 15px 0 6px; }
@@ -605,6 +607,11 @@ button { cursor: pointer; }
 .profile-link { width: 100%; min-height: 62px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: #e8e5df; display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 13px; text-align: left; font-size: 13px; }
 .profile-link svg { width: 19px; color: var(--bronze-400); }
 .profile-link svg:last-child { color: #555b5e; }
+.profile-chevron-open { transform: rotate(90deg); }
+.profile-detail-card { display: grid; gap: 6px; padding: 14px 16px 16px 60px; border-bottom: 1px solid var(--line); background: #151719; }
+.profile-detail-card strong { color: #f1eee8; font-size: 14px; }
+.profile-detail-card span { color: var(--steel-300); font-size: 13px; line-height: 1.45; }
+.profile-detail-card small { color: var(--steel-500); font-size: 11px; line-height: 1.45; }
 .powered-by { margin-top: 38px; border-top: 1px solid var(--line); padding-top: 18px; display: grid; justify-items: center; }
 .powered-by span, .powered-by small { color: #5f6568; font-size: 8px; text-transform: uppercase; letter-spacing: 1.3px; }
 .powered-by strong { font-family: Georgia, serif; color: var(--bronze-300); margin: 3px; }
@@ -1277,6 +1284,12 @@ button { cursor: pointer; }
   .academy-brand img { width: 48px; height: 48px; }
   .academy-brand span { font-size: 16px; }
   .student-view { padding-left: 17px; padding-right: 17px; }
+  .student-view .welcome-row > div > span, .student-view .page-intro p { font-size: 15px; line-height: 1.5; }
+  .student-view .status-grid small, .student-view .class-card small { font-size: 11px; }
+  .student-view .status-grid p, .student-view .class-card p, .student-view .class-time span { font-size: 12px; line-height: 1.4; }
+  .student-view .profile-link { min-height: 70px; font-size: 15px; }
+  .student-view .profile-identity p { font-size: 13px; }
+  .student-nav button { font-size: 11px; }
   .today-workout { padding-left: 20px; padding-right: 20px; }
   .workout-copy { width: 78%; }
   .workout-copy h2 { font-size: 34px; }
