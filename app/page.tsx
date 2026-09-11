@@ -4,10 +4,10 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import {
-  Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
-  ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
+  Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check, Footprints,
+  ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Search, Settings,
-  ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X,
+  PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { auth, db } from "@/lib/firebase/client";
@@ -801,20 +801,38 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
 const exercisePhaseOrder: ExercisePhase[] = ["Preparação", "Treino principal", "Cardio", "Finalização"];
 const exerciseRegionOrder: BodyRegion[] = ["Membros superiores", "Tronco anterior", "Tronco posterior", "Região central", "Membros inferiores"];
 
+function exercisePhaseIcon(phase: ExercisePhase) {
+  if (phase === "Preparação") return <Activity />;
+  if (phase === "Cardio") return <Gauge />;
+  if (phase === "Finalização") return <Footprints />;
+  return <Dumbbell />;
+}
+
+function exerciseRegionIcon(region: BodyRegion) {
+  if (region === "Região central") return <Activity />;
+  if (region === "Membros inferiores") return <Footprints />;
+  return <PersonStanding />;
+}
+
 function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggle, onParameterChange }: { exercises: ExerciseRecord[]; selectedExercises: string[]; exerciseDetails: Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>; onToggle: (exercise: ExerciseRecord) => void; onParameterChange: (exerciseId: string, field: "sets" | "reps" | "load" | "rest", value: string) => void }) {
+  const [openPhases, setOpenPhases] = useState<ExercisePhase[]>(["Preparação"]);
+  function togglePhase(currentPhase: ExercisePhase) { setOpenPhases((current) => current.includes(currentPhase) ? current.filter((item) => item !== currentPhase) : [...current, currentPhase]); }
   return <div className="exercise-picker">{exercisePhaseOrder.map((currentPhase) => {
     const phaseExercises = exercises.filter((exercise) => (exercise.phase ?? "Treino principal") === currentPhase);
     if (!phaseExercises.length) return null;
-    return <section className="exercise-phase-group" key={currentPhase}><header><span>{currentPhase}</span><small>{currentPhase === "Preparação" ? "Alongamento e mobilidade antes da ficha" : "Selecione os exercícios desta etapa"}</small></header>{exerciseRegionOrder.map((region) => {
+    const isOpen = openPhases.includes(currentPhase);
+    return <section className={isOpen ? "exercise-phase-group open" : "exercise-phase-group"} key={currentPhase}><button className="collapse-header" type="button" onClick={() => togglePhase(currentPhase)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exercisePhaseIcon(currentPhase)}{currentPhase}</span><small>{phaseExercises.length} exercícios · {currentPhase === "Preparação" ? "Alongamento e mobilidade antes da ficha" : "Selecione os exercícios desta etapa"}</small></button>{isOpen && <div className="collapse-content">{exerciseRegionOrder.map((region) => {
       const regionExercises = phaseExercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region);
       if (!regionExercises.length) return null;
-      return <div className="exercise-region-group" key={region}><h4>{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="exercise-class-group" key={`${region}-${muscleGroup}`}><h5>{muscleGroup}</h5>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const selected = selectedExercises.includes(exercise.id); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><label><input type="checkbox" checked={selected} onChange={() => onToggle(exercise)} /><span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}</small></span></label>{selected && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>Repetições<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>)}</div>;
-    })}</section>;
+      return <div className="exercise-region-group" key={region}><h4>{exerciseRegionIcon(region)}{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="exercise-class-group" key={`${region}-${muscleGroup}`}><h5>{muscleGroup}</h5>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const selected = selectedExercises.includes(exercise.id); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><label><input type="checkbox" checked={selected} onChange={() => onToggle(exercise)} /><span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}</small></span></label>{selected && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>Repetições<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>)}</div>;
+    })}</div>}</section>;
   })}</div>;
 }
 
 function ExerciseLibrary({ exercises, accessRole, onEdit, onRemove }: { exercises: ExerciseRecord[]; accessRole: string; onEdit: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void }) {
-  return <div className="exercise-library">{exerciseRegionOrder.map((region) => { const regionExercises = exercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region); if (!regionExercises.length) return null; return <section className="library-region-group" key={region}><header><strong>{region}</strong><small>{regionExercises.length} exercícios</small></header>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${region}-${muscleGroup}`}><h4>{muscleGroup}</h4>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => <div className="library-exercise-row" key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}</small></div><div className="exercise-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>)}</div>)}</section>; })}</div>;
+  const [openRegions, setOpenRegions] = useState<BodyRegion[]>(["Membros superiores"]);
+  function toggleRegion(region: BodyRegion) { setOpenRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region]); }
+  return <div className="exercise-library">{exerciseRegionOrder.map((region) => { const regionExercises = exercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region); if (!regionExercises.length) return null; const isOpen = openRegions.includes(region); return <section className={isOpen ? "library-region-group open" : "library-region-group"} key={region}><button className="collapse-header" type="button" onClick={() => toggleRegion(region)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exerciseRegionIcon(region)}{region}</span><small>{regionExercises.length} exercícios</small></button>{isOpen && <div className="collapse-content">{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${region}-${muscleGroup}`}><h4>{muscleGroup}</h4>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => <div className="library-exercise-row" key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}</small></div><div className="exercise-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>)}</div>)}</div>}</section>; })}</div>;
 }
 
 function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void }) {

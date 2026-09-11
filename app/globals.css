@@ -290,6 +290,20 @@ button { cursor: pointer; }
 .training-layout-redesigned .library-exercise-row strong { font-size: 13px; }
 .training-layout-redesigned .library-exercise-row small { font-size: 11px; line-height: 1.35; }
 .training-layout-redesigned .panel-helper { font-size: 12px; }
+.collapse-header { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--paper); padding: 10px 0; text-align: left; cursor: pointer; }
+.collapse-header > span { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--bronze-300); font-size: 13px; font-weight: 900; }
+.collapse-header > span svg { width: 16px; height: 16px; flex: 0 0 auto; transition: transform .18s ease; }
+.collapse-header > span svg.rotated { transform: rotate(180deg); }
+.collapse-header > span svg:not(:first-child) { color: var(--steel-300); }
+.collapse-header > small { color: var(--steel-500); font-size: 10px; text-align: right; }
+.collapse-content { min-width: 0; padding-top: 5px; }
+.exercise-region-group h4 { display: flex; align-items: center; gap: 6px; }
+.exercise-region-group h4 svg { width: 15px; height: 15px; color: var(--bronze-400); }
+.library-region-group { min-width: 0; }
+.library-exercise-row { min-width: 0; flex-wrap: wrap; }
+.library-exercise-row > div:first-child { flex: 1 1 150px; overflow-wrap: anywhere; }
+.library-exercise-row .exercise-actions { flex: 0 0 auto; }
+.library-exercise-row small { overflow-wrap: anywhere; }
 .exercise-library { display: grid; gap: 0; padding: 0 22px 20px; }
 .starter-library-box { display: grid; gap: 10px; margin: 18px 22px 0; padding: 13px; border: 1px solid #4b3a29; background: #171411; }
 .starter-library-box p { margin: 0; color: var(--steel-300); font-size: 10px; line-height: 1.45; }
