@@ -154,7 +154,8 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
       batch.set(memberRef, {
         userId: user.uid,
         displayName: invitation.invitedName ?? user.displayName ?? user.email ?? "Usuário",
-        email: user.email ?? null,
+        email: user.email?.endsWith("@accounts.orquestra-fit.local") ? null : user.email ?? null,
+        username: user.email?.endsWith("@accounts.orquestra-fit.local") ? user.displayName ?? null : null,
         role: invitation.role,
         active: true,
         activationCodeId: normalizedCode,
@@ -164,7 +165,8 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         batch.set(doc(firestore, "academies", invitation.academyId, "students", user.uid), {
           userId: user.uid,
           name: invitation.invitedName ?? user.displayName ?? user.email ?? "Aluno",
-          email: invitation.invitedEmail ?? user.email ?? null,
+          email: invitation.invitedEmail ?? (user.email?.endsWith("@accounts.orquestra-fit.local") ? null : user.email) ?? null,
+          username: user.email?.endsWith("@accounts.orquestra-fit.local") ? user.displayName ?? null : null,
           plan: invitation.plan ?? null,
           active: true,
           activationCodeId: normalizedCode,
@@ -182,7 +184,8 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
       }
       const userData = {
         displayName: user.displayName ?? user.email ?? "Usuário",
-        email: user.email ?? null,
+        email: user.email?.endsWith("@accounts.orquestra-fit.local") ? null : user.email ?? null,
+        ...(user.email?.endsWith("@accounts.orquestra-fit.local") ? { username: user.displayName ?? null } : {}),
         activeAcademyId: invitation.academyId,
         academyIds: [invitation.academyId],
         activationCodeId: normalizedCode,
