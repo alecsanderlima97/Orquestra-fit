@@ -959,7 +959,11 @@ button { cursor: pointer; }
 [data-theme="forja"] .workspace-search { color: #aeb5b8; }
 [data-theme="forja"] .workspace-search input { color: #f2f0eb; }
 [data-theme="forja"] .table-row { color: #d1d5d6; }
-[data-theme="forja"] .table-head { color: #aeb5b8; }
+[data-theme="forja"] .table-row { min-height: 66px; font-size: 12px; }
+[data-theme="forja"] .table-head { color: #c2c8ca; font-size: 10px; letter-spacing: .04em; }
+[data-theme="forja"] .table-person { color: #f2f0eb; }
+[data-theme="forja"] .table-person strong { font-size: 12px; }
+[data-theme="forja"] .table-row em { font-size: 10px; }
 [data-theme="forja"] .table-row > button { color: #aeb5b8; }
 .finance-legend { padding: 0 20px 18px; display: grid; gap: 13px; }
 .finance-legend > div { display: flex; align-items: center; justify-content: space-between; color: #a9adaf; font-size: 10px; }
