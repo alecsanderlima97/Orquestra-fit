@@ -579,7 +579,7 @@ type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; r
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type WorkoutTemplateRecord = { id: string; name: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
-type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; notes: string };
+type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; completedAt?: { toDate?: () => Date } };
 
 type ChargeViewStatus = "paid" | "overdue" | "dueSoon" | "pending";
@@ -627,6 +627,10 @@ function AssessmentsModule({ onFeedback }: { onFeedback: (message: string) => vo
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
   const [bodyFat, setBodyFat] = useState("");
+  const [biceps, setBiceps] = useState("");
+  const [waist, setWaist] = useState("");
+  const [chest, setChest] = useState("");
+  const [thigh, setThigh] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -644,8 +648,8 @@ function AssessmentsModule({ onFeedback }: { onFeedback: (message: string) => vo
     if (!student) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "assessments"), { studentId, studentName: student.name, date, weight, height, bodyFat, notes, createdBy: access.userId, createdAt: serverTimestamp() });
-      setStudentId(""); setDate(""); setWeight(""); setHeight(""); setBodyFat(""); setNotes(""); onFeedback("Avaliação física registrada.");
+      await addDoc(collection(db, "academies", access.academyId, "assessments"), { studentId, studentName: student.name, date, weight, height, bodyFat, biceps, waist, chest, thigh, notes, createdBy: access.userId, createdAt: serverTimestamp() });
+      setStudentId(""); setDate(""); setWeight(""); setHeight(""); setBodyFat(""); setBiceps(""); setWaist(""); setChest(""); setThigh(""); setNotes(""); onFeedback("Avaliação física registrada.");
     } catch { onFeedback("Não foi possível registrar a avaliação."); }
     finally { setSaving(false); }
   }
@@ -653,7 +657,7 @@ function AssessmentsModule({ onFeedback }: { onFeedback: (message: string) => vo
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>EVOLUÇÃO · GESTÃO</span><h2>Avaliações físicas</h2><p>Registre medidas básicas e acompanhe a evolução dos alunos.</p></div></section>
-      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="Ex.: 72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="Ex.: 175" required /></label><label>Gordura corporal (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{assessments.length} {assessments.length === 1 ? "avaliação" : "avaliações"}</h3></div></header><div className="assessment-list">{assessments.length === 0 ? <div className="directory-empty"><Activity /><p>Nenhuma avaliação registrada ainda.</p></div> : assessments.map((item) => <div className="assessment-row" key={item.id}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></div>)}</div></article></section>
+      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{assessments.length} {assessments.length === 1 ? "avaliação" : "avaliações"}</h3></div></header><div className="assessment-list">{assessments.length === 0 ? <div className="directory-empty"><Activity /><p>Nenhuma avaliação registrada ainda.</p></div> : assessments.map((item) => <div className="assessment-row" key={item.id}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></div>)}</div></article></section>
     </div>
   );
 }
