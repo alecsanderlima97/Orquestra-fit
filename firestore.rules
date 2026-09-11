@@ -168,6 +168,13 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId);
     }
 
+    match /academies/{academyId}/attendance/{attendanceId} {
+      allow read: if isAdmin(academyId) || isTeacher(academyId) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+      allow create: if isStudent(academyId) && request.resource.data.studentId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /academies/{academyId}/assessments/{assessmentId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
         (isStudent(academyId) && resource.data.studentId == request.auth.uid);
