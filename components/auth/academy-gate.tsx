@@ -37,10 +37,17 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
   const [member, setMember] = useState<MemberProfile | null | undefined>(undefined);
   const [loadError, setLoadError] = useState(false);
+  const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
 
   useEffect(() => {
+    setProfile(undefined);
+    setMember(undefined);
+    setLoadError(false);
+    setResolvedUserId(null);
     if (!db) {
       setProfile(null);
+      setMember(null);
+      setResolvedUserId(user.uid);
       return;
     }
     const firestore = db;
@@ -50,6 +57,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
       if (!cancelled) {
         setProfile(null);
         setMember(null);
+        setResolvedUserId(user.uid);
       }
     }, 8000);
 
@@ -60,6 +68,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
           window.clearTimeout(timeoutId);
           setProfile(null);
           setMember(null);
+          setResolvedUserId(user.uid);
           return;
         }
         const nextProfile = snapshot.data() as UserProfile;
@@ -68,11 +77,13 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
         if (cancelled) return;
         window.clearTimeout(timeoutId);
         setMember(memberSnapshot.exists() ? (memberSnapshot.data() as MemberProfile) : null);
+        setResolvedUserId(user.uid);
       })
       .catch(() => {
         if (!cancelled) {
           window.clearTimeout(timeoutId);
           setLoadError(true);
+          setResolvedUserId(user.uid);
         }
       });
 
@@ -82,8 +93,8 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
     };
   }, [user.uid]);
 
+  if (resolvedUserId !== user.uid || profile === undefined || member === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
   if (loadError) return <main className="auth-loading">Não foi possível confirmar seu acesso agora. Atualize a página para tentar novamente.</main>;
-  if (profile === undefined || member === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
   if (!profile?.activeAcademyId) {
     return isDeveloperAccount(user)
       ? <CreateAcademy user={user} onCreated={(nextProfile) => { setProfile(nextProfile); setMember({ role: "admin", active: true }); }} />
