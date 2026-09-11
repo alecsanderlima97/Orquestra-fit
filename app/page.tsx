@@ -160,7 +160,7 @@ export default function Home() {
                 {activeTab === "treinos" && <WorkoutLibrary onStart={(workout) => { setActiveWorkout(workout ?? null); setCompletedSets([]); setSessionOpen(true); }} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
-                {activeTab === "perfil" && <Profile onNavigate={setActiveTab} />}
+                {activeTab === "perfil" && <Profile onNavigate={setActiveTab} theme={theme} onThemeChange={setTheme} />}
               </div>
               <StudentNav activeTab={activeTab} onChange={setActiveTab} />
             </>
@@ -168,7 +168,7 @@ export default function Home() {
           {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={setActiveTab} />}
         </section>
       )}
-        {role === "professor" && <ProfessorWorkspace />}
+        {role === "professor" && <ProfessorWorkspace theme={theme} onThemeChange={setTheme} />}
         {role === "gestao" && <AdminWorkspace theme={theme} onThemeChange={setTheme} />}
         {feedback && <div className="action-feedback" role="status">{feedback}</div>}
       </main>
@@ -493,7 +493,7 @@ function Agenda() {
   );
 }
 
-function Profile({ onNavigate }: { onNavigate: (tab: StudentTab) => void }) {
+function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: StudentTab) => void; theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const access = useAccess();
   const [openPanel, setOpenPanel] = useState<string | null>(null);
   const links = [
@@ -501,6 +501,7 @@ function Profile({ onNavigate }: { onNavigate: (tab: StudentTab) => void }) {
     { icon: WalletCards, label: "Plano e mensalidades" },
     { icon: Activity, label: "Avaliações físicas" },
     { icon: ShieldCheck, label: "Privacidade e segurança" },
+    { icon: Palette, label: "Aparência" },
   ];
   function handleLink(label: string) {
     if (label === "Avaliações físicas") {
@@ -512,7 +513,7 @@ function Profile({ onNavigate }: { onNavigate: (tab: StudentTab) => void }) {
   return (
     <div className="student-view profile-view">
       <div className="profile-identity"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><small>ALUNO</small><h1>{accountName(access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
-      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>Você pode entrar com Google ou com e-mail e senha. O Firebase mantém sua sessão ativa neste dispositivo para evitar novo login a cada abertura.</span><small>Sua senha não fica salva no aplicativo. Para corrigir ou remover dados, fale com a academia.</small></>}</div>}</div>)}
+      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>Você pode entrar com Google ou com e-mail e senha. O Firebase mantém sua sessão ativa neste dispositivo para evitar novo login a cada abertura.</span><small>Sua senha não fica salva no aplicativo. Para corrigir ou remover dados, fale com a academia.</small></>}{label === "Aparência" && <><strong>Tema do ambiente</strong><ThemeSwitcher theme={theme} onChange={onThemeChange} /></>}</div>}</div>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
     </div>
@@ -639,6 +640,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const operatorInitials = operatorName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const feedback = useFeedback();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeModule, setActiveModule] = useState("Visão geral");
   const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
@@ -665,7 +667,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button key={label} className={activeModule === label ? "active" : ""} onClick={() => navigateToModule(label)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
-        {profile === "Gestão" && <button className="rail-settings" onClick={() => setPermissionsOpen(true)}><Settings /><span>Configurações</span></button>}
+        {(profile === "Gestão" || profile === "Professor") && <button className="rail-settings" onClick={() => profile === "Gestão" ? setPermissionsOpen(true) : setAppearanceOpen(true)}><Settings /><span>Configurações</span></button>}
         <div className="rail-powered"><small>PLATAFORMA</small><strong>Orquestra Fit</strong></div>
       </aside>
       <div className="workspace-main">
@@ -680,7 +682,8 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
         {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       <WorkspaceMobileNav profile={profile} activeModule={activeModule} onNavigate={navigateToModule} onMore={() => setMobileMenuOpen(true)} />
-      {mobileMenuOpen && <WorkspaceMobileDrawer profile={profile} visibleNav={visibleNav} activeModule={activeModule} onNavigate={navigateToModule} onClose={() => setMobileMenuOpen(false)} operatorName={operatorName} operatorInitials={operatorInitials} />}
+      {mobileMenuOpen && <WorkspaceMobileDrawer profile={profile} visibleNav={visibleNav} activeModule={activeModule} onNavigate={navigateToModule} onClose={() => setMobileMenuOpen(false)} operatorName={operatorName} operatorInitials={operatorInitials} onSettings={() => { setMobileMenuOpen(false); if (profile === "Gestão") setPermissionsOpen(true); else setAppearanceOpen(true); }} />}
+      {appearanceOpen && theme && onThemeChange && <AppearancePanel theme={theme} onThemeChange={onThemeChange} onClose={() => setAppearanceOpen(false)} />}
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
   );
@@ -693,13 +696,14 @@ function WorkspaceMobileNav({ profile, activeModule, onNavigate, onMore }: { pro
   return <nav className="workspace-mobile-nav" aria-label="Acessos rápidos">{items.map(([label, Icon]) => <button key={label} className={activeModule === label ? "active" : ""} onClick={() => onNavigate(label)}><Icon /><span>{label === "Visão geral" ? "Início" : label === "Planos e mensalidades" ? "Planos" : label.split(" ")[0]}</span></button>)}<button onClick={onMore}><MoreHorizontal /><span>Mais</span></button></nav>;
 }
 
-function WorkspaceMobileDrawer({ profile, visibleNav, activeModule, onNavigate, onClose, operatorName, operatorInitials }: { profile: "Gestão" | "Professor"; visibleNav: ReadonlyArray<readonly [string, React.ElementType]>; activeModule: string; onNavigate: (module: string) => void; onClose: () => void; operatorName: string; operatorInitials: string }) {
+function WorkspaceMobileDrawer({ profile, visibleNav, activeModule, onNavigate, onClose, operatorName, operatorInitials, onSettings }: { profile: "Gestão" | "Professor"; visibleNav: ReadonlyArray<readonly [string, React.ElementType]>; activeModule: string; onNavigate: (module: string) => void; onClose: () => void; operatorName: string; operatorInitials: string; onSettings: () => void }) {
   return (
     <div className="workspace-drawer-backdrop" role="presentation" onClick={onClose}>
       <aside className="workspace-mobile-drawer" role="dialog" aria-modal="true" aria-label="Menu principal" onClick={(event) => event.stopPropagation()}>
         <header><AcademyBrand /><button aria-label="Fechar menu" onClick={onClose}><X /></button></header>
         <div className="workspace-drawer-profile"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile}</small></div></div>
         <nav>{visibleNav.map(([label, Icon]) => <button key={label} className={activeModule === label ? "active" : ""} onClick={() => { onNavigate(label); onClose(); }}><Icon /><span>{label}</span><ChevronRight /></button>)}</nav>
+        <button className="workspace-drawer-settings" onClick={onSettings}><Settings /><span>Configurações</span><ChevronRight /></button>
         <button className="workspace-drawer-logout" onClick={() => void logout()}><User /><span>Sair da conta</span></button>
         <div className="drawer-footer"><small>PLATAFORMA</small><strong>Orquestra Fit</strong></div>
       </aside>
@@ -1664,6 +1668,10 @@ function WorkspaceModule({ title, profile, onFeedback }: { title: string; profil
   );
 }
 
+function AppearancePanel({ theme, onThemeChange, onClose }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void }) {
+  return <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="appearance-title"><section className="permissions-panel appearance-only-panel"><header><div><span>CONFIGURAÇÕES</span><h2 id="appearance-title">Aparência</h2><p>Escolha o tema visual do seu ambiente.</p></div><button aria-label="Fechar aparência" onClick={onClose}><X /></button></header><section className="settings-section appearance-section"><div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Tema do ambiente</h3></div><small>Preferência deste ambiente</small></div><ThemeSwitcher theme={theme} onChange={onThemeChange} /></section></section></div>;
+}
+
 function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void; onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [roleToAdd, setRoleToAdd] = useState<"teacher" | "student" | null>(null);
@@ -1863,7 +1871,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
   );
 }
 
-function ProfessorWorkspace() {
+function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const access = useAccess();
   const feedback = useFeedback();
   const [trainingOpen, setTrainingOpen] = useState(false);
@@ -1877,7 +1885,7 @@ function ProfessorWorkspace() {
   }, [access.academyId, access.userId]);
   const today: Array<{ time: string; name: string; focus: string; status: string }> = [];
   return (
-    <WorkspaceShell profile="Professor">
+    <WorkspaceShell profile="Professor" theme={theme} onThemeChange={onThemeChange}>
       {trainingOpen ? <TrainingModule onFeedback={feedback} /> : <div className="workspace-content">
         <section className="workspace-intro">
           <div><span>ACOMPANHAMENTO · PROFESSOR</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>

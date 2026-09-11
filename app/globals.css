@@ -1348,6 +1348,9 @@ button { cursor: pointer; }
   .workspace-mobile-drawer nav button, .workspace-drawer-logout { min-height: 50px; border: 0; background: transparent; color: #b9bdbe; display: flex; align-items: center; gap: 12px; padding: 0 12px; text-align: left; font-size: 13px; }
   .workspace-mobile-drawer nav button svg:first-child, .workspace-drawer-logout svg { width: 18px; color: var(--bronze-300); }
   .workspace-mobile-drawer nav button svg:last-child { width: 15px; margin-left: auto; color: #62686b; }
+  .workspace-drawer-settings { min-height: 50px; border: 0; border-top: 1px solid var(--line); margin-top: 12px; padding: 12px; background: transparent; color: #b9bdbe; display: flex; align-items: center; gap: 12px; text-align: left; font-size: 13px; }
+  .workspace-drawer-settings svg:first-child { width: 18px; color: var(--bronze-300); }
+  .workspace-drawer-settings svg:last-child { width: 15px; margin-left: auto; color: #62686b; }
   .workspace-mobile-drawer nav button.active { color: var(--neon); background: #1b1814; }
   .workspace-drawer-profile { display: flex; align-items: center; gap: 11px; padding: 20px 4px 4px; }
   .workspace-drawer-profile > span { width: 38px; height: 38px; border: 1px solid var(--bronze-500); display: grid; place-items: center; color: var(--bronze-300); font: 12px Georgia, serif; }
