@@ -7,7 +7,7 @@ import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Search, Settings,
-  PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, X,
+  PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { auth, db } from "@/lib/firebase/client";
@@ -285,6 +285,8 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
         </article>
       </section>
 
+      <StudentMessagesInbox />
+
       <article className="academy-note">
         <div className="note-mark">DF</div>
         <div><span>COMUNICADO DA ACADEMIA</span><h3>Avaliação física disponível</h3><p>Reserve um horário com a equipe para acompanhar sua evolução.</p></div>
@@ -320,6 +322,19 @@ function StudentPaymentStatus() {
       <div><small>Mensalidade</small><strong>{charge ? chargeStatusLabel(status) : "Sem cobrança"}</strong><p>{detail}</p></div><ChevronRight />
     </article>
   );
+}
+
+function StudentMessagesInbox() {
+  const access = useAccess();
+  const [messages, setMessages] = useState<InternalMessage[]>([]);
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => {
+      setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+    });
+  }, [access.academyId, access.userId]);
+  const message = messages[0];
+  return <article className="student-message-inbox"><div className="student-message-inbox-icon"><MessageCircle /></div><div><small>COMUNICADO DA EQUIPE</small><strong>{message ? message.senderName : "Nenhuma mensagem nova"}</strong><p>{message?.body ?? "Quando seu professor enviar uma orientação, ela aparecerá aqui."}</p></div></article>;
 }
 
 function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => void }) {
@@ -600,6 +615,7 @@ type RegisteredStudent = {
   teacherId?: string | null;
   active?: boolean;
 };
+type InternalMessage = { id: string; studentId: string; senderId: string; senderName: string; body: string; createdAt?: { toDate?: () => Date } };
 
 type RegisteredTeacher = {
   id: string;
@@ -1319,6 +1335,10 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
   );
 }
 
+function StudentMessagesPanel({ messages, body, sending, onBodyChange, onSend }: { messages: InternalMessage[]; body: string; sending: boolean; onBodyChange: (value: string) => void; onSend: () => void }) {
+  return <section className="student-profile-messages"><div className="student-profile-message-heading"><span><MessageCircle /> MENSAGEM INTERNA</span><small>{messages.length} enviada(s)</small></div>{messages.length > 0 && <div className="student-message-history">{messages.slice(0, 2).map((message) => <div key={message.id}><strong>{message.senderName}</strong><p>{message.body}</p></div>)}</div>}<div className="student-message-compose"><textarea value={body} onChange={(event) => onBodyChange(event.target.value)} placeholder="Escreva uma orientação ou lembrete para o aluno..." /><button type="button" onClick={onSend} disabled={sending || !body.trim()}>{sending ? "Enviando..." : "Enviar mensagem"}</button></div></section>;
+}
+
 function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
@@ -1335,6 +1355,9 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
   const [studentAssessments, setStudentAssessments] = useState<AssessmentRecord[]>([]);
   const [studentCharges, setStudentCharges] = useState<MonthlyCharge[]>([]);
   const [studentExecutions, setStudentExecutions] = useState<WorkoutExecution[]>([]);
+  const [studentMessages, setStudentMessages] = useState<InternalMessage[]>([]);
+  const [messageBody, setMessageBody] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
     if (!db) return;
@@ -1375,7 +1398,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
 
   useEffect(() => {
     if (!db || !selectedId) {
-      setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]);
+      setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentMessages([]);
       return;
     }
     const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", selectedId)), (snapshot) => {
@@ -1390,7 +1413,10 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
     const unsubscribeExecutions = onSnapshot(query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => (b.completedAt?.toDate?.().getTime() ?? 0) - (a.completedAt?.toDate?.().getTime() ?? 0)));
     });
-    return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); };
+    const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
+      setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+    });
+    return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeMessages(); };
   }, [access.academyId, access.role, selectedId]);
 
   async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
@@ -1422,6 +1448,16 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
     }
   }
 
+  async function sendInternalMessage() {
+    if (!db || !selectedStudent || !messageBody.trim()) return;
+    setSendingMessage(true);
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "messages"), { studentId: selectedStudent.id, senderId: access.userId, senderName: accountName(access.user.displayName, access.user.email), body: messageBody.trim(), createdAt: serverTimestamp(), read: false });
+      setMessageBody(""); onFeedback("Mensagem enviada ao aluno.");
+    } catch { onFeedback("Não foi possível enviar a mensagem."); }
+    finally { setSendingMessage(false); }
+  }
+
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro">
@@ -1446,6 +1482,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
             <div className="student-profile-overview"><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>VISITAS REGISTRADAS</small><strong>{studentExecutions.length}</strong></div></div>
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{workout.name}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
             <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}>Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}>Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onNavigate("Planos e mensalidades", selectedStudent.id)}>Ver financeiro</button>}</div>
+            <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <div className="student-profile-divider"><span>CADASTRO E ACESSO</span></div>
             <form className="student-detail-form" onSubmit={saveStudent}>
               <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label>
