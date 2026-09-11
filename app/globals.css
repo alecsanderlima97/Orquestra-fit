@@ -1068,6 +1068,7 @@ button { cursor: pointer; }
 .workspace-mobile-menu { display: none; width: 38px; height: 38px; border: 1px solid var(--line); background: #151719; color: var(--paper); align-items: center; justify-content: center; }
 .workspace-mobile-menu svg { width: 19px; }
 .workspace-drawer-backdrop { display: none; }
+.workspace-mobile-nav { display: none; }
 .workspace-actions { display: flex; align-items: center; gap: 8px; }
 .workspace-actions > button {
   width: 40px; height: 40px; border: 1px solid var(--line); background: #15181a;
@@ -1356,6 +1357,10 @@ button { cursor: pointer; }
   .workspace-drawer-logout { margin-top: auto; border-top: 1px solid var(--line) !important; padding-top: 17px !important; color: #d48a82 !important; }
   .workspace-drawer-logout svg { color: #d48a82 !important; }
   .workspace-mobile-drawer .drawer-footer { margin-top: 19px; }
+  .workspace-mobile-nav { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; height: 72px; display: grid; grid-template-columns: repeat(5, 1fr); padding: 7px 8px max(7px, env(safe-area-inset-bottom)); border-top: 1px solid #2d302f; background: rgba(15, 17, 18, .97); backdrop-filter: blur(14px); }
+  .workspace-mobile-nav button { border: 0; background: transparent; color: #8e9597; display: grid; place-items: center; align-content: center; gap: 4px; font-size: 9px; }
+  .workspace-mobile-nav button svg { width: 19px; height: 19px; }
+  .workspace-mobile-nav button.active { color: var(--neon); }
 }
 @media (max-width: 370px) {
   .academy-brand span { font-size: 14px; }

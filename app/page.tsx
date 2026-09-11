@@ -679,10 +679,18 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
         </header>
         {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
+      <WorkspaceMobileNav profile={profile} activeModule={activeModule} onNavigate={navigateToModule} onMore={() => setMobileMenuOpen(true)} />
       {mobileMenuOpen && <WorkspaceMobileDrawer profile={profile} visibleNav={visibleNav} activeModule={activeModule} onNavigate={navigateToModule} onClose={() => setMobileMenuOpen(false)} operatorName={operatorName} operatorInitials={operatorInitials} />}
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
   );
+}
+
+function WorkspaceMobileNav({ profile, activeModule, onNavigate, onMore }: { profile: "Gestão" | "Professor"; activeModule: string; onNavigate: (module: string) => void; onMore: () => void }) {
+  const items = profile === "Professor"
+    ? [["Visão geral", LayoutDashboard], ["Alunos", Users], ["Treinos", Dumbbell], ["Aulas e reservas", CalendarDays]] as const
+    : [["Visão geral", LayoutDashboard], ["Alunos", Users], ["Professores", UserRoundCheck], ["Planos e mensalidades", WalletCards]] as const;
+  return <nav className="workspace-mobile-nav" aria-label="Acessos rápidos">{items.map(([label, Icon]) => <button key={label} className={activeModule === label ? "active" : ""} onClick={() => onNavigate(label)}><Icon /><span>{label === "Visão geral" ? "Início" : label === "Planos e mensalidades" ? "Planos" : label.split(" ")[0]}</span></button>)}<button onClick={onMore}><MoreHorizontal /><span>Mais</span></button></nav>;
 }
 
 function WorkspaceMobileDrawer({ profile, visibleNav, activeModule, onNavigate, onClose, operatorName, operatorInitials }: { profile: "Gestão" | "Professor"; visibleNav: ReadonlyArray<readonly [string, React.ElementType]>; activeModule: string; onNavigate: (module: string) => void; onClose: () => void; operatorName: string; operatorInitials: string }) {
