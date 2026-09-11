@@ -835,6 +835,11 @@ function ExerciseLibrary({ exercises, accessRole, onEdit, onRemove }: { exercise
   return <div className="exercise-library">{exerciseRegionOrder.map((region) => { const regionExercises = exercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region); if (!regionExercises.length) return null; const isOpen = openRegions.includes(region); return <section className={isOpen ? "library-region-group open" : "library-region-group"} key={region}><button className="collapse-header" type="button" onClick={() => toggleRegion(region)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exerciseRegionIcon(region)}{region}</span><small>{regionExercises.length} exercícios</small></button>{isOpen && <div className="collapse-content">{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${region}-${muscleGroup}`}><h4>{muscleGroup}</h4>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => <div className="library-exercise-row" key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}</small></div><div className="exercise-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>)}</div>)}</div>}</section>; })}</div>;
 }
 
+function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTemplate, onEditWorkout, onRemoveWorkout }: { templates: WorkoutTemplateRecord[]; workouts: WorkoutRecord[]; onEditTemplate: (template: WorkoutTemplateRecord) => void; onRemoveTemplate: (template: WorkoutTemplateRecord) => void; onEditWorkout: (workout: WorkoutRecord) => void; onRemoveWorkout: (workout: WorkoutRecord) => void }) {
+  const empty = templates.length === 0 && workouts.length === 0;
+  return <section className="workspace-panel published-workouts"><header><div><span>MODELOS E TREINOS PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{empty ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha para reutilizar depois.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Modelo</em><button type="button" onClick={() => onEditTemplate(template)}>Editar</button><button type="button" onClick={() => onRemoveTemplate(template)}>Excluir</button></div></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Publicado</em><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>)}</div>}</section>;
+}
+
 function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [students, setStudents] = useState<BillingStudent[]>([]);
@@ -855,6 +860,8 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [studentId, setStudentId] = useState("");
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
   const [exerciseDetails, setExerciseDetails] = useState<Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>>({});
+  const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -965,8 +972,15 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
         const exercise = exercises.find((item) => item.id === exerciseId);
         return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
       });
-      await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details, status: "published", createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
-      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); onFeedback("Treino publicado para o aluno.");
+      const workoutData = { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      if (editingWorkoutId) {
+        await updateDoc(doc(db, "academies", access.academyId, "workouts", editingWorkoutId), workoutData);
+        onFeedback("Treino atualizado para o aluno.");
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "workouts"), { ...workoutData, createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
+        onFeedback("Treino publicado para o aluno.");
+      }
+      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); setEditingWorkoutId(null);
     } catch { onFeedback("Não foi possível publicar o treino."); }
     finally { setSaving(false); }
   }
@@ -980,18 +994,50 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     try {
-      await addDoc(collection(db, "academies", access.academyId, "workoutTemplates"), { name: workoutName.trim(), exerciseIds: selectedExercises, exerciseDetails: details, createdBy: access.userId, createdAt: serverTimestamp() });
-      onFeedback("Modelo de treino salvo na biblioteca.");
+      const templateData = { name: workoutName.trim(), exerciseIds: selectedExercises, exerciseDetails: details, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      if (editingTemplateId) {
+        await updateDoc(doc(db, "academies", access.academyId, "workoutTemplates", editingTemplateId), templateData);
+        onFeedback("Modelo de treino atualizado.");
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "workoutTemplates"), { ...templateData, createdBy: access.userId, createdAt: serverTimestamp() });
+        onFeedback("Modelo de treino salvo na biblioteca.");
+      }
+      setEditingTemplateId(null);
     } catch { onFeedback("Não foi possível salvar o modelo."); }
   }
 
   function loadTemplate(templateId: string) {
     const template = templates.find((item) => item.id === templateId);
     if (!template) return;
+    setEditingTemplateId(null); setEditingWorkoutId(null);
     setWorkoutName(template.name);
     setSelectedExercises(template.exerciseIds);
     setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
     onFeedback("Modelo carregado. Adapte os dados antes de publicar.");
+  }
+
+  function beginTemplateEdit(template: WorkoutTemplateRecord) {
+    setEditingTemplateId(template.id); setEditingWorkoutId(null); setWorkoutName(template.name); setStudentId(""); setSelectedExercises(template.exerciseIds);
+    setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
+    window.scrollTo({ top: 0, behavior: "smooth" }); onFeedback("Modelo carregado para edição.");
+  }
+
+  function beginWorkoutEdit(workout: WorkoutRecord) {
+    setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setStudentId(workout.studentId); setSelectedExercises(workout.exerciseIds);
+    setExerciseDetails(Object.fromEntries((workout.exerciseDetails ?? []).map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
+    window.scrollTo({ top: 0, behavior: "smooth" }); onFeedback("Treino carregado para edição.");
+  }
+
+  async function removeTemplate(template: WorkoutTemplateRecord) {
+    if (!db || !window.confirm(`Excluir o modelo "${template.name}"?`)) return;
+    try { await deleteDoc(doc(db, "academies", access.academyId, "workoutTemplates", template.id)); if (editingTemplateId === template.id) setEditingTemplateId(null); onFeedback("Modelo excluído."); }
+    catch { onFeedback("Não foi possível excluir o modelo."); }
+  }
+
+  async function removeWorkout(workout: WorkoutRecord) {
+    if (!db || !window.confirm(`Excluir o treino "${workout.name}" de ${workout.studentName}?`)) return;
+    try { await deleteDoc(doc(db, "academies", access.academyId, "workouts", workout.id)); if (editingWorkoutId === workout.id) setEditingWorkoutId(null); onFeedback("Treino excluído."); }
+    catch { onFeedback("Não foi possível excluir o treino."); }
   }
 
   return <div className="workspace-content module-view">
@@ -1000,7 +1046,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} /><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} /></article>
       <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
     </section>
-    <section className="workspace-panel published-workouts"><header><div><span>MODELOS E TREINOS PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{templates.length === 0 && workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha para reutilizar depois.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><em>Modelo</em></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
+    <PublishedWorkouts templates={templates} workouts={workouts} onEditTemplate={beginTemplateEdit} onRemoveTemplate={(template) => void removeTemplate(template)} onEditWorkout={beginWorkoutEdit} onRemoveWorkout={(workout) => void removeWorkout(workout)} />
   </div>;
 
   return (
