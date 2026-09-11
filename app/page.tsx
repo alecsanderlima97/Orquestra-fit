@@ -241,19 +241,19 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
     <div className="student-view home-view">
       <section className="welcome-row">
         <div><p>SEGUNDA, 1 DE SETEMBRO</p><h1>Olá, {firstName(access.user.displayName, access.user.email)}.</h1><span>Seu ritmo começa aqui.</span></div>
-        <div className="streak" aria-label="Sequência de treinos"><Flame size={20} /><strong>4</strong><small>semanas</small></div>
+        <div className="streak" aria-label="Sequência de treinos"><Flame size={20} /><strong>—</strong><small>sem histórico</small></div>
       </section>
 
       <article className="today-workout">
         <div className="workout-copy">
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
-          <h2>Força A</h2>
-          <p>Pernas e estabilidade</p>
+          <h2>Nenhum treino publicado</h2>
+          <p>Seu professor ainda não publicou um treino.</p>
           <div className="workout-meta">
-            <span><Clock3 size={16} /> 52 min</span>
-            <span><Dumbbell size={16} /> 8 exercícios</span>
+            <span><Clock3 size={16} /> Aguardando</span>
+            <span><Dumbbell size={16} /> Sem exercícios</span>
           </div>
-          <button onClick={() => onStart()}>Iniciar treino <ArrowRight size={19} /></button>
+          <button disabled>Treino indisponível <ArrowRight size={19} /></button>
         </div>
         <div className="workout-art" aria-hidden="true">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -266,7 +266,7 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
         <StudentPaymentStatus />
         <article role="button" tabIndex={0} onClick={() => onEvolution()}>
           <span className="status-icon"><Activity /></span>
-          <div><small>Frequência</small><strong>9 visitas</strong><p>Meta: 12 no mês</p></div>
+          <div><small>Frequência</small><strong>Sem registros</strong><p>Os acessos aparecerão aqui.</p></div>
           <div className="mini-progress"><i /></div>
         </article>
       </section>
@@ -281,7 +281,7 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
               <div key={index}><i style={{ height: `${height}%` }} className={index === 3 ? "peak" : ""} /><span>{["S", "T", "Q", "Q", "S", "S", "D"][index]}</span></div>
             ))}
           </div>
-          <div className="weekly-score"><Gauge size={24} /><div><strong>3 de 4</strong><span>treinos concluídos</span></div></div>
+          <div className="weekly-score"><Gauge size={24} /><div><strong>Sem histórico</strong><span>treinos concluídos</span></div></div>
         </article>
       </section>
 
@@ -347,17 +347,11 @@ function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => voi
       setPublishedWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" }; }));
     }, (error) => console.error("Não foi possível carregar os treinos.", error));
   }, [access.academyId, access.userId]);
-  const plans = [
-    { title: "Força A", subtitle: "Pernas e estabilidade", time: "52 min", active: true },
-    { title: "Força B", subtitle: "Costas e bíceps", time: "48 min" },
-    { title: "Força C", subtitle: "Peito e tríceps", time: "45 min" },
-    { title: "Condicionamento", subtitle: "Cardio e mobilidade", time: "35 min" },
-  ];
   return (
     <div className="student-view">
       <PageIntro kicker="PROGRAMA ATUAL" title="Seus treinos" copy="Um plano construído para evoluir com consistência." />
       <div className="program-summary">
-        <div><small>Ciclo</small><strong>Hipertrofia · 6 semanas</strong></div><span>SEMANA 4</span>
+        <div><small>Ciclo</small><strong>Nenhum ciclo ativo</strong></div><span>AGUARDANDO</span>
         <div className="program-line"><i /></div>
       </div>
       <div className="workout-list">
@@ -365,13 +359,7 @@ function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => voi
           <button key={workout.id} className={index === 0 ? "active" : ""} onClick={() => onStart(workout)}>
             <span className="workout-index">0{index + 1}</span><div><small>{index === 0 ? "PROGRAMADO PARA HOJE" : "TREINO PUBLICADO"}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios</p></div><span className="play-button"><Play size={18} fill="currentColor" /></span>
           </button>
-        )) : plans.map((plan, index) => (
-          <button key={plan.title} className={plan.active ? "active" : ""} onClick={() => onStart()}>
-            <span className="workout-index">0{index + 1}</span>
-            <div><small>{plan.active ? "PROGRAMADO PARA HOJE" : "PRÓXIMO TREINO"}</small><strong>{plan.title}</strong><p>{plan.subtitle} · {plan.time}</p></div>
-            <span className="play-button"><Play size={18} fill="currentColor" /></span>
-          </button>
-        ))}
+        )) : <div className="directory-empty"><Dumbbell /><p>Nenhum treino publicado ainda.</p></div>}
       </div>
     </div>
   );
@@ -1670,7 +1658,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
         </section>
         <section className="admin-lower">
           <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button onClick={() => setNewMemberRole("teacher")}><UserRoundCheck />Cadastrar professor</button><button onClick={() => feedback("Montagem de ficha de treino selecionada.")}><ClipboardList />Montar ficha de treino</button><button onClick={() => feedback("Cadastro de aula selecionado.")}><CalendarDays />Criar aula</button></div></article>
-          <article className="occupancy"><div><span>OCUPAÇÃO AGORA</span><strong>37 <small>alunos</small></strong></div><div className="occupancy-bars">{[25,42,58,79,94,61,38,18].map((value, index) => <i key={index} style={{height: `${value}%`}} />)}</div></article>
+          <article className="occupancy"><div><span>OCUPAÇÃO AGORA</span><strong>Sem registros</strong></div><div className="directory-empty"><p>A frequência da academia aparecerá aqui quando houver acessos registrados.</p></div></article>
         </section>
       </div>
       {newMemberRole && <NewMemberModal role={newMemberRole} onClose={() => setNewMemberRole(null)} onFeedback={feedback} />}
@@ -1738,6 +1726,14 @@ function ProfessorWorkspace() {
   const access = useAccess();
   const feedback = useFeedback();
   const [trainingOpen, setTrainingOpen] = useState(false);
+  const [teacherStudentCount, setTeacherStudentCount] = useState(0);
+  const [teacherWorkoutCount, setTeacherWorkoutCount] = useState(0);
+  useEffect(() => {
+    if (!db) return;
+    const unsubscribeStudents = onSnapshot(query(collection(db, "academies", access.academyId, "students"), where("teacherId", "==", access.userId)), (snapshot) => setTeacherStudentCount(snapshot.size));
+    const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("createdBy", "==", access.userId)), (snapshot) => setTeacherWorkoutCount(snapshot.size));
+    return () => { unsubscribeStudents(); unsubscribeWorkouts(); };
+  }, [access.academyId, access.userId]);
   const today: Array<{ time: string; name: string; focus: string; status: string }> = [];
   return (
     <WorkspaceShell profile="Professor">
@@ -1753,8 +1749,8 @@ function ProfessorWorkspace() {
             <button onClick={() => feedback("A agenda ainda não possui atendimentos cadastrados.")}>Ver agenda <ArrowRight /></button>
           </article>
           <div className="professor-metrics">
-            <MetricCard icon={Users} label="Meus alunos" value="38" note="34 ativos esta semana" />
-            <MetricCard icon={ClipboardList} label="Treinos a revisar" value="6" note="2 vencem hoje" warning />
+            <MetricCard icon={Users} label="Meus alunos" value={String(teacherStudentCount)} note={teacherStudentCount === 0 ? "Nenhum aluno vinculado" : "Alunos vinculados"} />
+            <MetricCard icon={ClipboardList} label="Treinos publicados" value={String(teacherWorkoutCount)} note={teacherWorkoutCount === 0 ? "Nenhum treino publicado" : "Treinos no sistema"} warning={false} />
           </div>
         </section>
         <section className="professor-grid">
