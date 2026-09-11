@@ -196,6 +196,20 @@ button { cursor: pointer; }
 .assessment-row strong { color: var(--paper); font-size: 13px; }
 .assessment-row small { margin-top: 5px; color: var(--steel-500); font-size: 10px; }
 .assessment-row span { color: var(--bronze-300); font-size: 10px; white-space: nowrap; }
+.assessment-filter { display: grid; gap: 7px; padding: 16px 22px 0; color: var(--steel-300); font-size: 10px; font-weight: 700; }
+.assessment-filter select { border: 1px solid var(--line); background: #0b0d0e; color: var(--paper); padding: 10px 11px; }
+.assessment-row-button { width: 100%; text-align: left; cursor: pointer; background: transparent; font: inherit; }
+.assessment-row-button:hover { background: rgba(183, 137, 68, .08); }
+.staff-assessment-detail { margin: 4px 22px 18px; border-top: 1px solid var(--line); padding-top: 16px; }
+.staff-assessment-detail > span { color: var(--bronze-300); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+.staff-assessment-detail > strong { display: block; margin-top: 5px; color: var(--paper); font-size: 16px; }
+.staff-assessment-detail > small { display: block; margin-top: 3px; color: var(--steel-500); font-size: 10px; }
+.staff-measure-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 12px; }
+.staff-measure-grid div { border: 1px solid var(--line); padding: 9px; }
+.staff-measure-grid small, .staff-measure-grid strong, .staff-measure-grid span { display: block; }
+.staff-measure-grid small { color: var(--steel-500); font-size: 9px; }
+.staff-measure-grid strong { color: var(--paper); font-size: 13px; margin: 3px 0; }
+.staff-measure-grid span { color: var(--bronze-300); font-size: 9px; }
 .student-detail-form textarea { min-height: 74px; resize: vertical; width: 100%; border: 1px solid var(--line); background: #0b0d0e; color: var(--paper); padding: 11px 12px; outline: none; }
 .latest-assessment { margin-top: 14px; border: 1px solid var(--line); background: #111315; padding: 18px; }
 .latest-assessment span { color: var(--bronze-300); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
