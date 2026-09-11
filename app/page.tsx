@@ -1053,6 +1053,7 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
+  const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1078,7 +1079,13 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
         return { id: teacher.id, name: data.name ?? "Professor sem nome", email: data.email ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os professores.", error));
-    return () => { unsubscribeStudents(); unsubscribeTeachers(); };
+    const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
+      setPlans(snapshot.docs.map((plan) => {
+        const data = plan.data() as { name?: string; price?: number; active?: boolean };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), active: data.active !== false };
+      }));
+    }, (error) => console.error("Não foi possível carregar os planos.", error));
+    return () => { unsubscribeStudents(); unsubscribeTeachers(); unsubscribePlans(); };
   }, [access.academyId, access.role, access.userId]);
 
   const filteredStudents = students.filter((student) => `${student.name} ${student.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
@@ -1145,7 +1152,7 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
             <form className="student-detail-form" onSubmit={saveStudent}>
               <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label>
               <label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
-              <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>
+              <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option value="Sem plano">Sem plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.name}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label>
               {access.role === "admin" && <label>Professor responsável<select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)}><option value="">Sem professor definido</option>{teachers.filter((teacher) => teacher.active !== false).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>}
               <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
             </form>
