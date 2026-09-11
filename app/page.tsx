@@ -515,13 +515,6 @@ const workspaceNav = [
   ["Avaliações", BarChart3],
 ] as const;
 
-const demoStudents = [
-  { initials: "AP", name: "Ana Paula Martins", plan: "Semestral", status: "Em dia", visits: "18", next: "Hoje, 18:30" },
-  { initials: "CE", name: "Carlos Eduardo", plan: "Mensal", status: "Vence hoje", visits: "12", next: "Amanhã" },
-  { initials: "MS", name: "Mariana Souza", plan: "Anual", status: "Em dia", visits: "21", next: "Hoje, 20:00" },
-  { initials: "JH", name: "João Henrique", plan: "Mensal", status: "Em atraso", visits: "7", next: "Sem treino" },
-];
-
 type RegisteredStudent = {
   id: string;
   name: string;
@@ -1190,39 +1183,52 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const access = useAccess();
   const [newMemberRole, setNewMemberRole] = useState<"student" | "teacher" | null>(null);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
+  const [dashboardCharges, setDashboardCharges] = useState<MonthlyCharge[]>([]);
 
   useEffect(() => {
     if (!db) return;
-    return onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
+    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
       setRegisteredStudents(snapshot.docs.map((student) => {
         const data = student.data() as { name?: string; plan?: string; active?: boolean };
         return { id: student.id, name: data.name ?? "Aluno sem nome", plan: data.plan ?? "Sem plano", active: data.active };
       }));
     }, (error) => console.error("Não foi possível atualizar a lista de alunos.", error));
+    const unsubscribeCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
+      setDashboardCharges(snapshot.docs.map((charge) => {
+        const data = charge.data() as Omit<MonthlyCharge, "id">;
+        const status: MonthlyCharge["status"] = data.status === "paid" ? "paid" : "pending";
+        return { id: charge.id, ...data, amount: Number(data.amount ?? 0), status };
+      }));
+    }, (error) => console.error("Não foi possível atualizar o resumo financeiro.", error));
+    return () => { unsubscribeStudents(); unsubscribeCharges(); };
   }, [access.academyId]);
 
-  const students = registeredStudents.length > 0
-    ? registeredStudents.map((student) => ({
+  const students = registeredStudents.map((student) => ({
       initials: student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
       name: student.name,
       plan: student.plan,
       status: student.active === false ? "Inativo" : "Ativo",
       visits: "—",
       next: "A definir",
-    }))
-    : demoStudents;
+    }));
+  const dashboardTotal = dashboardCharges.reduce((total, charge) => total + charge.amount, 0);
+  const dashboardReceived = dashboardCharges.filter((charge) => charge.status === "paid").reduce((total, charge) => total + charge.amount, 0);
+  const dashboardOverdue = dashboardCharges.filter((charge) => chargeViewStatus(charge) === "overdue");
+  const dashboardOpen = dashboardCharges.filter((charge) => charge.status !== "paid").reduce((total, charge) => total + charge.amount, 0);
+  const dashboardPercent = dashboardTotal ? Math.round((dashboardReceived / dashboardTotal) * 100) : 0;
+  const money = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
   return (
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange} onNewStudent={() => setNewMemberRole("student")}>
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>SEGUNDA, 1 DE SETEMBRO · DADOS DEMONSTRATIVOS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
+          <div><span>OPERAÇÃO DA ACADEMIA · DADOS REAIS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
           <button onClick={() => setNewMemberRole("student")}><Plus /> Novo aluno</button>
         </section>
         <section className="metric-grid">
-          <MetricCard icon={Users} label="Alunos ativos" value="184" note="+8 neste mês" />
-          <MetricCard icon={CircleDollarSign} label="Receita prevista" value="R$ 26.180" note="82% já recebido" />
-          <MetricCard icon={Banknote} label="Em aberto" value="R$ 4.720" note="31 mensalidades" warning />
-          <MetricCard icon={Activity} label="Frequência hoje" value="96" note="37 alunos agora" />
+          <MetricCard icon={Users} label="Alunos ativos" value={String(registeredStudents.filter((student) => student.active !== false).length)} note={`${registeredStudents.length} cadastro${registeredStudents.length === 1 ? "" : "s"} total`} />
+          <MetricCard icon={CircleDollarSign} label="Receita prevista" value={money(dashboardTotal)} note={`${dashboardPercent}% já recebido`} />
+          <MetricCard icon={Banknote} label="Em aberto" value={money(dashboardOpen)} note={`${dashboardCharges.filter((charge) => charge.status !== "paid").length} mensalidades`} warning={dashboardOpen > 0} />
+          <MetricCard icon={Activity} label="Frequência hoje" value="—" note="Sem registros ainda" />
         </section>
         <section className="operations-grid">
           <article className="workspace-panel student-table-panel">
@@ -1230,7 +1236,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
             <div className="workspace-search"><Search /><input placeholder="Buscar aluno" /></div>
             <div className="student-table">
               <div className="table-row table-head"><span>Aluno</span><span>Plano</span><span>Situação</span><span>Visitas</span><span>Próximo treino</span><span /></div>
-              {students.map((student) => (
+              {students.length === 0 ? <div className="directory-empty"><Users /><p>Nenhum aluno cadastrado ainda.</p></div> : students.map((student) => (
                 <div className="table-row" key={student.name}>
                   <span className="table-person"><i>{student.initials}</i><strong>{student.name}</strong></span>
                   <span>{student.plan}</span>
@@ -1242,12 +1248,12 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
           </article>
           <aside className="workspace-panel finance-card">
             <header><div><span>FINANCEIRO</span><h3>Recebimentos do mês</h3></div><button aria-label="Mais opções"><MoreHorizontal /></button></header>
-            <div className="finance-total"><small>PREVISTO</small><strong>R$ 26.180</strong><span>Setembro de 2026</span></div>
-            <div className="finance-bar"><i /><b /></div>
+            <div className="finance-total"><small>PREVISTO</small><strong>{money(dashboardTotal)}</strong><span>{dashboardCharges.length} mensalidades cadastradas</span></div>
+            <div className="finance-bar"><i style={{ width: `${dashboardPercent}%` }} /><b style={{ width: `${Math.max(0, 100 - dashboardPercent)}%` }} /></div>
             <div className="finance-legend">
-              <div><span><i className="received" />Recebido</span><strong>R$ 21.460</strong></div>
-              <div><span><i className="pending" />Pendente</span><strong>R$ 3.320</strong></div>
-              <div><span><i className="overdue" />Em atraso</span><strong>R$ 1.400</strong></div>
+              <div><span><i className="received" />Recebido</span><strong>{money(dashboardReceived)}</strong></div>
+              <div><span><i className="pending" />Em aberto</span><strong>{money(dashboardOpen)}</strong></div>
+              <div><span><i className="overdue" />Em atraso</span><strong>{money(dashboardOverdue.reduce((total, charge) => total + charge.amount, 0))}</strong></div>
             </div>
             <button className="outline-action" onClick={() => feedback("Módulo financeiro selecionado.")}>Abrir financeiro <ArrowRight /></button>
           </aside>
@@ -1354,9 +1360,7 @@ function ProfessorWorkspace() {
           </article>
           <article className="workspace-panel attention-panel">
             <header><div><span>ACOMPANHAMENTO</span><h3>Precisam de atenção</h3></div></header>
-            {demoStudents.slice(1).map((student, index) => (
-              <button key={student.name} onClick={() => feedback(`Acompanhamento de ${student.name} selecionado.`)}><i>{student.initials}</i><div><strong>{student.name}</strong><span>{["Ficha vence em 2 dias", "14 dias sem treinar", "Avaliação pendente"][index]}</span></div><ChevronRight /></button>
-            ))}
+            <div className="directory-empty"><Activity /><p>Nenhum alerta registrado ainda.</p></div>
           </article>
         </section>
       </div>}
