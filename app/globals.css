@@ -177,6 +177,12 @@ button { cursor: pointer; }
 .plan-row button { padding: 7px 9px; border: 1px solid var(--line); background: transparent; color: var(--steel-300); font-size: 10px; font-weight: 700; }
 .plan-row .plan-enable { border-color: #4b5b45; color: #b7d59c; }
 .plan-row .plan-disable { border-color: #704543; color: #e0a49e; }
+.plan-row .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.plan-row .plan-edit { border-color: var(--bronze-500); color: var(--bronze-300); }
+.plan-row .plan-delete { border-color: #704543; color: #e0a49e; }
+.form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.form-actions .detail-save { flex: 1; min-width: 180px; margin: 0; }
+.form-actions .secondary-action { flex: 0 0 auto; margin: 0; padding: 12px 18px; border: 1px solid var(--line); background: transparent; color: var(--steel-300); font-weight: 700; }
 .plans-next-step { margin-top: 14px; }
 .billing-layout { display: grid; grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); gap: 14px; margin-top: 18px; }
 .billing-form-stack { display: grid; gap: 14px; align-content: start; }
