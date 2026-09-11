@@ -1374,6 +1374,8 @@ button { cursor: pointer; }
 .google-login span { display: grid; place-items: center; width: 22px; height: 22px; color: #4285f4; font-weight: 900; }
 .google-login:disabled { opacity: .65; cursor: wait; }
 .auth-link { margin-top: 18px; padding: 0; border: 0; color: #d9ae58; background: transparent; cursor: pointer; font: inherit; }
+.auth-panel > .auth-link { display: block; width: 100%; text-align: center; line-height: 1.45; }
+.auth-panel > .auth-link + .auth-link { margin-top: 10px; }
 .auth-status { margin: 0; color: #f0c48d; line-height: 1.4; }
 .auth-loading { min-height: 100vh; display: grid; place-items: center; background: #111110; color: #f4f1ec; }
 .onboarding-note { display: flex; align-items: center; gap: 8px; margin: 22px 0 0; color: #bcb7ae; font-size: 13px; }
