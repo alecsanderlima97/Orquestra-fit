@@ -618,6 +618,8 @@ type RegisteredStudent = {
   id: string;
   name: string;
   email?: string | null;
+  phone?: string | null;
+  cpf?: string | null;
   plan: string;
   teacherId?: string | null;
   active?: boolean;
@@ -726,6 +728,23 @@ function todayIso() {
   const month = String(today.getMonth() + 1).padStart(2, "0");
   const day = String(today.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function maskCpf(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  return digits.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+}
+
+function maskPhone(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 2) return digits.length ? `(${digits}` : "";
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  const split = digits.length === 11 ? 7 : 6;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`;
+}
+
+function validEmail(value: string) {
+  return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function daysUntil(dateString: string) {
@@ -1436,6 +1455,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
   const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editCpf, setEditCpf] = useState("");
   const [editPlan, setEditPlan] = useState("Mensal");
   const [editTeacherId, setEditTeacherId] = useState("");
   const [studentWorkouts, setStudentWorkouts] = useState<WorkoutRecord[]>([]);
@@ -1452,8 +1473,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; email?: string | null; plan?: string; teacherId?: string | null; active?: boolean };
-        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, active: data.active !== false };
+        const data = student.data() as { name?: string; email?: string | null; phone?: string | null; cpf?: string | null; plan?: string; teacherId?: string | null; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     if (access.role !== "admin") return unsubscribeStudents;
@@ -1479,6 +1500,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
     if (!selectedStudent) return;
     setEditName(selectedStudent.name);
     setEditEmail(selectedStudent.email ?? "");
+    setEditPhone(selectedStudent.phone ?? "");
+    setEditCpf(selectedStudent.cpf ?? "");
     setEditPlan(selectedStudent.plan);
     setEditTeacherId(selectedStudent.teacherId ?? "");
   }, [selectedStudent]);
@@ -1509,14 +1532,17 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
   async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!db || !selectedStudent || !editName.trim()) return;
+    if (editName.trim().length < 2) { onFeedback("Informe o nome completo do aluno."); return; }
+    if (!validEmail(editEmail.trim())) { onFeedback("Informe um e-mail válido ou deixe o campo vazio."); return; }
     setSaving(true);
     try {
-      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), {
+      const personalData = {
         name: editName.trim(),
         email: editEmail.trim() || null,
-        plan: editPlan,
-        ...(access.role === "admin" ? { teacherId: editTeacherId || null } : {}),
-      });
+        phone: editPhone.trim() || null,
+        cpf: editCpf.trim() || null,
+      };
+      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), access.role === "admin" ? { ...personalData, plan: editPlan, teacherId: editTeacherId || null } : personalData);
       onFeedback("Dados do aluno atualizados.");
     } catch {
       onFeedback("Não foi possível atualizar este aluno.");
@@ -1572,13 +1598,15 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <div className="student-profile-divider"><span>CADASTRO E ACESSO</span></div>
             <form className="student-detail-form" onSubmit={saveStudent}>
-              <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label>
-              <label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
-              <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option value="Sem plano">Sem plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.name}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label>
+              <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} autoComplete="name" required /></label>
+              <label>Login de contato<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} autoComplete="email" placeholder="E-mail opcional" /></label>
+              <label>Telefone<input value={editPhone} onChange={(event) => setEditPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label>
+              <label>CPF<input value={editCpf} onChange={(event) => setEditCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label>
+              {access.role === "admin" ? <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option value="Sem plano">Sem plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.name}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <div className="protected-field"><span>Plano atual</span><strong>{selectedStudent.plan}</strong><small>Alteração exclusiva da gestão.</small></div>}
               {access.role === "admin" && <label>Professor responsável<select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)}><option value="">Sem professor definido</option>{teachers.filter((teacher) => teacher.active !== false).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>}
               <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
             </form>
-            <button className="detail-toggle" onClick={toggleStudent}>{selectedStudent.active === false ? "Reativar acesso" : "Suspender acesso"}</button>
+            {access.role === "admin" && <button className="detail-toggle" onClick={toggleStudent}>{selectedStudent.active === false ? "Reativar acesso" : "Suspender acesso"}</button>}
           </> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um aluno</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
         </aside>
       </section>
