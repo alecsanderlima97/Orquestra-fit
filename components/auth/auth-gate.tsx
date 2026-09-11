@@ -150,16 +150,16 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
         <div className="auth-mark"><ShieldCheck size={28} /></div>
         <p>ORQUESTRA FIT</p>
         <h1 id="login-title">{mode === "signup" ? "Criar acesso" : "Acesso ao Orquestra Fit"}</h1>
-        <span>{mode === "signup" ? `Crie seu acesso com ${accessMode === "username" ? "nome de usuário e senha" : "e-mail e senha"}. Depois, informe o código recebido da academia.` : "Use seu e-mail, nome de usuário ou entre com sua conta Google."}</span>
+        <span>{mode === "signup" ? `Crie seu acesso com ${accessMode === "username" ? "nome de usuário e senha" : "login de acesso e senha"}. Depois, informe o código recebido da academia.` : "Use seu login de acesso e senha ou entre com sua conta Google."}</span>
         <form onSubmit={submit}>
-          {accessMode === "email" ? <label><Mail size={17} /> E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label> : <label><UserRound size={17} /> Nome de usuário<input value={username} onChange={(event) => setUsername(event.target.value.replace(/\s/g, "."))} autoComplete="username" placeholder="Ex.: maria.silva" required /></label>}
+          {accessMode === "email" ? <label><Mail size={17} /> Login de acesso<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" placeholder="E-mail cadastrado" required /></label> : <label><UserRound size={17} /> Login de acesso<input value={username} onChange={(event) => setUsername(event.target.value.replace(/\s/g, "."))} autoComplete="username" placeholder="Ex.: maria.silva" required /></label>}
           <label><LockKeyhole size={17} /> Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={6} required /></label>
           {status && <p className="auth-status" role="status">{status}</p>}
           <button type="submit" disabled={submitting}>{submitting ? "Aguarde..." : mode === "signup" ? "Criar acesso" : "Entrar"}</button>
         </form>
         {mode === "login" && <><div className="auth-divider"><span>ou</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button>{accessMode === "email" && <button className="auth-link" type="button" onClick={resetPassword}>Esqueci minha senha</button>}</>}
-        <button className="auth-link" type="button" onClick={() => { setAccessMode((current) => current === "email" ? "username" : "email"); setMode("login"); setStatus(null); }}>{accessMode === "email" ? "Entrar com nome de usuário" : "Entrar com e-mail"}</button>
-        <button className="auth-link" type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Já tenho uma conta" : accessMode === "username" ? "Criar acesso com nome de usuário" : "Criar acesso com e-mail"}</button>
+        <button className="auth-link" type="button" onClick={() => { setAccessMode((current) => current === "email" ? "username" : "email"); setMode("login"); setStatus(null); }}>{accessMode === "email" ? "Entrar com usuário da academia" : "Entrar com login por e-mail"}</button>
+        <button className="auth-link" type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Já tenho uma conta" : accessMode === "username" ? "Criar login de acesso" : "Criar acesso por e-mail"}</button>
       </section>
     </main>
   );
