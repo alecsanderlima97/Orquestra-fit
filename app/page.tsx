@@ -48,10 +48,10 @@ const navItems = [
 ] as const;
 
 const workoutPlan = [
-  { name: "Agachamento livre", group: "Quadríceps", sets: 4, reps: "10", load: "32", rest: "75 s" },
-  { name: "Leg press 45°", group: "Pernas", sets: 4, reps: "12", load: "80", rest: "60 s" },
-  { name: "Afundo com halteres", group: "Glúteos", sets: 3, reps: "10", load: "12", rest: "60 s" },
-  { name: "Panturrilha em pé", group: "Panturrilhas", sets: 4, reps: "15", load: "24", rest: "45 s" },
+  { name: "Agachamento livre", group: "Quadríceps", sets: 4, reps: "10", load: "32", rest: "75 s", anatomyRegion: undefined, instructions: undefined, whereToFeel: undefined, commonMistakes: undefined, videoUrl: undefined },
+  { name: "Leg press 45°", group: "Pernas", sets: 4, reps: "12", load: "80", rest: "60 s", anatomyRegion: undefined, instructions: undefined, whereToFeel: undefined, commonMistakes: undefined, videoUrl: undefined },
+  { name: "Afundo com halteres", group: "Glúteos", sets: 3, reps: "10", load: "12", rest: "60 s", anatomyRegion: undefined, instructions: undefined, whereToFeel: undefined, commonMistakes: undefined, videoUrl: undefined },
+  { name: "Panturrilha em pé", group: "Panturrilhas", sets: 4, reps: "15", load: "24", rest: "45 s", anatomyRegion: undefined, instructions: undefined, whereToFeel: undefined, commonMistakes: undefined, videoUrl: undefined },
 ];
 
 export default function Home() {
@@ -454,7 +454,7 @@ function Profile() {
 function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
   const access = useAccess();
   const feedback = useFeedback();
-  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: "Treino", sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
+  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: exercise.muscleGroup || "Treino", anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, whereToFeel: exercise.whereToFeel, commonMistakes: exercise.commonMistakes, videoUrl: exercise.videoUrl, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const progress = Math.round((completedSets.length / totalSets) * 100);
   const [seconds, setSeconds] = useState(0);
@@ -513,6 +513,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
         {exercises.map((exercise, exerciseIndex) => (
           <article className="exercise-card" key={exercise.name}>
             <header><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2></div><button aria-label="Ver demonstração"><Play size={17} fill="currentColor" /></button></header>
+            {("instructions" in exercise && (exercise.instructions || exercise.whereToFeel || exercise.anatomyRegion || exercise.commonMistakes || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.whereToFeel && <p><b>Onde sentir:</b> {exercise.whereToFeel}</p>}{exercise.commonMistakes && <p><b>Atenção:</b> {exercise.commonMistakes}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
             <div className="set-labels"><span>Série</span><span>Carga</span><span>Repetições</span><span>Feito</span></div>
             {Array.from({ length: exercise.sets }).map((_, setIndex) => {
               const id = `${exerciseIndex}-${setIndex}`;
@@ -605,8 +606,8 @@ type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type PaymentMethod = "pix" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod; chargeType?: ChargeType };
-type ExerciseRecord = { id: string; name: string; muscleGroup: string };
-type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; whereToFeel?: string; commonMistakes?: string; videoUrl?: string };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; whereToFeel?: string; commonMistakes?: string; videoUrl?: string };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type WorkoutTemplateRecord = { id: string; name: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
@@ -756,6 +757,12 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [templates, setTemplates] = useState<WorkoutTemplateRecord[]>([]);
   const [exerciseName, setExerciseName] = useState("");
   const [muscleGroup, setMuscleGroup] = useState("");
+  const [secondaryMuscles, setSecondaryMuscles] = useState("");
+  const [anatomyRegion, setAnatomyRegion] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [whereToFeel, setWhereToFeel] = useState("");
+  const [commonMistakes, setCommonMistakes] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
   const [workoutName, setWorkoutName] = useState("");
   const [studentId, setStudentId] = useState("");
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
@@ -771,7 +778,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; teacherId?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as { name?: string; muscleGroup?: string }; return { id: exercise.id, name: data.name ?? "Exercício", muscleGroup: data.muscleGroup ?? "Geral" }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; return { id: exercise.id, name: data.name ?? "Exercício", muscleGroup: data.muscleGroup ?? "Geral", secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", whereToFeel: data.whereToFeel ?? "", commonMistakes: data.commonMistakes ?? "", videoUrl: data.videoUrl ?? "" }; }));
     });
     const unsubscribeWorkouts = onSnapshot(collection(db, "academies", access.academyId, "workouts"), (snapshot) => {
       setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
@@ -786,8 +793,8 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     event.preventDefault();
     if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
     try {
-      await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), createdBy: access.userId, createdAt: serverTimestamp() });
-      setExerciseName(""); setMuscleGroup(""); onFeedback("Exercício cadastrado.");
+      await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), whereToFeel: whereToFeel.trim(), commonMistakes: commonMistakes.trim(), videoUrl: videoUrl.trim(), createdBy: access.userId, createdAt: serverTimestamp() });
+      setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setWhereToFeel(""); setCommonMistakes(""); setVideoUrl(""); onFeedback("Exercício cadastrado.");
     } catch { onFeedback("Não foi possível cadastrar o exercício."); }
   }
 
@@ -800,7 +807,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     try {
       const details = selectedExercises.map((exerciseId) => {
         const exercise = exercises.find((item) => item.id === exerciseId);
-        return { exerciseId, name: exercise?.name ?? "Exercício", ...exerciseDetails[exerciseId] };
+        return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, whereToFeel: exercise?.whereToFeel, commonMistakes: exercise?.commonMistakes, videoUrl: exercise?.videoUrl, ...exerciseDetails[exerciseId] };
       });
       await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details, status: "published", createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
       setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); onFeedback("Treino publicado para o aluno.");
@@ -812,7 +819,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     if (!db || !workoutName.trim() || selectedExercises.length === 0) return;
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, whereToFeel: exercise?.whereToFeel, commonMistakes: exercise?.commonMistakes, videoUrl: exercise?.videoUrl, ...exerciseDetails[exerciseId] };
     });
     try {
       await addDoc(collection(db, "academies", access.academyId, "workoutTemplates"), { name: workoutName.trim(), exerciseIds: selectedExercises, exerciseDetails: details, createdBy: access.userId, createdAt: serverTimestamp() });
@@ -834,7 +841,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Cadastre exercícios e publique fichas vinculadas aos alunos.</p></div></section>
       <section className="training-layout">
         <article className="workspace-panel training-form-panel"><header><div><span>FICHA DE TREINO</span><h3>Montar e publicar</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Usar modelo pronto<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Começar do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <div className="exercise-choice" key={exercise.id}><label><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => { const selected = selectedExercises.includes(exercise.id); setSelectedExercises((current) => selected ? current.filter((id) => id !== exercise.id) : [...current, exercise.id]); if (!selected) setExerciseDetails((current) => ({ ...current, [exercise.id]: { sets: "3", reps: "10", load: "0", rest: "60" } })); }} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>{selectedExercises.includes(exercise.id) && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], sets: event.target.value } }))} /></label><label>Reps<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], reps: event.target.value } }))} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], load: event.target.value } }))} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], rest: event.target.value } }))} /></label></div>}</div>)}</fieldset><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar como modelo</button><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></div></form></article>
-        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Pernas" required /></label><button className="detail-save" type="submit">Cadastrar exercício</button></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><strong>{exercise.name}</strong><small>{exercise.muscleGroup}</small></div>)}</div></article>
+        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Orientação rápida do professor" /></label><label>Onde sentir<textarea value={whereToFeel} onChange={(event) => setWhereToFeel(event.target.value)} placeholder="Ex.: Principalmente no peito" /></label><label>Erros comuns<textarea value={commonMistakes} onChange={(event) => setCommonMistakes(event.target.value)} placeholder="Ex.: Não abrir os cotovelos" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><button className="detail-save" type="submit">Cadastrar exercício</button></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><strong>{exercise.name}</strong><small>{exercise.muscleGroup}{exercise.anatomyRegion ? ` · ${exercise.anatomyRegion}` : ""}</small></div>)}</div></article>
       </section>
       <section className="workspace-panel published-workouts"><header><div><span>BIBLIOTECA E PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{templates.length === 0 && workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha como modelo para reutilizá-la.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><em>Modelo</em></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
     </div>
