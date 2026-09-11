@@ -295,25 +295,38 @@ function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => voi
 function Evolution() {
   const access = useAccess();
   const [latestAssessment, setLatestAssessment] = useState<AssessmentRecord | null>(null);
+  const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
   useEffect(() => {
     if (!db) return;
-    return onSnapshot(query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", access.userId)), (snapshot) => {
+    const assessmentQuery = query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", access.userId));
+    const executionQuery = query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", access.userId));
+    const unsubscribeAssessments = onSnapshot(assessmentQuery, (snapshot) => {
       const latest = snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
       setLatestAssessment(latest);
     }, (error) => console.error("Não foi possível carregar a avaliação.", error));
+    const unsubscribeExecutions = onSnapshot(executionQuery, (snapshot) => {
+      setExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => (b.completedAt?.toDate?.().getTime() ?? 0) - (a.completedAt?.toDate?.().getTime() ?? 0)));
+    }, (error) => console.error("Não foi possível carregar o histórico de treinos.", error));
+    return () => { unsubscribeAssessments(); unsubscribeExecutions(); };
   }, [access.academyId, access.userId]);
+  const bestLoads = Array.from(executions.flatMap((execution) => execution.sets ?? []).reduce((records, item) => {
+    const load = Number(item.load.replace(",", ".")) || 0;
+    const current = records.get(item.exerciseName);
+    if (!current || load > current.load) records.set(item.exerciseName, { ...item, load });
+    return records;
+  }, new Map<string, { exerciseName: string; setNumber: number; load: number; reps: string }>()).values()).slice(0, 3);
   return (
     <div className="student-view">
       <PageIntro kicker="ACOMPANHAMENTO" title="Sua evolução" copy="Consistência que aparece nos números." />
-      <div className="evolution-hero"><span>FREQUÊNCIA NO MÊS</span><strong>75%</strong><p>9 de 12 visitas planejadas</p><div><i /></div></div>
+      <div className="evolution-hero"><span>TREINOS CONCLUÍDOS</span><strong>{executions.length}</strong><p>{executions.length === 1 ? "1 treino registrado" : `${executions.length} treinos registrados`}</p><div><i style={{ width: `${Math.min(executions.length * 12, 100)}%` }} /></div></div>
       <section className="evolution-grid">
-        <article><Trophy /><small>Sequência</small><strong>4 semanas</strong><p>Seu melhor ritmo até agora</p></article>
-        <article><Activity /><small>Carga total</small><strong>+12%</strong><p>Comparado ao ciclo anterior</p></article>
+        <article><Trophy /><small>Último treino</small><strong>{executions[0]?.workoutName ?? "—"}</strong><p>{executions[0] ? `${executions[0].completedSets} séries concluídas` : "Ainda sem execução registrada"}</p></article>
+        <article><Activity /><small>Séries concluídas</small><strong>{executions.reduce((total, item) => total + item.completedSets, 0)}</strong><p>Registradas nos seus treinos</p></article>
       </section>
       <section className="history-panel">
         <div className="section-heading"><div><span>HISTÓRICO</span><h2>Últimos registros</h2></div></div>
-        {["Agachamento livre", "Leg press 45°", "Supino reto"].map((item, index) => (
-          <div className="history-row" key={item}><span>{item}</span><strong>{["32 kg", "80 kg", "36 kg"][index]}</strong><small>melhor carga</small></div>
+        {bestLoads.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Conclua um treino para ver suas cargas registradas aqui.</p></div> : bestLoads.map((item) => (
+          <div className="history-row" key={item.exerciseName}><span>{item.exerciseName}</span><strong>{item.load > 0 ? `${item.load} kg` : "Sem carga"}</strong><small>{item.reps} rep · melhor carga</small></div>
         ))}
       </section>
       <article className="latest-assessment"><span>ÚLTIMA AVALIAÇÃO</span>{latestAssessment ? <><strong>{latestAssessment.weight} kg · {latestAssessment.height} cm</strong><p>{latestAssessment.bodyFat ? `${latestAssessment.bodyFat}% de gordura corporal` : "Medidas registradas pela equipe"} · {latestAssessment.date}</p></> : <><strong>Ainda não registrada</strong><p>Peça uma avaliação física à equipe da academia.</p></>}</article>
@@ -385,16 +398,52 @@ function Profile() {
 }
 
 function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
+  const access = useAccess();
   const feedback = useFeedback();
   const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: "Treino", sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const progress = Math.round((completedSets.length / totalSets) * 100);
   const [seconds, setSeconds] = useState(0);
+  const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>({});
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
   const elapsed = useMemo(() => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`, [seconds]);
+
+  async function finishWorkout() {
+    if (completedSets.length < totalSets || saving) return;
+    if (!workout || !db) {
+      feedback("Treino concluído.");
+      onBack();
+      return;
+    }
+    setSaving(true);
+    try {
+      const sets = exercises.flatMap((exercise, exerciseIndex) => Array.from({ length: exercise.sets }).map((_, setIndex) => {
+        const id = `${exerciseIndex}-${setIndex}`;
+        const value = setValues[id] ?? { load: exercise.load, reps: exercise.reps };
+        return { exerciseName: exercise.name, setNumber: setIndex + 1, load: value.load, reps: value.reps };
+      }));
+      await addDoc(collection(db, "academies", access.academyId, "workoutExecutions"), {
+        workoutId: workout.id,
+        workoutName: workout.name,
+        studentId: access.userId,
+        durationSeconds: seconds,
+        completedSets: completedSets.length,
+        totalSets,
+        sets,
+        completedAt: serverTimestamp(),
+      });
+      feedback("Treino concluído e salvo no seu histórico.");
+      onBack();
+    } catch {
+      feedback("Não foi possível salvar este treino. Tente novamente.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="session-view">
@@ -417,8 +466,8 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
               return (
                 <div className={done ? "set-row done" : "set-row"} key={id}>
                   <strong>{setIndex + 1}</strong>
-                  <label><input defaultValue={exercise.load} inputMode="numeric" aria-label="Carga" /><span>kg</span></label>
-                  <label><input defaultValue={exercise.reps} inputMode="numeric" aria-label="Repetições" /><span>rep</span></label>
+                  <label><input value={setValues[id]?.load ?? exercise.load} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: event.target.value, reps: current[id]?.reps ?? exercise.reps } }))} inputMode="numeric" aria-label="Carga" /><span>kg</span></label>
+                  <label><input value={setValues[id]?.reps ?? exercise.reps} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: event.target.value } }))} inputMode="numeric" aria-label="Repetições" /><span>rep</span></label>
                   <button aria-label={`Concluir série ${setIndex + 1}`} onClick={() => onToggleSet(id)}>{done && <Check size={18} />}</button>
                 </div>
               );
@@ -427,7 +476,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
           </article>
         ))}
       </div>
-      <button className="finish-workout" disabled={completedSets.length < totalSets} onClick={() => { feedback("Treino concluído. Seu histórico foi atualizado."); onBack(); }}><Trophy size={20} /> Concluir treino</button>
+      <button className="finish-workout" disabled={completedSets.length < totalSets || saving} onClick={finishWorkout}><Trophy size={20} /> {saving ? "Salvando treino..." : "Concluir treino"}</button>
     </div>
   );
 }
@@ -511,6 +560,7 @@ type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; r
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; notes: string };
+type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; completedAt?: { toDate?: () => Date } };
 
 function AssessmentsModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();

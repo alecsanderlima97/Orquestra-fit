@@ -137,6 +137,13 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId) || isTeacher(academyId);
     }
 
+    match /academies/{academyId}/workoutExecutions/{executionId} {
+      allow read: if isAdmin(academyId) || isTeacher(academyId) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+      allow create: if isStudent(academyId) && request.resource.data.studentId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /academies/{academyId}/classes/{classId} {
       allow read: if belongsToAcademy(academyId);
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
