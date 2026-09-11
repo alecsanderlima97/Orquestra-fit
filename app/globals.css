@@ -243,6 +243,9 @@ button { cursor: pointer; }
 .exercise-picker { display: grid; gap: 8px; border: 1px solid var(--line); padding: 12px; }
 .exercise-picker legend { padding: 0 5px; color: var(--steel-300); font-size: 11px; font-weight: 700; }
 .exercise-picker label { display: flex; align-items: center; gap: 9px; color: var(--paper); font-size: 12px; }
+.exercise-picker input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; }
+.exercise-picker > .exercise-choice > label { display: flex; min-width: 0; }
+.exercise-picker > .exercise-choice > label span { min-width: 0; }
 .exercise-picker label span, .exercise-picker label small { display: block; }
 .exercise-picker label small { margin-top: 3px; color: var(--steel-500); font-size: 10px; }
 .exercise-choice { display: grid; gap: 8px; border-bottom: 1px solid var(--line); padding: 7px 0; }
