@@ -91,7 +91,7 @@ button { cursor: pointer; }
 .module-empty svg { color: var(--bronze-300); }
 .module-empty h3 { margin: 12px 0 6px; color: var(--paper); font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
 .module-empty p { max-width: 360px; margin: 0; color: var(--steel-500); font-size: 13px; line-height: 1.5; }
-.directory-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(290px, .65fr); gap: 14px; margin-top: 18px; }
+.directory-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(380px, .9fr); gap: 14px; margin-top: 18px; }
 .directory-panel, .student-detail-panel { min-height: 480px; overflow: hidden; }
 .directory-panel > header, .student-detail-panel > header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding: 22px; border-bottom: 1px solid var(--line); }
 .directory-panel header span, .student-detail-panel header span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
@@ -111,14 +111,15 @@ button { cursor: pointer; }
 .directory-empty svg { color: var(--bronze-300); }
 .directory-empty p { margin: 12px 0 0; font-size: 12px; }
 .detail-status { border: 1px solid #4b5b45; color: #b7d59c; padding: 5px 7px; font-size: 9px; font-style: normal; white-space: nowrap; }
-.student-detail-form { display: grid; gap: 15px; padding: 22px; }
+.student-detail-form { display: grid; gap: 10px; padding: 16px 22px 22px; }
 .student-profile-subtitle { margin: 6px 0 0; color: var(--steel-500); font-size: 11px; }
 .student-profile-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 18px 22px 0; border: 1px solid var(--line); background: var(--line); }
 .student-profile-overview > div { min-width: 0; padding: 12px; background: #111415; }
 .student-profile-overview small, .student-profile-metrics small { display: block; color: var(--steel-500); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .student-profile-overview strong { display: block; margin-top: 5px; color: var(--paper); font-size: 15px; overflow-wrap: anywhere; }
-.student-profile-sections { display: grid; gap: 1px; margin: 18px 22px 0; border: 1px solid var(--line); background: var(--line); }
-.student-profile-sections section { padding: 14px; background: #111415; }
+.student-profile-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 14px 22px 0; border: 1px solid var(--line); background: var(--line); }
+.student-profile-sections section { min-width: 0; padding: 12px; background: #111415; }
+.student-profile-sections section:last-child { grid-column: 1 / -1; }
 .student-profile-sections section > span, .student-profile-divider span { color: var(--bronze-300); font-size: 9px; font-weight: 900; letter-spacing: .13em; }
 .student-profile-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 .student-profile-row > div { min-width: 0; }
@@ -130,7 +131,7 @@ button { cursor: pointer; }
 .student-profile-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .student-profile-metrics > div { border-top: 1px solid var(--line); padding-top: 9px; min-width: 0; }
 .student-profile-metrics strong { display: block; margin-top: 4px; color: var(--paper); font-size: 12px; overflow-wrap: anywhere; }
-.student-profile-actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 18px 22px 2px; }
+.student-profile-actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 14px 22px 2px; }
 .student-profile-actions button { border: 1px solid var(--bronze-500); background: transparent; color: var(--bronze-300); padding: 8px 10px; font-size: 10px; font-weight: 800; cursor: pointer; }
 .student-profile-divider { margin: 20px 22px 0; border-top: 1px solid var(--line); padding-top: 15px; }
 .student-detail-form label { display: grid; gap: 7px; color: var(--steel-300); font-size: 11px; font-weight: 700; }
@@ -140,6 +141,7 @@ button { cursor: pointer; }
 .detail-toggle { width: calc(100% - 44px); border: 1px solid #704543; background: transparent; color: #e0a49e; }
 .detail-empty { min-height: 430px; }
 .detail-empty h3 { margin-top: 12px; font-size: 20px; }
+@media (max-width: 1100px) { .directory-layout { grid-template-columns: minmax(0, 1fr) minmax(340px, .85fr); } }
 @media (max-width: 900px) { .directory-layout { grid-template-columns: 1fr; } .student-detail-panel { min-height: 360px; } .student-profile-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); } .student-profile-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .plans-layout { display: grid; grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); gap: 14px; margin-top: 18px; }
 .plan-form-panel, .plans-list-panel { overflow: hidden; }
