@@ -138,6 +138,18 @@ button { cursor: pointer; }
 .billing-layout { display: grid; grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); gap: 14px; margin-top: 18px; }
 .training-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 14px; margin-top: 18px; }
 .classes-layout { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 14px; margin-top: 18px; }
+.assessment-layout { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 14px; margin-top: 18px; }
+.assessment-list { padding: 4px 22px 16px; }
+.assessment-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--line); padding: 14px 0; }
+.assessment-row strong, .assessment-row small { display: block; }
+.assessment-row strong { color: var(--paper); font-size: 13px; }
+.assessment-row small { margin-top: 5px; color: var(--steel-500); font-size: 10px; }
+.assessment-row span { color: var(--bronze-300); font-size: 10px; white-space: nowrap; }
+.student-detail-form textarea { min-height: 74px; resize: vertical; width: 100%; border: 1px solid var(--line); background: #0b0d0e; color: var(--paper); padding: 11px 12px; outline: none; }
+.latest-assessment { margin-top: 14px; border: 1px solid var(--line); background: #111315; padding: 18px; }
+.latest-assessment span { color: var(--bronze-300); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.latest-assessment strong { display: block; margin-top: 8px; color: var(--paper); font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
+.latest-assessment p { margin: 6px 0 0; color: var(--steel-500); font-size: 11px; }
 .training-form-panel { overflow: hidden; }
 .training-form-panel > header, .published-workouts > header { padding: 22px; border-bottom: 1px solid var(--line); }
 .training-form-panel header span, .published-workouts header span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
@@ -162,6 +174,7 @@ button { cursor: pointer; }
 @media (max-width: 900px) { .plans-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .training-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .classes-layout { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .assessment-layout { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .module-overview-grid { grid-template-columns: 1fr; } }
 .settings-section { padding-top: 22px; }
 .settings-section + .settings-section { border-top: 1px solid var(--line); margin-top: 22px; }

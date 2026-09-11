@@ -282,6 +282,15 @@ function WorkoutLibrary({ onStart }: { onStart: () => void }) {
 }
 
 function Evolution() {
+  const access = useAccess();
+  const [latestAssessment, setLatestAssessment] = useState<AssessmentRecord | null>(null);
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", access.userId)), (snapshot) => {
+      const latest = snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
+      setLatestAssessment(latest);
+    }, (error) => console.error("Não foi possível carregar a avaliação.", error));
+  }, [access.academyId, access.userId]);
   return (
     <div className="student-view">
       <PageIntro kicker="ACOMPANHAMENTO" title="Sua evolução" copy="Consistência que aparece nos números." />
@@ -296,6 +305,7 @@ function Evolution() {
           <div className="history-row" key={item}><span>{item}</span><strong>{["32 kg", "80 kg", "36 kg"][index]}</strong><small>melhor carga</small></div>
         ))}
       </section>
+      <article className="latest-assessment"><span>ÚLTIMA AVALIAÇÃO</span>{latestAssessment ? <><strong>{latestAssessment.weight} kg · {latestAssessment.height} cm</strong><p>{latestAssessment.bodyFat ? `${latestAssessment.bodyFat}% de gordura corporal` : "Medidas registradas pela equipe"} · {latestAssessment.date}</p></> : <><strong>Ainda não registrada</strong><p>Peça uma avaliação física à equipe da academia.</p></>}</article>
     </div>
   );
 }
@@ -473,7 +483,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
@@ -487,6 +497,47 @@ type MonthlyCharge = { id: string; studentId: string; studentName: string; planN
 type ExerciseRecord = { id: string; name: string; muscleGroup: string };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; status: "draft" | "published" };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
+type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; notes: string };
+
+function AssessmentsModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [students, setStudents] = useState<BillingStudent[]>([]);
+  const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
+  const [studentId, setStudentId] = useState("");
+  const [date, setDate] = useState("");
+  const [weight, setWeight] = useState("");
+  const [height, setHeight] = useState("");
+  const [bodyFat, setBodyFat] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db) return;
+    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false }; })));
+    const unsubscribeAssessments = onSnapshot(collection(db, "academies", access.academyId, "assessments"), (snapshot) => setAssessments(snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date))));
+    return () => { unsubscribeStudents(); unsubscribeAssessments(); };
+  }, [access.academyId]);
+
+  async function createAssessment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !studentId || !date || !weight || !height) return;
+    const student = students.find((item) => item.id === studentId);
+    if (!student) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "academies", access.academyId, "assessments"), { studentId, studentName: student.name, date, weight, height, bodyFat, notes, createdBy: access.userId, createdAt: serverTimestamp() });
+      setStudentId(""); setDate(""); setWeight(""); setHeight(""); setBodyFat(""); setNotes(""); onFeedback("Avaliação física registrada.");
+    } catch { onFeedback("Não foi possível registrar a avaliação."); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="workspace-content module-view">
+      <section className="workspace-intro"><div><span>EVOLUÇÃO · GESTÃO</span><h2>Avaliações físicas</h2><p>Registre medidas básicas e acompanhe a evolução dos alunos.</p></div></section>
+      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="Ex.: 72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="Ex.: 175" required /></label><label>Gordura corporal (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{assessments.length} {assessments.length === 1 ? "avaliação" : "avaliações"}</h3></div></header><div className="assessment-list">{assessments.length === 0 ? <div className="directory-empty"><Activity /><p>Nenhuma avaliação registrada ainda.</p></div> : assessments.map((item) => <div className="assessment-row" key={item.id}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></div>)}</div></article></section>
+    </div>
+  );
+}
 
 function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();
