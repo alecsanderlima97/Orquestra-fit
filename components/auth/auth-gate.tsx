@@ -15,14 +15,15 @@ export function AuthGate({ children }: AuthGateProps) {
 
   useEffect(() => {
     if (!auth) return;
+    const firebaseAuth = auth;
     let mounted = true;
     let redirectChecked = false;
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (nextUser) => {
       if (!mounted) return;
       setUser(nextUser);
       if (nextUser || redirectChecked) setLoading(false);
     });
-    getRedirectResult(auth)
+    getRedirectResult(firebaseAuth)
       .then((result) => {
         if (!mounted) return;
         if (result?.user) {
@@ -40,7 +41,7 @@ export function AuthGate({ children }: AuthGateProps) {
       .finally(() => {
         if (mounted) {
           redirectChecked = true;
-          if (!auth.currentUser) setLoading(false);
+          if (!firebaseAuth.currentUser) setLoading(false);
         }
       });
     return () => {
