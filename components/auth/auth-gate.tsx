@@ -11,38 +11,55 @@ type AuthGateProps = { children: ReactNode };
 export function AuthGate({ children }: AuthGateProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(isFirebaseConfigured);
+  const [redirectError, setRedirectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth) return;
+    let mounted = true;
+    let redirectChecked = false;
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      if (!mounted) return;
       setUser(nextUser);
-      setLoading(false);
+      if (nextUser || redirectChecked) setLoading(false);
     });
     getRedirectResult(auth)
       .then((result) => {
+        if (!mounted) return;
         if (result?.user) {
           setUser(result.user);
-          setLoading(false);
         }
       })
       .catch((error) => {
+        if (!mounted) return;
         console.error("Não foi possível concluir o retorno do Google.", error);
-        setLoading(false);
+        const code = (error as { code?: string }).code;
+        setRedirectError(code === "auth/unauthorized-domain"
+          ? "Este endereço ainda não foi autorizado no Firebase. Adicione localhost aos domínios autorizados."
+          : "O Google não conseguiu concluir o acesso. Tente novamente.");
+      })
+      .finally(() => {
+        if (mounted) {
+          redirectChecked = true;
+          if (!auth.currentUser) setLoading(false);
+        }
       });
-    return unsubscribe;
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
   if (!isFirebaseConfigured) return <>{children}</>;
   if (loading) return <main className="auth-loading">Carregando acesso seguro...</main>;
-  if (!user) return <LoginPanel />;
+  if (!user) return <LoginPanel initialStatus={redirectError} />;
 
   return <AcademyGate user={user}>{children}</AcademyGate>;
 }
 
-function LoginPanel() {
+function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(initialStatus ?? null);
   const [submitting, setSubmitting] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
