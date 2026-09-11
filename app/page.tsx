@@ -112,6 +112,7 @@ export default function Home() {
   const [activeWorkout, setActiveWorkout] = useState<WorkoutRecord | null>(null);
   const [completedSets, setCompletedSets] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const canSwitchRole = access.accountType === "developer" || access.role === "admin";
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("orquestra_fit_theme");
@@ -136,7 +137,7 @@ export default function Home() {
         data-theme={theme === "prata" ? "ferro" : "forja"}
       >
         <div className="prototype-flag"><Sparkles size={14} /> {access.accountType === "developer" ? "Ambiente interno de testes" : "Ambiente da academia"}</div>
-        {access.accountType === "developer" && (
+        {canSwitchRole && (
           <RoleSwitcher role={demoRole} onChange={(nextRole) => { setDemoRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
         )}
         {role === "aluno" && (
