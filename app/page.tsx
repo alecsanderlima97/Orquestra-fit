@@ -495,7 +495,8 @@ type BillingStudent = { id: string; name: string; active: boolean };
 type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid" };
 type ExerciseRecord = { id: string; name: string; muscleGroup: string };
-type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; status: "draft" | "published" };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string };
+type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; notes: string };
 
@@ -594,6 +595,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [workoutName, setWorkoutName] = useState("");
   const [studentId, setStudentId] = useState("");
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
+  const [exerciseDetails, setExerciseDetails] = useState<Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -606,7 +608,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as { name?: string; muscleGroup?: string }; return { id: exercise.id, name: data.name ?? "Exercício", muscleGroup: data.muscleGroup ?? "Geral" }; }));
     });
     const unsubscribeWorkouts = onSnapshot(collection(db, "academies", access.academyId, "workouts"), (snapshot) => {
-      setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
+      setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
     });
     return () => { void academy; unsubscribeStudents(); unsubscribeExercises(); unsubscribeWorkouts(); };
   }, [access.academyId]);
@@ -627,8 +629,12 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     if (!student) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, status: "published", createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
-      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); onFeedback("Treino publicado para o aluno.");
+      const details = selectedExercises.map((exerciseId) => {
+        const exercise = exercises.find((item) => item.id === exerciseId);
+        return { exerciseId, name: exercise?.name ?? "Exercício", ...exerciseDetails[exerciseId] };
+      });
+      await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details, status: "published", createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
+      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); onFeedback("Treino publicado para o aluno.");
     } catch { onFeedback("Não foi possível publicar o treino."); }
     finally { setSaving(false); }
   }
@@ -637,7 +643,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Cadastre exercícios e publique fichas vinculadas aos alunos.</p></div></section>
       <section className="training-layout">
-        <article className="workspace-panel training-form-panel"><header><div><span>NOVA FICHA</span><h3>Publicar treino</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <label key={exercise.id}><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => setSelectedExercises((current) => current.includes(exercise.id) ? current.filter((id) => id !== exercise.id) : [...current, exercise.id])} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>)}</fieldset><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></form></article>
+        <article className="workspace-panel training-form-panel"><header><div><span>NOVA FICHA</span><h3>Publicar treino</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <div className="exercise-choice" key={exercise.id}><label><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => { const selected = selectedExercises.includes(exercise.id); setSelectedExercises((current) => selected ? current.filter((id) => id !== exercise.id) : [...current, exercise.id]); if (!selected) setExerciseDetails((current) => ({ ...current, [exercise.id]: { sets: "3", reps: "10", load: "0", rest: "60" } })); }} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>{selectedExercises.includes(exercise.id) && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], sets: event.target.value } }))} /></label><label>Reps<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], reps: event.target.value } }))} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], load: event.target.value } }))} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], rest: event.target.value } }))} /></label></div>}</div>)}</fieldset><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></form></article>
         <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Pernas" required /></label><button className="detail-save" type="submit">Cadastrar exercício</button></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><strong>{exercise.name}</strong><small>{exercise.muscleGroup}</small></div>)}</div></article>
       </section>
       <section className="workspace-panel published-workouts"><header><div><span>PUBLICADOS</span><h3>{workouts.length} {workouts.length === 1 ? "treino" : "treinos"}</h3></div></header>{workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Nenhum treino publicado ainda.</p></div> : <div className="published-list">{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
