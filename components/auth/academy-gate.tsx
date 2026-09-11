@@ -19,6 +19,15 @@ type MemberProfile = {
   active?: boolean;
 };
 
+async function leaveAccount() {
+  if (!auth) return;
+  try {
+    await signOut(auth);
+  } finally {
+    window.location.reload();
+  }
+}
+
 function isDeveloperAccount(user: User) {
   const developerEmail = process.env.NEXT_PUBLIC_DEVELOPER_EMAIL?.trim().toLowerCase();
   return Boolean(developerEmail && user.email?.trim().toLowerCase() === developerEmail);
@@ -196,7 +205,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           <button type="submit" disabled={submitting}>{submitting ? "Ativando..." : "Ativar acesso"}</button>
         </form>
         <p className="onboarding-note"><CheckCircle2 size={16} /> Este código só pode ser usado uma vez.</p>
-        <button className="auth-link" type="button" onClick={() => auth && signOut(auth)}>Voltar para entrada</button>
+        <button className="auth-link" type="button" onClick={() => void leaveAccount()}>Voltar para entrada</button>
       </section>
     </main>
   );

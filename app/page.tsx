@@ -30,6 +30,15 @@ function firstName(displayName: string | null, email: string | null) {
   return accountName(displayName, email).split(/\s+/)[0];
 }
 
+async function logout() {
+  if (!auth) return;
+  try {
+    await signOut(auth);
+  } finally {
+    window.location.reload();
+  }
+}
+
 const navItems = [
   ["inicio", House, "Início"],
   ["treinos", Dumbbell, "Treinos"],
@@ -370,7 +379,7 @@ function Profile() {
       <div className="profile-identity"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><small>ALUNO</small><h1>{accountName(access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
       {links.map(({ icon: Icon, label }) => <button className="profile-link" key={label}><Icon /><span>{label}</span><ChevronRight /></button>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
-      <button className="profile-link" type="button" onClick={() => auth && signOut(auth)}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
+      <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
     </div>
   );
 }
@@ -483,7 +492,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
           <div className="workspace-actions">
             <button aria-label="Buscar"><Search /></button>
             <button aria-label="Notificações"><Bell /></button>
-            <button className="operator" type="button" onClick={() => auth && signOut(auth)} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
+            <button className="operator" type="button" onClick={() => void logout()} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
         {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
