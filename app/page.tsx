@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { signOut } from "firebase/auth";
-import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check,
   ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -793,6 +793,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [whereToFeel, setWhereToFeel] = useState("");
   const [commonMistakes, setCommonMistakes] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [workoutName, setWorkoutName] = useState("");
   const [studentId, setStudentId] = useState("");
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
@@ -819,13 +820,46 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
     return () => { void academy; unsubscribeStudents(); unsubscribeExercises(); unsubscribeWorkouts(); unsubscribeTemplates(); };
   }, [access.academyId, access.role, access.userId]);
 
-  async function createExercise(event: React.FormEvent<HTMLFormElement>) {
+  async function createExerciseLegacy(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
     try {
       await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), whereToFeel: whereToFeel.trim(), commonMistakes: commonMistakes.trim(), videoUrl: videoUrl.trim(), createdBy: access.userId, createdAt: serverTimestamp() });
       setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setWhereToFeel(""); setCommonMistakes(""); setVideoUrl(""); onFeedback("Exercício cadastrado.");
     } catch { onFeedback("Não foi possível cadastrar o exercício."); }
+  }
+
+  function editExercise(exercise: ExerciseRecord) {
+    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setWhereToFeel(exercise.whereToFeel ?? ""); setCommonMistakes(exercise.commonMistakes ?? ""); setVideoUrl(exercise.videoUrl ?? "");
+  }
+
+  function clearExerciseForm() {
+    setEditingExerciseId(null); setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setWhereToFeel(""); setCommonMistakes(""); setVideoUrl("");
+  }
+
+  async function createExercise(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
+    const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), whereToFeel: whereToFeel.trim(), commonMistakes: commonMistakes.trim(), videoUrl: videoUrl.trim(), updatedBy: access.userId, updatedAt: serverTimestamp() };
+    try {
+      if (editingExerciseId) {
+        await updateDoc(doc(db, "academies", access.academyId, "exercises", editingExerciseId), data);
+        onFeedback("Exercício atualizado.");
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "exercises"), { ...data, createdBy: access.userId, createdAt: serverTimestamp() });
+        onFeedback("Exercício cadastrado.");
+      }
+      clearExerciseForm();
+    } catch { onFeedback("Não foi possível salvar o exercício."); }
+  }
+
+  async function removeExercise(exercise: ExerciseRecord) {
+    if (!db || access.role !== "admin" || !window.confirm(`Excluir o exercício \"${exercise.name}\"? Treinos já publicados não serão alterados.`)) return;
+    try {
+      await deleteDoc(doc(db, "academies", access.academyId, "exercises", exercise.id));
+      if (editingExerciseId === exercise.id) clearExerciseForm();
+      onFeedback("Exercício excluído da biblioteca.");
+    } catch { onFeedback("Não foi possível excluir o exercício."); }
   }
 
   async function seedStarterExercises() {
@@ -893,7 +927,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
       <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Cadastre exercícios e publique fichas vinculadas aos alunos.</p></div></section>
       <section className="training-layout">
         <article className="workspace-panel training-form-panel"><header><div><span>FICHA DE TREINO</span><h3>Montar e publicar</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Usar modelo pronto<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Começar do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <div className="exercise-choice" key={exercise.id}><label><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => { const selected = selectedExercises.includes(exercise.id); setSelectedExercises((current) => selected ? current.filter((id) => id !== exercise.id) : [...current, exercise.id]); if (!selected) setExerciseDetails((current) => ({ ...current, [exercise.id]: { sets: "3", reps: "10", load: "0", rest: "60" } })); }} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>{selectedExercises.includes(exercise.id) && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], sets: event.target.value } }))} /></label><label>Reps<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], reps: event.target.value } }))} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], load: event.target.value } }))} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], rest: event.target.value } }))} /></label></div>}</div>)}</fieldset><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar como modelo</button><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></div></form></article>
-        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><div className="starter-library-box"><p>Comece com uma base pronta e personalize os exercícios depois.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Orientação rápida do professor" /></label><label>Onde sentir<textarea value={whereToFeel} onChange={(event) => setWhereToFeel(event.target.value)} placeholder="Ex.: Principalmente no peito" /></label><label>Erros comuns<textarea value={commonMistakes} onChange={(event) => setCommonMistakes(event.target.value)} placeholder="Ex.: Não abrir os cotovelos" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><button className="detail-save" type="submit">Cadastrar exercício</button></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><strong>{exercise.name}</strong><small>{exercise.muscleGroup}{exercise.anatomyRegion ? ` · ${exercise.anatomyRegion}` : ""}</small></div>)}</div></article>
+        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><div className="starter-library-box"><p>Comece com uma base pronta e personalize os exercícios depois.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Orientação rápida do professor" /></label><label>Onde sentir<textarea value={whereToFeel} onChange={(event) => setWhereToFeel(event.target.value)} placeholder="Ex.: Principalmente no peito" /></label><label>Erros comuns<textarea value={commonMistakes} onChange={(event) => setCommonMistakes(event.target.value)} placeholder="Ex.: Não abrir os cotovelos" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.muscleGroup}{exercise.anatomyRegion ? ` · ${exercise.anatomyRegion}` : ""}</small></div><div className="exercise-actions"><button type="button" onClick={() => editExercise(exercise)}>Editar</button>{access.role === "admin" && <button type="button" onClick={() => void removeExercise(exercise)}>Excluir</button>}</div></div>)}</div></article>
       </section>
       <section className="workspace-panel published-workouts"><header><div><span>BIBLIOTECA E PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{templates.length === 0 && workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha como modelo para reutilizá-la.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><em>Modelo</em></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
     </div>
