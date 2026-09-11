@@ -615,6 +615,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const feedback = useFeedback();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [activeModule, setActiveModule] = useState("Visão geral");
+  const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
   const visibleNav = profile === "Professor"
     ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Avaliações"].includes(label))
     : workspaceNav;
@@ -639,7 +640,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => void logout()} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={(module, studentId) => { setFocusStudentId(studentId); setActiveModule(module); }} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
       </div>
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
     </section>
@@ -699,12 +700,12 @@ function formatDate(dateString: string) {
   return `${day}/${month}/${year}`;
 }
 
-function AssessmentsModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<BillingStudent[]>([]);
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
-  const [studentId, setStudentId] = useState("");
-  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [studentId, setStudentId] = useState(initialStudentId);
+  const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId);
   const [date, setDate] = useState("");
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
@@ -840,7 +841,7 @@ function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTempla
   return <section className="workspace-panel published-workouts"><header><div><span>MODELOS E TREINOS PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{empty ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha para reutilizar depois.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Modelo</em><button type="button" onClick={() => onEditTemplate(template)}>Editar</button><button type="button" onClick={() => onRemoveTemplate(template)}>Excluir</button></div></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Publicado</em><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>)}</div>}</section>;
 }
 
-function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<BillingStudent[]>([]);
   const [exercises, setExercises] = useState<ExerciseRecord[]>([]);
@@ -857,7 +858,7 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [exerciseType, setExerciseType] = useState<ExerciseType>("Força");
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [workoutName, setWorkoutName] = useState("");
-  const [studentId, setStudentId] = useState("");
+  const [studentId, setStudentId] = useState(initialStudentId);
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
   const [exerciseDetails, setExerciseDetails] = useState<Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>>({});
   const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
@@ -1061,12 +1062,12 @@ function TrainingModule({ onFeedback }: { onFeedback: (message: string) => void 
   );
 }
 
-function BillingModule({ onFeedback }: { onFeedback: (message: string) => void }) {
+function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<BillingStudent[]>([]);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [charges, setCharges] = useState<MonthlyCharge[]>([]);
-  const [studentId, setStudentId] = useState("");
+  const [studentId, setStudentId] = useState(initialStudentId);
   const [planId, setPlanId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [chargeType, setChargeType] = useState<ChargeType>("monthly");
@@ -1318,7 +1319,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
   );
 }
 
-function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => void; onFeedback: (message: string) => void }) {
+function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
@@ -1444,7 +1445,7 @@ function StudentsModule({ onNewStudent, onFeedback }: { onNewStudent?: () => voi
             <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
             <div className="student-profile-overview"><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>VISITAS REGISTRADAS</small><strong>{studentExecutions.length}</strong></div></div>
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{workout.name}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
-            <div className="student-profile-actions"><button type="button" onClick={() => onFeedback("Para criar ou alterar o treino, abra a aba Treinos com este aluno selecionado.")}>Gerenciar treino</button><button type="button" onClick={() => onFeedback("Para registrar uma nova avaliação, abra a aba Avaliações.")}>Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onFeedback("O financeiro deste aluno está disponível em Planos e mensalidades.")}>Ver financeiro</button>}</div>
+            <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}>Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}>Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onNavigate("Planos e mensalidades", selectedStudent.id)}>Ver financeiro</button>}</div>
             <div className="student-profile-divider"><span>CADASTRO E ACESSO</span></div>
             <form className="student-detail-form" onSubmit={saveStudent}>
               <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label>
