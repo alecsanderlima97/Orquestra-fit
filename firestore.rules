@@ -99,9 +99,7 @@ service cloud.firestore {
         (studentId == request.auth.uid &&
           request.resource.data.activationCodeId is string &&
           validInvitation(request.resource.data.activationCodeId, academyId, 'student'));
-      allow update: if isAdmin(academyId) ||
-        (isTeacher(academyId) && resource.data.teacherId == request.auth.uid && request.resource.data.teacherId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'phone', 'cpf']));
+      allow update: if isAdmin(academyId);
       allow delete: if isAdmin(academyId);
     }
 
