@@ -120,6 +120,7 @@ button { cursor: pointer; }
 .student-profile-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 14px 22px 0; border: 1px solid var(--line); background: var(--line); }
 .student-profile-sections section { min-width: 0; padding: 12px; background: #111415; }
 .student-profile-sections section:last-child { grid-column: 1 / -1; }
+[data-access-role="teacher"] .student-profile-sections section:last-child { display: none; }
 .student-profile-sections section > span, .student-profile-divider span { color: var(--bronze-300); font-size: 9px; font-weight: 900; letter-spacing: .13em; }
 .student-profile-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 .student-profile-row > div { min-width: 0; }

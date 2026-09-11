@@ -620,7 +620,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
     ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Avaliações"].includes(label))
     : workspaceNav;
   return (
-    <section className="workspace-shell">
+    <section className="workspace-shell" data-access-role={access.role}>
       <aside className="workspace-rail">
         <AcademyBrand />
         <nav>
@@ -1384,14 +1384,14 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
     const unsubscribeAssessments = onSnapshot(query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentAssessments(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AssessmentRecord, "id">) })).sort((a, b) => b.date.localeCompare(a.date)));
     });
-    const unsubscribeCharges = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", selectedId)), (snapshot) => {
+    const unsubscribeCharges = access.role === "admin" ? onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentCharges(snapshot.docs.map((item) => { const data = item.data() as Omit<MonthlyCharge, "id">; return { id: item.id, ...data, amount: Number(data.amount ?? 0), status: (data.status === "paid" ? "paid" : "pending") as MonthlyCharge["status"] }; }).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
-    });
+    }) : () => setStudentCharges([]);
     const unsubscribeExecutions = onSnapshot(query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => (b.completedAt?.toDate?.().getTime() ?? 0) - (a.completedAt?.toDate?.().getTime() ?? 0)));
     });
     return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); };
-  }, [access.academyId, selectedId]);
+  }, [access.academyId, access.role, selectedId]);
 
   async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
