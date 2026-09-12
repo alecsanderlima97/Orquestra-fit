@@ -136,7 +136,6 @@ export default function Home() {
         className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"}
         data-theme={theme === "prata" ? "ferro" : "forja"}
       >
-        <div className="prototype-flag"><Sparkles size={14} /> Ambiente da academia</div>
         {canSwitchRole && (
           <RoleSwitcher role={demoRole} onChange={(nextRole) => { setDemoRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
         )}
@@ -644,6 +643,8 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeModule, setActiveModule] = useState("Visão geral");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
   function navigateToModule(module: string, studentId?: string) {
     if (profile === "Professor" && module === "Planos e mensalidades") {
@@ -675,8 +676,9 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
         <header className="workspace-topbar">
           <div className="workspace-heading"><button className="workspace-mobile-menu" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}><Menu /></button><div><span>DAMA DE FERRO ACADEMIA</span><h1>{activeModule === "Visão geral" ? (profile === "Gestão" ? "Visão geral" : "Área do professor") : activeModule}</h1></div></div>
           <div className="workspace-actions">
-            <button aria-label="Buscar"><Search /></button>
-            <button aria-label="Notificações"><Bell /></button>
+            {searchOpen && <form className="workspace-search-inline" onSubmit={(event) => { event.preventDefault(); feedback(searchTerm.trim() ? `Pesquisa por “${searchTerm.trim()}”.` : "Digite algo para pesquisar."); }}><input autoFocus value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Pesquisar" aria-label="Pesquisar" /></form>}
+            <button aria-label="Buscar" onClick={() => setSearchOpen((open) => !open)}><Search /></button>
+            <button aria-label="Notificações" onClick={() => feedback("Você não tem novas notificações.")}><Bell /></button>
             <button className="operator" type="button" onClick={() => void logout()} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
           </div>
         </header>

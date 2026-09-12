@@ -52,7 +52,7 @@ export function AuthGate({ children }: AuthGateProps) {
     };
   }, []);
 
-  if (!isFirebaseConfigured) return <AccessProvider value={{ user: { uid: "local-demo", displayName: "Usuário local", email: "local@orquestra.fit" } as User, userId: "local-demo", academyId: "local-academy", role: "admin", accountType: "developer" }}>{children}</AccessProvider>;
+  if (!isFirebaseConfigured) return <AccessProvider value={{ user: { uid: "local-demo", displayName: "Gestor", email: "gestor@orquestra.fit" } as User, userId: "local-demo", academyId: "local-academy", role: "admin", accountType: "developer" }}>{children}</AccessProvider>;
   if (loading) return <main className="auth-loading">Carregando acesso seguro...</main>;
   if (!user) return <LoginPanel initialStatus={redirectError} />;
 

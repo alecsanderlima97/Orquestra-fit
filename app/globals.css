@@ -1064,6 +1064,8 @@ button { cursor: pointer; }
 .workspace-topbar > div:first-child { display: grid; }
 .workspace-topbar > div:first-child span { color: var(--bronze-400); font-size: 8px; letter-spacing: 1.5px; font-weight: 900; }
 .workspace-topbar h1 { font-family: Georgia, serif; font-size: 23px; font-weight: 500; margin: 4px 0 0; }
+.workspace-search-inline { width: 150px; }
+.workspace-search-inline input { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid #3a3028; background: #141617; color: var(--paper); padding: 0 10px; font-size: 11px; outline: 0; }
 .workspace-heading { display: flex; align-items: center; gap: 12px; }
 .workspace-mobile-menu { display: none; width: 38px; height: 38px; border: 1px solid var(--line); background: #151719; color: var(--paper); align-items: center; justify-content: center; }
 .workspace-mobile-menu svg { width: 19px; }
