@@ -2014,7 +2014,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }
     if (!db) {
       const message: InternalMessage = {
-        id: `local-message-${Date.now()}`,
+        id: `local-message-${crypto.randomUUID()}`,
         studentId: selectedStudent.id,
         senderId: access.userId,
         senderName: accountName(access.user.displayName, access.user.email),
