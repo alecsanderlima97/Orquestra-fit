@@ -1617,6 +1617,8 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [exercises, setExercises] = useState<ExerciseRecord[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutRecord[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplateRecord[]>([]);
+  const [exerciseSnapshotReady, setExerciseSnapshotReady] = useState(false);
+  const [librarySyncAttempted, setLibrarySyncAttempted] = useState(false);
   const [exerciseName, setExerciseName] = useState("");
   const [muscleGroup, setMuscleGroup] = useState("");
   const [secondaryMuscles, setSecondaryMuscles] = useState("");
@@ -1639,6 +1641,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (!db) {
       setStudents(readLocalCollection<BillingStudent>(access.academyId, "students"));
       setExercises(readLocalCollection<ExerciseRecord>(access.academyId, "exercises"));
+      setExerciseSnapshotReady(true);
       setWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts"));
       setTemplates(readLocalCollection<WorkoutTemplateRecord>(access.academyId, "workoutTemplates"));
       return;
@@ -1651,6 +1654,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
       setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
+      setExerciseSnapshotReady(true);
     });
     const unsubscribeWorkouts = onSnapshot(collection(db, "academies", access.academyId, "workouts"), (snapshot) => {
       setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
@@ -1765,6 +1769,12 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       onFeedback("Não foi possível carregar a biblioteca inicial.");
     }
   }
+
+  useEffect(() => {
+    if (!exerciseSnapshotReady || librarySyncAttempted || !["admin", "teacher"].includes(access.role)) return;
+    setLibrarySyncAttempted(true);
+    void seedStarterExercises();
+  }, [access.role, exerciseSnapshotReady, librarySyncAttempted]);
 
   function toggleExercise(exercise: ExerciseRecord) {
     const selected = selectedExercises.includes(exercise.id);
