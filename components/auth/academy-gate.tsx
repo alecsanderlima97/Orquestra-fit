@@ -2,9 +2,10 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { signOut, type User } from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
 import { collection, doc, getDoc, getDocFromServer, serverTimestamp, writeBatch } from "firebase/firestore";
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
-import { auth, db } from "@/lib/firebase/client";
+import { auth, db, functions } from "@/lib/firebase/client";
 import { AccessProvider, AccessRole } from "./access-context";
 
 type AcademyGateProps = { user: User; children: ReactNode };
@@ -38,12 +39,15 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   const [member, setMember] = useState<MemberProfile | null | undefined>(undefined);
   const [loadError, setLoadError] = useState(false);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
     setProfile(undefined);
     setMember(undefined);
     setLoadError(false);
     setResolvedUserId(null);
+    setPasswordChangeRequired(undefined);
+    void user.getIdTokenResult().then((token) => setPasswordChangeRequired(token.claims.passwordChangeRequired === true)).catch(() => setPasswordChangeRequired(false));
     if (!db) {
       setProfile(null);
       setMember(null);
@@ -91,9 +95,9 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [user.uid]);
+  }, [user]);
 
-  if (resolvedUserId !== user.uid || profile === undefined || member === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
+  if (resolvedUserId !== user.uid || profile === undefined || member === undefined || passwordChangeRequired === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
   if (loadError) return <main className="auth-loading">Não foi possível confirmar seu acesso agora. Atualize a página para tentar novamente.</main>;
   if (!profile?.activeAcademyId) {
     return isDeveloperAccount(user)
@@ -101,6 +105,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
       : <ActivateAccess user={user} onActivated={(nextProfile, nextMember) => { setProfile(nextProfile); setMember(nextMember); }} />;
   }
   if (!member?.active || !member.role) return <main className="auth-loading">Seu acesso ainda não foi liberado pela academia.</main>;
+  if (passwordChangeRequired) return <RequiredPasswordChange user={user} academyId={profile.activeAcademyId} />;
 
   return (
     <AccessProvider
@@ -114,6 +119,58 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
     >
       {children}
     </AccessProvider>
+  );
+}
+
+function RequiredPasswordChange({ user, academyId }: { user: User; academyId: string }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!functions) {
+      setStatus("O serviço seguro de troca de senha ainda não está disponível.");
+      return;
+    }
+    if (newPassword.length < 10 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      setStatus("Use ao menos 10 caracteres, incluindo letras e números.");
+      return;
+    }
+    if (newPassword !== confirmation) {
+      setStatus("A confirmação de senha não confere.");
+      return;
+    }
+    setSubmitting(true);
+    setStatus(null);
+    try {
+      await httpsCallable<{ academyId: string; newPassword: string }, { ok: boolean }>(functions, "changeOwnPassword")({ academyId, newPassword });
+      await user.getIdToken(true);
+      window.location.reload();
+    } catch {
+      setStatus("Não foi possível atualizar a senha agora. Tente novamente ou procure a academia.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-panel academy-onboarding" aria-labelledby="password-change-title">
+        <div className="auth-mark"><ShieldCheck size={28} /></div>
+        <p>SEGURANÇA DA CONTA</p>
+        <h1 id="password-change-title">Crie sua senha pessoal</h1>
+        <span>A academia forneceu uma senha temporária. Para proteger sua conta, escolha uma senha nova antes de continuar.</span>
+        <form onSubmit={submit}>
+          <label>Nova senha<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={10} required /></label>
+          <label>Confirmar nova senha<input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" minLength={10} required /></label>
+          {status && <p className="auth-status" role="status">{status}</p>}
+          <button type="submit" disabled={submitting}>{submitting ? "Atualizando..." : "Salvar nova senha"}</button>
+        </form>
+        <p className="onboarding-note"><CheckCircle2 size={16} /> A senha temporária deixará de funcionar após esta alteração.</p>
+      </section>
+    </main>
   );
 }
 
@@ -212,7 +269,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         <div className="auth-mark"><ShieldCheck size={28} /></div>
         <p>ORQUESTRA FIT</p>
         <h1 id="activation-title">Ative seu acesso</h1>
-        <span>Entre com sua conta Google e informe o código recebido da academia para liberar seu perfil.</span>
+        <span>Entre com seu login criado ou com sua conta Google e informe o código recebido da academia para liberar seu perfil.</span>
         <form onSubmit={submit}>
           <label><ShieldCheck size={17} /> Código de ativação<input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} autoComplete="one-time-code" placeholder="Ex.: DF-7K4M2P" required /></label>
           {status && <p className="auth-status" role="status">{status}</p>}

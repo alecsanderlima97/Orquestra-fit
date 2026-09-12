@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { signOut } from "firebase/auth";
+import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword } from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check, Footprints,
@@ -10,7 +11,7 @@ import {
   PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
-import { auth, db } from "@/lib/firebase/client";
+import { auth, db, functions } from "@/lib/firebase/client";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
@@ -612,6 +613,61 @@ function Agenda() {
   );
 }
 
+function PasswordUpdateForm() {
+  const access = useAccess();
+  const feedback = useFeedback();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const hasPasswordAccess = access.user.providerData?.some((provider) => provider.providerId === "password") === true;
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!auth || !access.user.email) {
+      feedback("A troca de senha fica disponível no acesso real da academia.");
+      return;
+    }
+    if (newPassword.length < 10 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      feedback("Use uma senha com ao menos 10 caracteres, incluindo letras e números.");
+      return;
+    }
+    if (newPassword !== confirmation) {
+      feedback("A confirmação da nova senha não confere.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await reauthenticateWithCredential(access.user, EmailAuthProvider.credential(access.user.email, currentPassword));
+      await updatePassword(access.user, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmation("");
+      feedback("Senha atualizada com segurança.");
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      feedback(code === "auth/wrong-password" || code === "auth/invalid-credential"
+        ? "A senha atual não confere."
+        : "Não foi possível atualizar a senha. Entre novamente e tente de novo.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!hasPasswordAccess) {
+    return <div className="password-access-note"><strong>Entrada pelo Google</strong><span>Esta conta usa Google para entrar e não possui uma senha separada no Orquestra Fit.</span></div>;
+  }
+
+  return <form className="password-update-form" onSubmit={submit}>
+    <strong>Atualizar senha</strong>
+    <span>Use uma senha nova com pelo menos 10 caracteres, letras e números.</span>
+    <label>Senha atual<input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></label>
+    <label>Nova senha<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={10} required /></label>
+    <label>Confirmar nova senha<input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" minLength={10} required /></label>
+    <button className="detail-save" type="submit" disabled={submitting}>{submitting ? "Atualizando..." : "Atualizar senha"}</button>
+  </form>;
+}
+
 function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: StudentTab) => void; theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const access = useAccess();
   const [openPanel, setOpenPanel] = useState<string | null>(null);
@@ -632,7 +688,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   return (
     <div className="student-view profile-view">
       <div className="profile-identity"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><small>ALUNO</small><h1>{accountName(access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
-      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>Você pode entrar com Google ou com e-mail e senha. O Firebase mantém sua sessão ativa neste dispositivo para evitar novo login a cada abertura.</span><small>Sua senha não fica salva no aplicativo. Para corrigir ou remover dados, fale com a academia.</small></>}{label === "Aparência" && <><strong>Tema do ambiente</strong><ThemeSwitcher theme={theme} onChange={onThemeChange} /></>}</div>}</div>)}
+      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email?.endsWith("@accounts.orquestra-fit.local") ? `Login: ${access.user.displayName ?? "usuário da academia"}` : access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>O acesso é protegido pelo Firebase. Sua senha nunca é salva no aplicativo.</span><PasswordUpdateForm /></>}{label === "Aparência" && <><strong>Tema do ambiente</strong><ThemeSwitcher theme={theme} onChange={onThemeChange} /></>}</div>}</div>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
     </div>
@@ -1872,6 +1928,9 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [studentMessages, setStudentMessages] = useState<InternalMessage[]>([]);
   const [messageBody, setMessageBody] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => setSearch(initialSearch), [initialSearch]);
 
@@ -2034,6 +2093,39 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     finally { setSendingMessage(false); }
   }
 
+  function generateTemporaryPassword() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    const random = crypto.getRandomValues(new Uint32Array(12));
+    const value = `${alphabet[random[0] % 24]}${alphabet[random[1] % 24]}${alphabet[random[2] % 24]}${alphabet[random[3] % 24]}-${random[4] % 10}${random[5] % 10}${random[6] % 10}${random[7] % 10}${alphabet[random[8] % alphabet.length]}${alphabet[random[9] % alphabet.length]}${random[10] % 10}${random[11] % 10}`;
+    setTemporaryPassword(value);
+  }
+
+  async function resetStudentPassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedStudent || !functions || access.role !== "admin") {
+      onFeedback("A redefinição segura de senha estará disponível após ativar o serviço da academia.");
+      return;
+    }
+    if (temporaryPassword.length < 10 || !/[A-Za-z]/.test(temporaryPassword) || !/\d/.test(temporaryPassword)) {
+      onFeedback("Use uma senha temporária com ao menos 10 caracteres, letras e números.");
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      await httpsCallable<{ academyId: string; targetUserId: string; newPassword: string }, { ok: boolean }>(functions, "resetMemberPassword")({ academyId: access.academyId, targetUserId: selectedStudent.id, newPassword: temporaryPassword });
+      onFeedback("Senha temporária definida. Entregue-a ao aluno por um canal seguro; ele será obrigado a trocá-la ao entrar.");
+      setTemporaryPassword("");
+      setShowPasswordReset(false);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      onFeedback(code === "functions/failed-precondition"
+        ? "Esse aluno ainda não ativou o próprio acesso."
+        : "Não foi possível redefinir a senha agora.");
+    } finally {
+      setResettingPassword(false);
+    }
+  }
+
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro">
@@ -2069,6 +2161,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
               {access.role === "admin" && <label>Professor responsável<select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)}><option value="">Sem professor definido</option>{teachers.filter((teacher) => teacher.active !== false).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>}
               <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
             </form> : null}
+            {access.role === "admin" && <section className="member-password-reset"><div><span>SEGURANÇA DE ACESSO</span><strong>Senha temporária</strong><p>A senha não é salva no sistema. Ao entrar, o aluno será obrigado a criar a própria senha.</p></div><button className="detail-secondary" type="button" onClick={() => { setShowPasswordReset((current) => !current); setTemporaryPassword(""); }}>{showPasswordReset ? "Cancelar" : "Redefinir senha"}</button>{showPasswordReset && <form onSubmit={resetStudentPassword}><label>Senha temporária<input type="text" value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} autoComplete="off" minLength={10} required /></label><div><button className="detail-secondary" type="button" onClick={generateTemporaryPassword}>Gerar senha forte</button><button className="detail-save" type="submit" disabled={resettingPassword || !temporaryPassword}>{resettingPassword ? "Definindo..." : "Confirmar senha temporária"}</button></div></form>}</section>}
             {access.role === "admin" && <button className="detail-toggle" onClick={toggleStudent}>{selectedStudent.active === false ? "Reativar acesso" : "Suspender acesso"}</button>}
           </> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um aluno</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
         </aside>
@@ -2187,7 +2280,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           <div className="permission-roles">
           {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => role.id === "admin" ? onFeedback("O dono da academia já possui acesso administrativo.") : setRoleToAdd(role.id as "teacher" | "student")}><Plus size={16} /> Adicionar</button></article>)}
           </div>
-          {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>Convite de {roleToAdd === "teacher" ? "professor" : "aluno"}</strong><p>Gere um código e envie para a pessoa entrar com a conta Google.</p></div><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
+          {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>Convite de {roleToAdd === "teacher" ? "professor" : "aluno"}</strong><p>Gere um código e envie para a pessoa criar um login e senha ou entrar com a conta Google.</p></div><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
         </section>
         <section className="settings-section appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
