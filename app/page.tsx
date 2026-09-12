@@ -15,6 +15,7 @@ import { auth, db } from "@/lib/firebase/client";
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
 type Theme = "bronze" | "prata";
+type AccountProfile = { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string };
 
 const FeedbackContext = createContext<(message: string) => void>(() => undefined);
 
@@ -28,6 +29,16 @@ function accountName(displayName: string | null, email: string | null) {
 
 function firstName(displayName: string | null, email: string | null) {
   return accountName(displayName, email).split(/\s+/)[0];
+}
+
+function useRegisteredProfile() {
+  const access = useAccess();
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  useEffect(() => {
+    if (!db) return;
+    return onSnapshot(doc(db, "users", access.userId), (snapshot) => setProfile(snapshot.exists() ? snapshot.data() as AccountProfile : null));
+  }, [access.userId]);
+  return profile;
 }
 
 async function logout() {
@@ -163,6 +174,7 @@ export default function Home() {
                 {activeTab === "perfil" && <Profile onNavigate={setActiveTab} theme={theme} onThemeChange={setTheme} />}
               </div>
               <StudentNav activeTab={activeTab} onChange={setActiveTab} />
+              <AcademyFooter />
             </>
           )}
           {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={setActiveTab} />}
@@ -636,7 +648,8 @@ type RegisteredTeacher = {
 
 function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent }: { children: React.ReactNode; profile: "Gestão" | "Professor"; theme?: Theme; onThemeChange?: (theme: Theme) => void; onNewStudent?: () => void }) {
   const access = useAccess();
-  const operatorName = accountName(access.user.displayName, access.user.email);
+  const registeredProfile = useRegisteredProfile();
+  const operatorName = registeredProfile?.name?.trim() || registeredProfile?.displayName?.trim() || accountName(access.user.displayName, access.user.email);
   const operatorInitials = operatorName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const feedback = useFeedback();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
@@ -645,6 +658,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const [activeModule, setActiveModule] = useState("Visão geral");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
   const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
   function navigateToModule(module: string, studentId?: string) {
     if (profile === "Professor" && module === "Planos e mensalidades") {
@@ -679,15 +693,17 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             {searchOpen && <form className="workspace-search-inline" onSubmit={(event) => { event.preventDefault(); feedback(searchTerm.trim() ? `Pesquisa por “${searchTerm.trim()}”.` : "Digite algo para pesquisar."); }}><input autoFocus value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Pesquisar" aria-label="Pesquisar" /></form>}
             <button aria-label="Buscar" onClick={() => setSearchOpen((open) => !open)}><Search /></button>
             <button aria-label="Notificações" onClick={() => feedback("Você não tem novas notificações.")}><Bell /></button>
-            <button className="operator" type="button" onClick={() => void logout()} title="Sair da conta"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile} · sair</small></div></button>
+            <button className="operator" type="button" onClick={() => setProfileOpen(true)} title="Abrir perfil"><span>{operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile}</small></div></button>
           </div>
         </header>
         {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        <AcademyFooter />
       </div>
       <WorkspaceMobileNav profile={profile} activeModule={activeModule} onNavigate={navigateToModule} onMore={() => setMobileMenuOpen(true)} />
       {mobileMenuOpen && <WorkspaceMobileDrawer profile={profile} visibleNav={visibleNav} activeModule={activeModule} onNavigate={navigateToModule} onClose={() => setMobileMenuOpen(false)} operatorName={operatorName} operatorInitials={operatorInitials} onSettings={() => { setMobileMenuOpen(false); if (profile === "Gestão") setPermissionsOpen(true); else setAppearanceOpen(true); }} />}
       {appearanceOpen && theme && onThemeChange && <AppearancePanel theme={theme} onThemeChange={onThemeChange} onClose={() => setAppearanceOpen(false)} />}
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
+      {profileOpen && <ManagerProfilePanel profile={registeredProfile} onClose={() => setProfileOpen(false)} onFeedback={feedback} />}
     </section>
   );
 }
@@ -1671,6 +1687,21 @@ function WorkspaceModule({ title, profile, onFeedback }: { title: string; profil
   );
 }
 
+function ManagerProfilePanel({ profile, onClose, onFeedback }: { profile: AccountProfile | null; onClose: () => void; onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [form, setForm] = useState<AccountProfile>(profile ?? {});
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setForm(profile ?? {}), [profile]);
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!db) return;
+    setSaving(true);
+    try { await updateDoc(doc(db, "users", access.userId), { ...form, updatedAt: serverTimestamp() }); onFeedback("Perfil atualizado."); onClose(); } catch { onFeedback("Não foi possível atualizar o perfil."); } finally { setSaving(false); }
+  }
+  const update = (key: keyof AccountProfile, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  return <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="profile-title"><section className="permissions-panel manager-profile-panel"><header><div><span>MEU PERFIL</span><h2 id="profile-title">Perfil do gestor</h2><p>Dados exibidos para a equipe e no rodapé do aplicativo.</p></div><button aria-label="Fechar perfil" onClick={onClose}><X /></button></header><form className="student-detail-form" onSubmit={save}>{form.photoUrl && <img className="manager-profile-photo" src={form.photoUrl} alt="Foto do gestor" />}{(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl"] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site" } as Record<string, string>)[key]}<input value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} /></label>)}<label>URL da foto<input value={form.photoUrl ?? ""} onChange={(event) => update("photoUrl", event.target.value)} placeholder="https://..." /></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar perfil"}</button><button className="secondary-action" type="button" onClick={() => void logout()}>Sair da conta</button></div></form></section></div>;
+}
+
 function AppearancePanel({ theme, onThemeChange, onClose }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void }) {
   return <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="appearance-title"><section className="permissions-panel appearance-only-panel"><header><div><span>CONFIGURAÇÕES</span><h2 id="appearance-title">Aparência</h2><p>Escolha o tema visual do seu ambiente.</p></div><button aria-label="Fechar aparência" onClick={onClose}><X /></button></header><section className="settings-section appearance-section"><div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Tema do ambiente</h3></div><small>Preferência deste ambiente</small></div><ThemeSwitcher theme={theme} onChange={onThemeChange} /></section></section></div>;
 }
@@ -1731,6 +1762,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
 function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const feedback = useFeedback();
   const access = useAccess();
+  const registeredProfile = useRegisteredProfile();
   const [newMemberRole, setNewMemberRole] = useState<"student" | "teacher" | null>(null);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
   const [dashboardCharges, setDashboardCharges] = useState<MonthlyCharge[]>([]);
@@ -1771,7 +1803,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange} onNewStudent={() => setNewMemberRole("student")}>
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>OPERAÇÃO DA ACADEMIA · DADOS REAIS</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
+          <div><span>OPERAÇÃO DA ACADEMIA · DADOS REAIS</span><h2>Olá, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
           <button onClick={() => setNewMemberRole("student")}><Plus /> Novo aluno</button>
         </section>
         <section className="metric-grid">
@@ -1876,6 +1908,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
 
 function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const access = useAccess();
+  const registeredProfile = useRegisteredProfile();
   const feedback = useFeedback();
   const [trainingOpen, setTrainingOpen] = useState(false);
   const [teacherStudentCount, setTeacherStudentCount] = useState(0);
@@ -1891,7 +1924,7 @@ function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeCha
     <WorkspaceShell profile="Professor" theme={theme} onThemeChange={onThemeChange}>
       {trainingOpen ? <TrainingModule onFeedback={feedback} /> : <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>ACOMPANHAMENTO · PROFESSOR</span><h2>Olá, {firstName(access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
+          <div><span>ACOMPANHAMENTO · PROFESSOR</span><h2>Olá, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
           <button onClick={() => setTrainingOpen(true)}><Plus /> Criar treino</button>
         </section>
         <section className="professor-summary">
@@ -1950,4 +1983,11 @@ function StudentDrawer({ onClose, onChange }: { onClose: () => void; onChange: (
       </aside>
     </div>
   );
+}
+
+function AcademyFooter() {
+  const access = useAccess();
+  const [academy, setAcademy] = useState<{ instagramUrl?: string; siteUrl?: string }>({});
+  useEffect(() => { if (!db) return; return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => setAcademy(snapshot.exists() ? snapshot.data() as { instagramUrl?: string; siteUrl?: string } : {})); }, [access.academyId]);
+  return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div>{academy.instagramUrl && <a href={academy.instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{academy.siteUrl && <a href={academy.siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div></footer>;
 }

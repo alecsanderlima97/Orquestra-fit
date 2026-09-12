@@ -696,7 +696,7 @@ button { cursor: pointer; }
 .drawer-footer span { color: #5c6265; font-size: 9px; }
 
 .role-switcher {
-  position: fixed; right: 18px; bottom: 18px; z-index: 120; display: flex;
+  position: fixed; left: 20px; bottom: 190px; z-index: 120; display: flex;
   padding: 3px; border: 1px solid #40372e; background: rgba(10,11,12,.9);
   box-shadow: 0 8px 24px #0006; backdrop-filter: blur(14px); opacity: .82;
 }
@@ -1085,6 +1085,10 @@ button { cursor: pointer; }
 .operator div { display: grid; }
 .operator strong { font-size: 11px; }
 .operator small { color: var(--steel-500); font-size: 9px; margin-top: 3px; }
+.manager-profile-photo { width: 76px; height: 76px; object-fit: cover; border: 1px solid var(--bronze-500); border-radius: 50%; }
+.academy-footer { width: min(100% - 40px, 1120px); margin: 0 auto; padding: 16px 0 26px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--steel-500); font-size: 10px; }
+.academy-footer div { display: flex; gap: 16px; }
+.academy-footer a { color: var(--bronze-300); text-decoration: none; }
 .workspace-content { padding: 31px 34px 80px; max-width: 1500px; margin: 0 auto; }
 .workspace-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 27px; }
 .workspace-intro > div > span { color: var(--bronze-400); font-size: 8px; letter-spacing: 1.4px; font-weight: 900; }
@@ -1293,7 +1297,7 @@ button { cursor: pointer; }
   .finance-card { display: none; }
 }
 @media (max-width: 520px) {
-  .role-switcher { right: 8px; bottom: 82px; opacity: .72; }
+  .role-switcher { left: auto; right: 8px; bottom: 82px; opacity: .72; }
   .role-switcher button { min-width: 55px; height: 25px; padding: 0 7px; font-size: 8px; }
   .theme-switcher { left: 7px; bottom: 126px; height: 42px; }
   .theme-choice { min-width: 69px; padding: 0 8px; }
@@ -1362,6 +1366,7 @@ button { cursor: pointer; }
   .workspace-drawer-logout { margin-top: auto; border-top: 1px solid var(--line) !important; padding-top: 17px !important; color: #d48a82 !important; }
   .workspace-drawer-logout svg { color: #d48a82 !important; }
   .workspace-mobile-drawer .drawer-footer { margin-top: 19px; }
+  .academy-footer { width: calc(100% - 34px); padding-bottom: 92px; font-size: 9px; }
   .workspace-mobile-nav { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; height: 72px; display: grid; grid-template-columns: repeat(5, 1fr); padding: 7px 8px max(7px, env(safe-area-inset-bottom)); border-top: 1px solid #2d302f; background: rgba(15, 17, 18, .97); backdrop-filter: blur(14px); }
   .workspace-mobile-nav button { border: 0; background: transparent; color: #8e9597; display: grid; place-items: center; align-content: center; gap: 4px; font-size: 9px; }
   .workspace-mobile-nav button svg { width: 19px; height: 19px; }
