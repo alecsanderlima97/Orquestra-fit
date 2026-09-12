@@ -60,7 +60,9 @@ service cloud.firestore {
             validInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
               get(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
       allow update: if signedIn() && request.auth.uid == userId &&
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoUrl']) &&
+          (!request.resource.data.keys().hasAny(['photoUrl']) ||
+            (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() < 200000)) ||
           (request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
           (request.resource.data.activationCodeId is string && request.resource.data.activeAcademyId is string &&
             validInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
@@ -192,6 +194,12 @@ service cloud.firestore {
         (isStudent(academyId) && resource.data.studentId == request.auth.uid &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
       allow delete: if isAdmin(academyId);
+    }
+
+    match /academies/{academyId}/announcements/{announcementId} {
+      allow read: if belongsToAcademy(academyId);
+      allow create, update: if isAdmin(academyId);
+      allow delete: if false;
     }
 
     match /academies/{academyId}/{document=**} {

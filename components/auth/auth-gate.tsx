@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, updateProfile, User } from "firebase/auth";
+import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, updateProfile, User } from "firebase/auth";
 import { LockKeyhole, Mail, ShieldCheck, UserRound } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
@@ -144,8 +144,12 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
       await signInWithPopup(auth, provider);
     } catch (error) {
       const code = (error as { code?: string }).code;
-      if (code === "auth/popup-blocked" || code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
-        await signInWithRedirect(auth, provider);
+      if (code === "auth/popup-blocked") {
+        setStatus("O navegador interno bloqueou a entrada. Abra este endereço no Safari ou Chrome e toque novamente em Continuar com Google.");
+        return;
+      }
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        setStatus("A janela de entrada foi fechada antes da confirmação. Tente novamente.");
         return;
       }
       setStatus(code === "auth/unauthorized-domain"

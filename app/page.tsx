@@ -1,14 +1,14 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword } from "firebase/auth";
+import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword, updateProfile } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import {
-  Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check, Footprints,
+  Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Printer, Search, Settings,
-  PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, X,
+  Eye, EyeOff, PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
@@ -18,6 +18,8 @@ type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
 type Theme = "bronze" | "prata";
 type AccountProfile = { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string };
+type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; createdAt?: { toDate?: () => Date } };
+type NotificationItem = { id: string; type: "announcement" | "message" | "workout" | "dueSoon" | "overdue"; title: string; detail: string };
 
 const FeedbackContext = createContext<(message: string) => void>(() => undefined);
 
@@ -273,12 +275,11 @@ function RoleSwitcher({ role, onChange }: { role: Role; onChange: (role: Role) =
 }
 
 function StudentHeader({ onMenu }: { onMenu: () => void }) {
-  const feedback = useFeedback();
   return (
     <header className="student-header">
       <AcademyBrand />
       <div className="header-actions">
-        <button aria-label="Notificações" className="icon-button" onClick={() => feedback("Você não tem novas notificações.")}><Bell size={20} /><i /></button>
+        <NotificationBell scope="student" className="icon-button" />
         <button aria-label="Abrir menu" className="icon-button bronze" onClick={onMenu}><Menu size={22} /></button>
       </div>
     </header>
@@ -299,12 +300,13 @@ function normalizePublishedWorkout(id: string, data: Omit<WorkoutRecord, "id">):
   return { id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" };
 }
 
-function useStudentPublishedWorkouts() {
+function useStudentPublishedWorkouts(enabled = true) {
   const access = useAccess();
   const [workouts, setWorkouts] = useState<WorkoutRecord[]>([]);
   const [loading, setLoading] = useState(Boolean(db));
 
   useEffect(() => {
+    if (!enabled) { setLoading(false); return; }
     if (!db) {
       const syncLocalWorkouts = () => {
         const studentId = localStudentId(access.academyId, access.userId);
@@ -324,9 +326,80 @@ function useStudentPublishedWorkouts() {
       console.error("Não foi possível carregar os treinos.", error);
       setLoading(false);
     });
-  }, [access.academyId, access.userId]);
+  }, [access.academyId, access.userId, enabled]);
 
   return { workouts, loading };
+}
+
+function useAcademyAnnouncements() {
+  const access = useAccess();
+  const [announcements, setAnnouncements] = useState<AcademyAnnouncement[]>([]);
+  useEffect(() => {
+    if (!db) {
+      const syncLocal = () => setAnnouncements(readLocalCollection<AcademyAnnouncement>(access.academyId, "announcements"));
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+    return onSnapshot(collection(db, "academies", access.academyId, "announcements"), (snapshot) => {
+      setAnnouncements(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AcademyAnnouncement, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+    }, (error) => console.error("Não foi possível carregar os comunicados.", error));
+  }, [access.academyId]);
+  return announcements;
+}
+
+function useStudentNotificationItems(includeStudentData = true) {
+  const access = useAccess();
+  const announcements = useAcademyAnnouncements();
+  const { workouts } = useStudentPublishedWorkouts(includeStudentData);
+  const [messages, setMessages] = useState<InternalMessage[]>([]);
+  const [charges, setCharges] = useState<MonthlyCharge[]>([]);
+  useEffect(() => {
+    if (!includeStudentData) { setMessages([]); setCharges([]); return; }
+    if (!db) {
+      const syncLocal = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId));
+        setCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === studentId));
+      };
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+    const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) }))));
+    const unsubscribeCharges = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => setCharges(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" : "pending" }))));
+    return () => { unsubscribeMessages(); unsubscribeCharges(); };
+  }, [access.academyId, access.userId, includeStudentData]);
+  const items: NotificationItem[] = [
+    ...charges.filter((charge) => chargeViewStatus(charge) === "overdue").map((charge) => ({ id: `charge-${charge.id}`, type: "overdue" as const, title: "Mensalidade vencida", detail: `${charge.planName} venceu em ${formatDate(charge.dueDate)}.` })),
+    ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: "Vencimento próximo", detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
+    ...announcements.map((item) => ({ id: `announcement-${item.id}`, type: "announcement" as const, title: item.title, detail: item.body })),
+    ...messages.map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body })),
+    ...workouts.map((item) => ({ id: `workout-${item.id}`, type: "workout" as const, title: "Novo treino disponível", detail: `${item.name} foi publicado para você.` })),
+  ];
+  return items;
+}
+
+function NotificationBell({ scope, className }: { scope: "student" | "workspace"; className?: string }) {
+  const items = useStudentNotificationItems(scope === "student");
+  const access = useAccess();
+  const [open, setOpen] = useState(false);
+  const seenKey = `orquestra-fit:notifications-seen:${access.userId}`;
+  const [seen, setSeen] = useState<string[]>([]);
+  useEffect(() => { try { setSeen(JSON.parse(window.localStorage.getItem(seenKey) ?? "[]") as string[]); } catch { setSeen([]); } }, [seenKey]);
+  const unread = items.filter((item) => !seen.includes(item.id)).length;
+  const toggle = () => {
+    setOpen((current) => !current);
+    if (!open) {
+      const ids = items.map((item) => item.id);
+      setSeen(ids);
+      window.localStorage.setItem(seenKey, JSON.stringify(ids));
+    }
+  };
+  return <div className={`notification-anchor ${scope}`}>
+    <button aria-label={unread ? `Notificações, ${unread} nova(s)` : "Notificações"} className={className} onClick={toggle}><Bell size={20} />{unread > 0 && <b className="notification-count">{Math.min(unread, 9)}</b>}</button>
+    {open && <aside className="notification-panel" aria-label="Central de notificações"><header><div><span>CENTRAL</span><strong>Notificações</strong></div><button aria-label="Fechar notificações" onClick={() => setOpen(false)}><X /></button></header><div>{items.length ? items.slice(0, 12).map((item) => <article className={item.type} key={item.id}><i /> <div><strong>{item.title}</strong><p>{item.detail}</p></div></article>) : <div className="notification-empty"><Bell /><span>Nenhuma novidade no momento.</span></div>}</div></aside>}
+  </div>;
 }
 
 function escapePrintText(value: string | number | undefined) {
@@ -403,11 +476,7 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
 
       <StudentMessagesInbox />
 
-      <article className="academy-note">
-        <div className="note-mark">DF</div>
-        <div><span>COMUNICADO DA ACADEMIA</span><h3>Avaliação física disponível</h3><p>Reserve um horário com a equipe para acompanhar sua evolução.</p></div>
-        <ChevronRight />
-      </article>
+      <StudentAnnouncementCard />
     </div>
   );
 }
@@ -467,6 +536,16 @@ function StudentMessagesInbox() {
   }, [access.academyId, access.userId]);
   const message = messages[0];
   return <article className="student-message-inbox"><div className="student-message-inbox-icon"><MessageCircle /></div><div><small>COMUNICADO DA EQUIPE</small><strong>{message ? message.senderName : "Nenhuma mensagem nova"}</strong><p>{message?.body ?? "Quando seu professor enviar uma orientação, ela aparecerá aqui."}</p></div></article>;
+}
+
+function StudentAnnouncementCard() {
+  const announcements = useAcademyAnnouncements();
+  const latest = announcements[0];
+  return <article className="academy-note">
+    <div className="note-mark">DF</div>
+    <div><span>COMUNICADO DA ACADEMIA</span><h3>{latest?.title ?? "Boas-vindas à Dama de Ferro"}</h3><p>{latest?.body ?? "Os avisos gerais da gestão aparecerão aqui e nas notificações."}</p></div>
+    <ChevronRight />
+  </article>;
 }
 
 function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => void }) {
@@ -712,6 +791,7 @@ function PasswordUpdateForm() {
 
 function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: StudentTab) => void; theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const access = useAccess();
+  const profile = useRegisteredProfile();
   const [openPanel, setOpenPanel] = useState<string | null>(null);
   const links = [
     { icon: User, label: "Dados pessoais" },
@@ -729,7 +809,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   }
   return (
     <div className="student-view profile-view">
-      <div className="profile-identity"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><small>ALUNO</small><h1>{accountName(access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
+      <div className="profile-identity"><StudentProfilePhoto profile={profile} /><small>ALUNO</small><h1>{accountName(profile?.name || profile?.displayName || access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
       {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email?.endsWith("@accounts.orquestra-fit.local") ? `Login: ${access.user.displayName ?? "usuário da academia"}` : access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>O acesso é protegido pelo Firebase. Sua senha nunca é salva no aplicativo.</span><PasswordUpdateForm /></>}{label === "Aparência" && <><strong>Tema do ambiente</strong><ThemeSwitcher theme={theme} onChange={onThemeChange} /></>}</div>}</div>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
@@ -961,7 +1041,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
           <div className="workspace-actions">
             {searchOpen && <form className="workspace-search-inline" onSubmit={(event) => { event.preventDefault(); const term = searchTerm.trim(); if (!term) { feedback("Digite algo para pesquisar."); return; } navigateWorkspace("Alunos", undefined, term); setSearchOpen(false); }}><input autoFocus value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Pesquisar alunos" aria-label="Pesquisar alunos" /></form>}
             <button aria-label="Buscar" onClick={() => setSearchOpen((open) => !open)}><Search /></button>
-            <button aria-label="Notificações" onClick={() => feedback("Você não tem novas notificações.")}><Bell /></button>
+            <NotificationBell scope="workspace" />
             <button className="operator" type="button" onClick={() => setProfileOpen(true)} title="Abrir perfil"><span>{registeredProfile?.photoUrl ? <img src={registeredProfile.photoUrl} alt="" /> : operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile}</small></div></button>
           </div>
         </header>
@@ -975,6 +1055,65 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
       {profileOpen && <ManagerProfilePanel profile={registeredProfile} onClose={() => setProfileOpen(false)} onFeedback={feedback} />}
     </section>
   );
+}
+
+async function compressProfilePhoto(file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("invalid-image");
+  if (file.size > 6 * 1024 * 1024) throw new Error("image-too-large");
+  const source = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    element.onerror = reject;
+    element.src = source;
+  });
+  const size = 360;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("canvas-unavailable");
+  const scale = Math.max(size / image.width, size / image.height);
+  const width = image.width * scale;
+  const height = image.height * scale;
+  context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+  return canvas.toDataURL("image/jpeg", .78);
+}
+
+function StudentProfilePhoto({ profile }: { profile: AccountProfile | null }) {
+  const access = useAccess();
+  const feedback = useFeedback();
+  const [preview, setPreview] = useState(profile?.photoUrl || access.user.photoURL || "");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setPreview(profile?.photoUrl || access.user.photoURL || ""), [access.user.photoURL, profile?.photoUrl]);
+  async function selectPhoto(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setSaving(true);
+    try {
+      const photoUrl = await compressProfilePhoto(file);
+      if (db) await setDoc(doc(db, "users", access.userId), { photoUrl }, { merge: true });
+      else {
+        window.localStorage.setItem(profileStorageKey(access.userId), JSON.stringify({ ...(profile ?? {}), photoUrl }));
+        window.dispatchEvent(new Event("orquestra-fit:profile-updated"));
+      }
+      if (auth?.currentUser) await updateProfile(auth.currentUser, { photoURL: photoUrl });
+      setPreview(photoUrl);
+      feedback("Foto do perfil atualizada.");
+    } catch (error) {
+      feedback((error as Error).message === "image-too-large" ? "Escolha uma imagem com até 6 MB." : "Não foi possível salvar essa imagem.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  const initials = firstName(profile?.name || profile?.displayName || access.user.displayName, access.user.email).slice(0, 2).toUpperCase();
+  return <div className="student-profile-photo"><span>{preview ? <img src={preview} alt="Foto do aluno" /> : initials}</span><label className={saving ? "saving" : ""}><Camera /><em>{saving ? "Salvando..." : "Alterar foto"}</em><input type="file" accept="image/jpeg,image/png,image/webp" onChange={selectPhoto} disabled={saving} /></label></div>;
 }
 
 function WorkspaceMobileNav({ profile, activeModule, onNavigate, onMore }: { profile: "Gestão" | "Professor"; activeModule: string; onNavigate: (module: string) => void; onMore: () => void }) {
@@ -1181,7 +1320,7 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>EVOLUÇÃO · GESTÃO</span><h2>Avaliações físicas</h2><p>Registre medidas básicas e acompanhe a evolução dos alunos.</p></div></section>
-      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{assessments.length} {assessments.length === 1 ? "avaliação" : "avaliações"}</h3></div></header><label className="assessment-filter">Ver evolução de<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Selecione um aluno</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><div className="assessment-list">{assessments.length === 0 ? <div className="directory-empty"><Activity /><p>Nenhuma avaliação registrada ainda.</p></div> : assessments.map((item) => <button className="assessment-row assessment-row-button" key={item.id} onClick={() => setSelectedStudentId(item.studentId)}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></button>)}</div>{selectedLatest && <div className="staff-assessment-detail"><span>COMPARAÇÃO DO ALUNO</span><strong>{selectedLatest.studentName}</strong><small>{selectedPrevious ? `${formatDate(selectedPrevious.date)} → ${formatDate(selectedLatest.date)}` : "Primeira avaliação registrada"}</small><div className="staff-measure-grid">{([ ["Peso", "weight", "kg"], ["Gordura", "bodyFat", "%"], ["Bíceps", "biceps", "cm"], ["Cintura", "waist", "cm"] ] as const).map(([label, key, unit]) => { const value = selectedLatest[key] ? `${selectedLatest[key]} ${unit}` : "Não informado"; const delta = selectedDelta(key); return <div key={key}><small>{label}</small><strong>{value}</strong><span>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${unit}`}</span></div>; })}</div></div>}</article></section>
+      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><AssessmentAnatomyReference /><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{assessments.length} {assessments.length === 1 ? "avaliação" : "avaliações"}</h3></div></header><label className="assessment-filter">Ver evolução de<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Selecione um aluno</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><div className="assessment-list">{assessments.length === 0 ? <div className="directory-empty"><Activity /><p>Nenhuma avaliação registrada ainda.</p></div> : assessments.map((item) => <button className="assessment-row assessment-row-button" key={item.id} onClick={() => setSelectedStudentId(item.studentId)}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></button>)}</div>{selectedLatest && <div className="staff-assessment-detail"><span>COMPARAÇÃO DO ALUNO</span><strong>{selectedLatest.studentName}</strong><small>{selectedPrevious ? `${formatDate(selectedPrevious.date)} → ${formatDate(selectedLatest.date)}` : "Primeira avaliação registrada"}</small><div className="staff-measure-grid">{([ ["Peso", "weight", "kg"], ["Gordura", "bodyFat", "%"], ["Bíceps", "biceps", "cm"], ["Cintura", "waist", "cm"] ] as const).map(([label, key, unit]) => { const value = selectedLatest[key] ? `${selectedLatest[key]} ${unit}` : "Não informado"; const delta = selectedDelta(key); return <div key={key}><small>{label}</small><strong>{value}</strong><span>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${unit}`}</span></div>; })}</div></div>}</article></section>
     </div>
   );
 }
@@ -1317,13 +1456,31 @@ function exercisePhaseIcon(phase: ExercisePhase) {
 }
 
 function exerciseRegionIcon(region: BodyRegion) {
-  if (region === "Região central") return <Activity />;
-  if (region === "Membros inferiores") return <Footprints />;
-  return <PersonStanding />;
+  return <BodyRegionIcon region={region} />;
+}
+
+function AssessmentAnatomyReference() {
+  return <section className="assessment-anatomy-reference" aria-label="Referência anatômica para medidas">
+    <header><div><span>REFERÊNCIA ANATÔMICA</span><strong>Pontos de medição</strong></div><small>Use sempre os mesmos pontos</small></header>
+    <div className="assessment-anatomy-bodies"><figure><img src="/anatomy-body-base.png" alt="Corpo anatômico visto de frente" /><figcaption>Frente</figcaption></figure><figure><img src="/anatomy-body-back.png" alt="Corpo anatômico visto de costas" /><figcaption>Costas</figcaption></figure></div>
+    <p>Peito na linha dos mamilos · cintura na menor circunferência · bíceps no centro do braço · coxa no ponto médio.</p>
+  </section>;
+}
+
+function BodyRegionIcon({ region }: { region: BodyRegion }) {
+  const active = (part: BodyRegion) => region === part ? "body-region-active" : "body-region-muted";
+  return <svg className="body-region-icon" viewBox="0 0 28 32" aria-hidden="true">
+    <circle className="body-region-outline" cx="14" cy="4" r="2.6" />
+    <path className={active("Tronco anterior")} d="M10.4 8.1c1.1-.8 6.1-.8 7.2 0l1.2 8.7H9.2z" />
+    {region === "Tronco posterior" && <path className="body-region-active" d="M10.4 8.1h7.2l1.2 8.7H9.2zm3.6.5v7.6" />}
+    <path className={active("Membros superiores")} d="M9.8 8.7 6.9 11 4.6 20l2 .6 3.2-8.1m8.4-3.8 2.9 2.3 2.3 9-2 .6-3.2-8.1" />
+    <path className={active("Região central")} d="M10 14.5h8l-.4 4.4-3.6 1.4-3.6-1.4z" />
+    <path className={active("Membros inferiores")} d="m10.5 19 3.5 1.2 3.5-1.2 2 10.2-2.4.4-3.1-7-3.1 7-2.4-.4z" />
+  </svg>;
 }
 
 function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggle, onParameterChange }: { exercises: ExerciseRecord[]; selectedExercises: string[]; exerciseDetails: Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>; onToggle: (exercise: ExerciseRecord) => void; onParameterChange: (exerciseId: string, field: "sets" | "reps" | "load" | "rest", value: string) => void }) {
-  const [openPhases, setOpenPhases] = useState<ExercisePhase[]>(["Preparação"]);
+  const [openPhases, setOpenPhases] = useState<ExercisePhase[]>([]);
   function togglePhase(currentPhase: ExercisePhase) { setOpenPhases((current) => current.includes(currentPhase) ? current.filter((item) => item !== currentPhase) : [...current, currentPhase]); }
   return <div className="exercise-picker">{exercisePhaseOrder.map((currentPhase) => {
     const phaseExercises = exercises.filter((exercise) => (exercise.phase ?? "Treino principal") === currentPhase);
@@ -1338,7 +1495,7 @@ function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggl
 }
 
 function ExerciseLibrary({ exercises, accessRole, onEdit, onRemove }: { exercises: ExerciseRecord[]; accessRole: string; onEdit: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void }) {
-  const [openRegions, setOpenRegions] = useState<BodyRegion[]>(["Membros superiores"]);
+  const [openRegions, setOpenRegions] = useState<BodyRegion[]>([]);
   function toggleRegion(region: BodyRegion) { setOpenRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region]); }
   return <div className="exercise-library">{exerciseRegionOrder.map((region) => { const regionExercises = exercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region); if (!regionExercises.length) return null; const isOpen = openRegions.includes(region); return <section className={isOpen ? "library-region-group open" : "library-region-group"} key={region}><button className="collapse-header" type="button" onClick={() => toggleRegion(region)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exerciseRegionIcon(region)}{region}</span><small>{regionExercises.length} exercícios</small></button>{isOpen && <div className="collapse-content">{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${region}-${muscleGroup}`}><h4>{muscleGroup}</h4>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => <div className="library-exercise-row" key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}</small></div><div className="exercise-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>)}</div>)}</div>}</section>; })}</div>;
 }
@@ -1637,7 +1794,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   return <div className="workspace-content module-view">
     <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Monte uma ficha por etapas, salve modelos e publique para um aluno quando estiver pronta.</p></div></section>
     <section className="training-layout training-layout-redesigned">
-      <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} /><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} /></article>
+      <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} /><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} /><div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form></article>
       <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
     </section>
     <PublishedWorkouts templates={templates} workouts={workouts} onEditTemplate={beginTemplateEdit} onRemoveTemplate={(template) => void removeTemplate(template)} onEditWorkout={beginWorkoutEdit} onRemoveWorkout={(workout) => void removeWorkout(workout)} />
@@ -2373,6 +2530,9 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />
         </section>
+        <section className="settings-section settings-announcement-section">
+          <ManagerAnnouncementComposer />
+        </section>
         <div className="permissions-note"><ShieldCheck size={18} /><span>O acesso é protegido pelo Firebase. Usuários sem vínculo ativo com esta academia não conseguem abrir os dados.</span></div>
       </section>
     </div>
@@ -2387,6 +2547,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
   const [dashboardCharges, setDashboardCharges] = useState<MonthlyCharge[]>([]);
   const [dashboardSearch, setDashboardSearch] = useState("");
+  const [metricsVisible, setMetricsVisible] = useState(true);
 
   useEffect(() => {
     if (!db) {
@@ -2437,11 +2598,12 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
           <div><span>OPERAÇÃO DA ACADEMIA · DADOS REAIS</span><h2>Olá, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
           <button onClick={() => setNewMemberRole("student")}><Plus /> Novo aluno</button>
         </section>
-        <section className="metric-grid">
-          <MetricCard icon={Users} label="Alunos ativos" value={String(registeredStudents.filter((student) => student.active !== false).length)} note={`${registeredStudents.length} cadastro${registeredStudents.length === 1 ? "" : "s"} total`} />
-          <MetricCard icon={CircleDollarSign} label="Receita prevista" value={money(dashboardTotal)} note={`${dashboardPercent}% já recebido`} />
-          <MetricCard icon={Banknote} label="Em aberto" value={money(dashboardOpen)} note={`${dashboardCharges.filter((charge) => charge.status !== "paid").length} mensalidades`} warning={dashboardOpen > 0} />
-          <MetricCard icon={Activity} label="Frequência hoje" value="—" note="Sem registros ainda" />
+        <div className="dashboard-metrics-heading"><span>INDICADORES</span><button type="button" onClick={() => setMetricsVisible((visible) => !visible)} aria-label={metricsVisible ? "Ocultar indicadores" : "Mostrar indicadores"}>{metricsVisible ? <EyeOff /> : <Eye />}<span>{metricsVisible ? "Ocultar valores" : "Mostrar valores"}</span></button></div>
+        <section className={metricsVisible ? "metric-grid" : "metric-grid metrics-hidden"}>
+          <MetricCard icon={Users} label="Alunos ativos" value={metricsVisible ? String(registeredStudents.filter((student) => student.active !== false).length) : "••••"} note={metricsVisible ? `${registeredStudents.length} cadastro${registeredStudents.length === 1 ? "" : "s"} total` : "Valor protegido"} />
+          <MetricCard icon={CircleDollarSign} label="Receita prevista" value={metricsVisible ? money(dashboardTotal) : "R$ ••••"} note={metricsVisible ? `${dashboardPercent}% já recebido` : "Valor protegido"} />
+          <MetricCard icon={Banknote} label="Em aberto" value={metricsVisible ? money(dashboardOpen) : "R$ ••••"} note={metricsVisible ? `${dashboardCharges.filter((charge) => charge.status !== "paid").length} mensalidades` : "Valor protegido"} warning={dashboardOpen > 0} />
+          <MetricCard icon={Activity} label="Frequência hoje" value={metricsVisible ? "—" : "••••"} note={metricsVisible ? "Sem registros ainda" : "Valor protegido"} />
         </section>
         <section className="operations-grid">
           <article className="workspace-panel student-table-panel">
@@ -2630,6 +2792,37 @@ function StudentDrawer({ onClose, onChange }: { onClose: () => void; onChange: (
       </aside>
     </div>
   );
+}
+
+function ManagerAnnouncementComposer() {
+  const access = useAccess();
+  const feedback = useFeedback();
+  const profile = useRegisteredProfile();
+  const announcements = useAcademyAnnouncements();
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  async function publish(event: React.FormEvent) {
+    event.preventDefault();
+    if (!title.trim() || !body.trim()) { feedback("Informe o título e o texto do comunicado."); return; }
+    setSending(true);
+    const senderName = profile?.name || profile?.displayName || accountName(access.user.displayName, access.user.email);
+    try {
+      if (!db) {
+        const announcement: AcademyAnnouncement = { id: `local-announcement-${Date.now()}`, title: capitalizeName(title.trim()), body: body.trim(), senderName };
+        writeLocalCollection(access.academyId, "announcements", [announcement, ...announcements]);
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "announcements"), { title: capitalizeName(title.trim()), body: body.trim(), senderName, senderId: access.userId, createdAt: serverTimestamp() });
+      }
+      setTitle(""); setBody(""); feedback("Comunicado publicado para toda a academia.");
+    } catch { feedback("Não foi possível publicar o comunicado."); }
+    finally { setSending(false); }
+  }
+  return <section className="workspace-panel announcement-composer">
+    <header><div><span>COMUNICAÇÃO GERAL</span><h3>Comunicado da academia</h3><p>O aviso aparece na página inicial e nas notificações de todos.</p></div><Bell /></header>
+    <form onSubmit={publish}><label>Título<input value={title} onChange={(event) => setTitle(capitalizeName(event.target.value))} placeholder="Ex.: Horário especial neste sábado" maxLength={80} /></label><label>Mensagem<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Escreva um aviso curto e objetivo." maxLength={280} /></label><button type="submit" disabled={sending || !title.trim() || !body.trim()}>{sending ? "Publicando..." : "Publicar para todos"}</button></form>
+    {announcements[0] && <div className="announcement-latest"><span>ÚLTIMO PUBLICADO</span><strong>{announcements[0].title}</strong><p>{announcements[0].body}</p></div>}
+  </section>;
 }
 
 function AcademyFooter() {
