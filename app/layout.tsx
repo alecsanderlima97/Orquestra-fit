@@ -4,7 +4,10 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Orquestra Fit | Dama de Ferro Academia",
-  description: "Experiência demonstrativa do Orquestra Fit para gestão, professores e alunos da Dama de Ferro Academia.",
+  description: "Plataforma Orquestra Fit para gestão, professores e alunos da Dama de Ferro Academia.",
+  other: {
+    "codex-preview": "development",
+  },
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

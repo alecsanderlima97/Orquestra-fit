@@ -35,6 +35,33 @@ function profileStorageKey(userId: string) {
   return `orquestra-fit:profile:${userId}`;
 }
 
+function localCollectionKey(academyId: string, collectionName: string) {
+  return `orquestra-fit:${academyId}:${collectionName}`;
+}
+
+function readLocalCollection<T>(academyId: string, collectionName: string): T[] {
+  try {
+    const stored = window.localStorage.getItem(localCollectionKey(academyId, collectionName));
+    return stored ? JSON.parse(stored) as T[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalCollection<T>(academyId: string, collectionName: string, records: T[]) {
+  window.localStorage.setItem(localCollectionKey(academyId, collectionName), JSON.stringify(records));
+  window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
+}
+
+function navigateWorkspace(module: string, studentId?: string) {
+  window.dispatchEvent(new CustomEvent("orquestra-fit:navigate", { detail: { module, studentId } }));
+}
+
+function localStudentId(academyId: string, userId: string) {
+  if (userId !== "local-demo") return userId;
+  return readLocalCollection<{ id: string }>(academyId, "students")[0]?.id ?? userId;
+}
+
 function useRegisteredProfile() {
   const access = useAccess();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
@@ -58,7 +85,10 @@ function useRegisteredProfile() {
 }
 
 async function logout() {
-  if (!auth) return;
+  if (!auth) {
+    window.dispatchEvent(new Event("orquestra-fit:local-logout"));
+    return;
+  }
   try {
     await signOut(auth);
   } finally {
@@ -330,7 +360,15 @@ function StudentPaymentStatus() {
   const [charges, setCharges] = useState<MonthlyCharge[]>([]);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const syncLocalCharges = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        setCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === studentId));
+      };
+      syncLocalCharges();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalCharges);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalCharges);
+    }
     return onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => {
       setCharges(snapshot.docs.map((charge) => {
         const data = charge.data() as Omit<MonthlyCharge, "id">;
@@ -356,7 +394,15 @@ function StudentMessagesInbox() {
   const access = useAccess();
   const [messages, setMessages] = useState<InternalMessage[]>([]);
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const syncLocalMessages = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId));
+      };
+      syncLocalMessages();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalMessages);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalMessages);
+    }
     return onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => {
       setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
     });
@@ -369,7 +415,15 @@ function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => voi
   const access = useAccess();
   const [publishedWorkouts, setPublishedWorkouts] = useState<WorkoutRecord[]>([]);
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const syncLocalWorkouts = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        setPublishedWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === studentId && item.status === "published"));
+      };
+      syncLocalWorkouts();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
+    }
     const workoutsQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
     return onSnapshot(workoutsQuery, (snapshot) => {
       setPublishedWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" }; }));
@@ -398,7 +452,16 @@ function Evolution() {
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const syncLocalEvolution = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        setAssessments(readLocalCollection<AssessmentRecord>(access.academyId, "assessments").filter((item) => item.studentId === studentId).sort((a, b) => b.date.localeCompare(a.date)));
+        setExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions").filter((item) => item.studentId === studentId));
+      };
+      syncLocalEvolution();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalEvolution);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalEvolution);
+    }
     const assessmentQuery = query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", access.userId));
     const executionQuery = query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", access.userId));
     const unsubscribeAssessments = onSnapshot(assessmentQuery, (snapshot) => {
@@ -473,7 +536,13 @@ function Agenda() {
   const [attendanceIds, setAttendanceIds] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState(0);
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const studentId = localStudentId(access.academyId, access.userId);
+      setClasses(readLocalCollection<ClassRecord>(access.academyId, "classes").filter((item) => item.active));
+      setReservationIds(readLocalCollection<{ classId: string; studentId: string; status: string }>(access.academyId, "reservations").filter((item) => item.studentId === studentId && item.status === "active").map((item) => item.classId));
+      setAttendanceIds(readLocalCollection<{ classId: string; studentId: string }>(access.academyId, "attendance").filter((item) => item.studentId === studentId).map((item) => item.classId));
+      return;
+    }
     const unsubscribeClasses = onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
       setClasses(snapshot.docs.map((item) => { const data = item.data() as Partial<ClassRecord>; return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false }; }).filter((item) => item.active));
     });
@@ -485,7 +554,14 @@ function Agenda() {
   }, [access.academyId, access.userId]);
 
   async function reserve(item: ClassRecord) {
-    if (!db) return;
+    if (!db) {
+      const studentId = localStudentId(access.academyId, access.userId);
+      const reservations = readLocalCollection<{ id: string; classId: string; studentId: string; status: string }>(access.academyId, "reservations");
+      writeLocalCollection(access.academyId, "reservations", [...reservations, { id: `local-reservation-${Date.now()}`, classId: item.id, studentId, status: "active" }]);
+      setReservationIds((current) => [...current, item.id]);
+      feedback("Reserva confirmada no modo local.");
+      return;
+    }
     try {
       await addDoc(collection(db, "academies", access.academyId, "reservations"), { classId: item.id, className: item.name, studentId: access.userId, studentName: accountName(access.user.displayName, access.user.email), status: "active", createdAt: serverTimestamp() });
       feedback("Reserva confirmada.");
@@ -493,7 +569,14 @@ function Agenda() {
   }
 
   async function cancel(item: ClassRecord) {
-    if (!db) return;
+    if (!db) {
+      const studentId = localStudentId(access.academyId, access.userId);
+      const reservations = readLocalCollection<{ id: string; classId: string; studentId: string; status: string }>(access.academyId, "reservations").map((reservation) => reservation.classId === item.id && reservation.studentId === studentId && reservation.status === "active" ? { ...reservation, status: "canceled" } : reservation);
+      writeLocalCollection(access.academyId, "reservations", reservations);
+      setReservationIds((current) => current.filter((id) => id !== item.id));
+      feedback("Reserva cancelada no modo local.");
+      return;
+    }
     const firestore = db;
     try {
       const reservationSnapshot = await new Promise<string | null>((resolve) => {
@@ -505,7 +588,15 @@ function Agenda() {
   }
 
   async function checkIn(item: ClassRecord) {
-    if (!db || !reservationIds.includes(item.id) || attendanceIds.includes(item.id)) return;
+    if (!reservationIds.includes(item.id) || attendanceIds.includes(item.id)) return;
+    if (!db) {
+      const studentId = localStudentId(access.academyId, access.userId);
+      const attendance = readLocalCollection<{ id: string; classId: string; studentId: string }>(access.academyId, "attendance");
+      writeLocalCollection(access.academyId, "attendance", [...attendance, { id: `local-attendance-${Date.now()}`, classId: item.id, studentId }]);
+      setAttendanceIds((current) => [...current, item.id]);
+      feedback("Presença registrada no modo local.");
+      return;
+    }
     try {
       await addDoc(collection(db, "academies", access.academyId, "attendance"), { classId: item.id, className: item.name, studentId: access.userId, studentName: accountName(access.user.displayName, access.user.email), date: item.date, time: item.time, createdAt: serverTimestamp() });
       feedback("Presença registrada.");
@@ -565,18 +656,23 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
 
   async function finishWorkout() {
     if (completedSets.length < totalSets || saving) return;
+    const sets = exercises.flatMap((exercise, exerciseIndex) => Array.from({ length: exercise.sets }).map((_, setIndex) => {
+      const id = `${exerciseIndex}-${setIndex}`;
+      const value = setValues[id] ?? { load: exercise.load, reps: exercise.reps };
+      return { exerciseName: exercise.name, setNumber: setIndex + 1, load: value.load, reps: value.reps };
+    }));
     if (!workout || !db) {
+      if (workout) {
+        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets };
+        const executions = readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions");
+        writeLocalCollection(access.academyId, "workoutExecutions", [execution, ...executions]);
+      }
       feedback("Treino concluído.");
       onBack();
       return;
     }
     setSaving(true);
     try {
-      const sets = exercises.flatMap((exercise, exerciseIndex) => Array.from({ length: exercise.sets }).map((_, setIndex) => {
-        const id = `${exerciseIndex}-${setIndex}`;
-        const value = setValues[id] ?? { load: exercise.load, reps: exercise.reps };
-        return { exerciseName: exercise.name, setNumber: setIndex + 1, load: value.load, reps: value.reps };
-      }));
       await addDoc(collection(db, "academies", access.academyId, "workoutExecutions"), {
         workoutId: workout.id,
         workoutName: workout.name,
@@ -609,7 +705,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
       <div className="session-exercises">
         {exercises.map((exercise, exerciseIndex) => (
           <article className="exercise-card" key={exercise.name}>
-            <header><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2></div><button aria-label="Ver demonstração"><Play size={17} fill="currentColor" /></button></header>
+            <header><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2></div><button aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
             {("instructions" in exercise && (exercise.instructions || exercise.anatomyRegion || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
             <div className="set-labels"><span>Série</span><span>Carga</span><span>Repetições</span><span>Feito</span></div>
             {Array.from({ length: exercise.sets }).map((_, setIndex) => {
@@ -685,6 +781,20 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
     setActiveModule(module);
   }
   useEffect(() => {
+    const handleNavigation = (event: Event) => {
+      const detail = (event as CustomEvent<{ module?: string; studentId?: string }>).detail;
+      if (!detail?.module) return;
+      if (profile === "Professor" && detail.module === "Planos e mensalidades") {
+        feedback("O módulo financeiro é exclusivo da gestão.");
+        return;
+      }
+      setFocusStudentId(detail.studentId ?? null);
+      setActiveModule(detail.module);
+    };
+    window.addEventListener("orquestra-fit:navigate", handleNavigation);
+    return () => window.removeEventListener("orquestra-fit:navigate", handleNavigation);
+  }, [feedback, profile]);
+  useEffect(() => {
     if (profile === "Professor" && activeModule === "Planos e mensalidades") setActiveModule("Visão geral");
   }, [activeModule, profile]);
   const visibleNav = profile === "Professor"
@@ -751,7 +861,17 @@ function StudentPlanPanel() {
   const [student, setStudent] = useState<{ plan?: string; planStartedAt?: string; planEndsAt?: string } | null>(null);
   const [charges, setCharges] = useState<MonthlyCharge[]>([]);
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const syncLocalPlan = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        const localStudent = readLocalCollection<{ id: string; plan?: string }>(access.academyId, "students").find((item) => item.id === studentId);
+        setStudent(localStudent ?? null);
+        setCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === studentId).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
+      };
+      syncLocalPlan();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalPlan);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalPlan);
+    }
     const unsubscribeStudent = onSnapshot(doc(db, "academies", access.academyId, "students", access.userId), (snapshot) => setStudent(snapshot.exists() ? snapshot.data() as { plan?: string; planStartedAt?: string; planEndsAt?: string } : null));
     const unsubscribeCharges = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => {
       setCharges(snapshot.docs.map((item) => { const data = item.data() as Omit<MonthlyCharge, "id">; return { id: item.id, ...data, amount: Number(data.amount ?? 0), status: (data.status === "paid" ? "paid" : "pending") as MonthlyCharge["status"] }; }).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
@@ -874,7 +994,11 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setStudents(readLocalCollection<BillingStudent>(access.academyId, "students"));
+      setAssessments(readLocalCollection<AssessmentRecord>(access.academyId, "assessments").sort((a, b) => b.date.localeCompare(a.date)));
+      return;
+    }
     const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false }; })));
     const unsubscribeAssessments = onSnapshot(collection(db, "academies", access.academyId, "assessments"), (snapshot) => setAssessments(snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date))));
     return () => { unsubscribeStudents(); unsubscribeAssessments(); };
@@ -882,9 +1006,18 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
 
   async function createAssessment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !studentId || !date || !weight || !height) return;
+    if (!studentId || !date || !weight || !height) { onFeedback("Selecione o aluno e informe data, peso e altura."); return; }
     const student = students.find((item) => item.id === studentId);
-    if (!student) return;
+    if (!student) { onFeedback("Aluno não encontrado."); return; }
+    if (!db) {
+      const nextAssessment: AssessmentRecord = { id: `local-assessment-${Date.now()}`, studentId, studentName: student.name, date, weight, height, bodyFat, biceps, waist, chest, thigh, notes };
+      const nextAssessments = [nextAssessment, ...assessments].sort((a, b) => b.date.localeCompare(a.date));
+      setAssessments(nextAssessments);
+      writeLocalCollection(access.academyId, "assessments", nextAssessments);
+      setStudentId(""); setDate(""); setWeight(""); setHeight(""); setBodyFat(""); setBiceps(""); setWaist(""); setChest(""); setThigh(""); setNotes("");
+      onFeedback("Avaliação física registrada no modo local.");
+      return;
+    }
     setSaving(true);
     try {
       await addDoc(collection(db, "academies", access.academyId, "assessments"), { studentId, studentName: student.name, date, weight, height, bodyFat, biceps, waist, chest, thigh, notes, createdBy: access.userId, createdAt: serverTimestamp() });
@@ -924,7 +1057,10 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setClasses(readLocalCollection<ClassRecord>(access.academyId, "classes"));
+      return;
+    }
     return onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
       setClasses(snapshot.docs.map((item) => {
         const data = item.data() as Partial<ClassRecord>;
@@ -959,7 +1095,16 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
 
   async function createClass(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !name.trim() || !date || !time) return;
+    if (!name.trim() || !date || !time) { onFeedback("Informe o nome, a data e o horário da aula."); return; }
+    if (!db) {
+      const localClass: ClassRecord = { id: editingClassId ?? `local-class-${Date.now()}`, name: capitalizeName(name.trim()), instructor: capitalizeName(instructor.trim() || "Equipe da academia"), date, time, capacity: Number(capacity) || 10, active: true };
+      const nextClasses = (editingClassId ? classes.map((item) => item.id === editingClassId ? localClass : item) : [...classes, localClass]).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+      setClasses(nextClasses);
+      writeLocalCollection(access.academyId, "classes", nextClasses);
+      clearForm();
+      onFeedback(editingClassId ? "Aula atualizada no modo local." : "Aula criada no modo local.");
+      return;
+    }
     setSaving(true);
     try {
       const data = { name: name.trim(), instructor: instructor.trim() || "Equipe da academia", date, time, capacity: Number(capacity) || 10, updatedBy: access.userId, updatedAt: serverTimestamp() };
@@ -984,14 +1129,28 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   }
 
   async function removeClass(item: ClassRecord) {
-    if (!db || access.role !== "admin") return;
+    if (access.role !== "admin") return;
     if (!window.confirm(`Excluir a aula "${item.name}"?`)) return;
+    if (!db) {
+      const nextClasses = classes.filter((current) => current.id !== item.id);
+      setClasses(nextClasses);
+      writeLocalCollection(access.academyId, "classes", nextClasses);
+      if (editingClassId === item.id) clearForm();
+      onFeedback("Aula excluída no modo local.");
+      return;
+    }
     try { await deleteDoc(doc(db, "academies", access.academyId, "classes", item.id)); onFeedback("Aula excluída."); if (editingClassId === item.id) clearForm(); }
     catch { onFeedback("Não foi possível excluir a aula."); }
   }
 
   async function toggleClass(item: ClassRecord) {
-    if (!db) return;
+    if (!db) {
+      const nextClasses = classes.map((current) => current.id === item.id ? { ...current, active: !current.active } : current);
+      setClasses(nextClasses);
+      writeLocalCollection(access.academyId, "classes", nextClasses);
+      onFeedback(item.active ? "Aula desativada no modo local." : "Aula reativada no modo local.");
+      return;
+    }
     try { await updateDoc(doc(db, "academies", access.academyId, "classes", item.id), { active: !item.active }); onFeedback(item.active ? "Aula desativada." : "Aula reativada."); }
     catch { onFeedback("Não foi possível alterar a aula."); }
   }
@@ -1071,7 +1230,13 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setStudents(readLocalCollection<BillingStudent>(access.academyId, "students"));
+      setExercises(readLocalCollection<ExerciseRecord>(access.academyId, "exercises"));
+      setWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts"));
+      setTemplates(readLocalCollection<WorkoutTemplateRecord>(access.academyId, "workoutTemplates"));
+      return;
+    }
     const academy = ["academies", access.academyId];
     const studentsRef = collection(db, "academies", access.academyId, "students");
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
@@ -1109,7 +1274,32 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
+    if (!exerciseName.trim() || !muscleGroup.trim()) {
+      onFeedback("Informe o nome e o grupo muscular do exercício.");
+      return;
+    }
+    if (!db) {
+      const fallback = starterClassification(exerciseName.trim(), muscleGroup.trim());
+      const localExercise: ExerciseRecord = {
+        id: editingExerciseId ?? `local-exercise-${Date.now()}`,
+        name: capitalizeName(exerciseName.trim()),
+        muscleGroup: capitalizeName(muscleGroup.trim()),
+        ...fallback,
+        secondaryMuscles: secondaryMuscles.trim(),
+        anatomyRegion: anatomyRegion.trim(),
+        instructions: instructions.trim(),
+        videoUrl: videoUrl.trim(),
+        bodyRegion,
+        phase,
+        exerciseType,
+      };
+      const nextExercises = editingExerciseId ? exercises.map((item) => item.id === editingExerciseId ? localExercise : item) : [...exercises, localExercise];
+      setExercises(nextExercises);
+      writeLocalCollection(access.academyId, "exercises", nextExercises);
+      clearExerciseForm();
+      onFeedback(editingExerciseId ? "Exercício atualizado no modo local." : "Exercício cadastrado no modo local.");
+      return;
+    }
     const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), bodyRegion, phase, exerciseType, updatedBy: access.userId, updatedAt: serverTimestamp() };
     try {
       if (editingExerciseId) {
@@ -1124,7 +1314,15 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   async function removeExercise(exercise: ExerciseRecord) {
-    if (!db || access.role !== "admin" || !window.confirm(`Excluir o exercício \"${exercise.name}\"? Treinos já publicados não serão alterados.`)) return;
+    if (access.role !== "admin" || !window.confirm(`Excluir o exercício \"${exercise.name}\"? Treinos já publicados não serão alterados.`)) return;
+    if (!db) {
+      const nextExercises = exercises.filter((item) => item.id !== exercise.id);
+      setExercises(nextExercises);
+      writeLocalCollection(access.academyId, "exercises", nextExercises);
+      if (editingExerciseId === exercise.id) clearExerciseForm();
+      onFeedback("Exercício excluído no modo local.");
+      return;
+    }
     try {
       await deleteDoc(doc(db, "academies", access.academyId, "exercises", exercise.id));
       if (editingExerciseId === exercise.id) clearExerciseForm();
@@ -1133,7 +1331,14 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   async function seedStarterExercises() {
-    if (!db) return;
+    if (!db) {
+      const seeded = starterExercises.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => ({ id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...starterClassification(name, muscleGroup) }));
+      const nextExercises = exercises.length ? exercises : seeded;
+      setExercises(nextExercises);
+      writeLocalCollection(access.academyId, "exercises", nextExercises);
+      onFeedback(exercises.length ? "A biblioteca inicial já foi carregada." : `${seeded.length} exercícios adicionados no modo local.`);
+      return;
+    }
     const firestore = db;
     const existingNames = new Set(exercises.map((exercise) => exercise.name.trim().toLocaleLowerCase("pt-BR")));
     const pending = starterExercises.filter(([name]) => !existingNames.has(name.toLocaleLowerCase("pt-BR")));
@@ -1167,17 +1372,29 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function createWorkout(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !workoutName.trim() || !studentId || selectedExercises.length === 0) return;
+    if (!workoutName.trim() || !studentId || selectedExercises.length === 0) {
+      onFeedback("Informe o nome, selecione o aluno e escolha os exercícios.");
+      return;
+    }
     const preparationCount = selectedExercises.filter((exerciseId) => exercises.find((exercise) => exercise.id === exerciseId)?.phase === "Preparação").length;
     if (preparationCount < 1 || preparationCount > 3) { onFeedback("Inclua de 1 a 3 exercícios de preparação antes de publicar o treino."); return; }
     const student = students.find((item) => item.id === studentId);
-    if (!student) return;
+    if (!student) { onFeedback("Aluno não encontrado."); return; }
+    const details = selectedExercises.map((exerciseId) => {
+      const exercise = exercises.find((item) => item.id === exerciseId);
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+    });
+    if (!db) {
+      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
+      const nextWorkouts = editingWorkoutId ? workouts.map((item) => item.id === editingWorkoutId ? localWorkout : item) : [...workouts, localWorkout];
+      setWorkouts(nextWorkouts);
+      writeLocalCollection(access.academyId, "workouts", nextWorkouts);
+      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); setEditingWorkoutId(null);
+      onFeedback(editingWorkoutId ? "Treino atualizado no modo local." : "Treino publicado no modo local.");
+      return;
+    }
     setSaving(true);
     try {
-      const details = selectedExercises.map((exerciseId) => {
-        const exercise = exercises.find((item) => item.id === exerciseId);
-        return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
-      });
       const workoutData = { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
       if (editingWorkoutId) {
         await updateDoc(doc(db, "academies", access.academyId, "workouts", editingWorkoutId), workoutData);
@@ -1192,13 +1409,25 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   async function saveTemplate() {
-    if (!db || !workoutName.trim() || selectedExercises.length === 0) return;
+    if (!workoutName.trim() || selectedExercises.length === 0) {
+      onFeedback("Informe o nome e selecione exercícios para salvar o modelo.");
+      return;
+    }
     const preparationCount = selectedExercises.filter((exerciseId) => exercises.find((exercise) => exercise.id === exerciseId)?.phase === "Preparação").length;
     if (preparationCount < 1 || preparationCount > 3) { onFeedback("Inclua de 1 a 3 exercícios de preparação no modelo."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
       return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
+    if (!db) {
+      const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
+      const nextTemplates = editingTemplateId ? templates.map((item) => item.id === editingTemplateId ? localTemplate : item) : [...templates, localTemplate];
+      setTemplates(nextTemplates);
+      writeLocalCollection(access.academyId, "workoutTemplates", nextTemplates);
+      setEditingTemplateId(null);
+      onFeedback(editingTemplateId ? "Modelo de treino atualizado no modo local." : "Modelo de treino salvo no modo local.");
+      return;
+    }
     try {
       const templateData = { name: workoutName.trim(), exerciseIds: selectedExercises, exerciseDetails: details, updatedBy: access.userId, updatedAt: serverTimestamp() };
       if (editingTemplateId) {
@@ -1235,13 +1464,29 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   async function removeTemplate(template: WorkoutTemplateRecord) {
-    if (!db || !window.confirm(`Excluir o modelo "${template.name}"?`)) return;
+    if (!window.confirm(`Excluir o modelo "${template.name}"?`)) return;
+    if (!db) {
+      const nextTemplates = templates.filter((item) => item.id !== template.id);
+      setTemplates(nextTemplates);
+      writeLocalCollection(access.academyId, "workoutTemplates", nextTemplates);
+      if (editingTemplateId === template.id) setEditingTemplateId(null);
+      onFeedback("Modelo excluído no modo local.");
+      return;
+    }
     try { await deleteDoc(doc(db, "academies", access.academyId, "workoutTemplates", template.id)); if (editingTemplateId === template.id) setEditingTemplateId(null); onFeedback("Modelo excluído."); }
     catch { onFeedback("Não foi possível excluir o modelo."); }
   }
 
   async function removeWorkout(workout: WorkoutRecord) {
-    if (!db || !window.confirm(`Excluir o treino "${workout.name}" de ${workout.studentName}?`)) return;
+    if (!window.confirm(`Excluir o treino "${workout.name}" de ${workout.studentName}?`)) return;
+    if (!db) {
+      const nextWorkouts = workouts.filter((item) => item.id !== workout.id);
+      setWorkouts(nextWorkouts);
+      writeLocalCollection(access.academyId, "workouts", nextWorkouts);
+      if (editingWorkoutId === workout.id) setEditingWorkoutId(null);
+      onFeedback("Treino excluído no modo local.");
+      return;
+    }
     try { await deleteDoc(doc(db, "academies", access.academyId, "workouts", workout.id)); if (editingWorkoutId === workout.id) setEditingWorkoutId(null); onFeedback("Treino excluído."); }
     catch { onFeedback("Não foi possível excluir o treino."); }
   }
@@ -1288,7 +1533,12 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   const [savingPayment, setSavingPayment] = useState(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setStudents(readLocalCollection<BillingStudent>(access.academyId, "students"));
+      setPlans(readLocalCollection<AcademyPlan>(access.academyId, "plans"));
+      setCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges"));
+      return;
+    }
     const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
         const data = student.data() as { name?: string; active?: boolean };
@@ -1313,11 +1563,20 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
 
   async function createCharge(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !studentId || !dueDate) return;
+    if (!studentId || !dueDate) { onFeedback("Selecione o aluno e o vencimento da cobrança."); return; }
     const student = students.find((item) => item.id === studentId);
     const plan = plans.find((item) => item.id === planId);
     const amount = chargeType === "monthly" ? plan?.price ?? 0 : parseCurrency(chargeAmount);
-    if (!student || (chargeType === "monthly" && !plan) || !amount) return;
+    if (!student || (chargeType === "monthly" && !plan) || !amount) { onFeedback("Preencha os dados da cobrança antes de continuar."); return; }
+    if (!db) {
+      const nextCharge: MonthlyCharge = { id: `local-charge-${Date.now()}`, studentId, studentName: student.name, planName: chargeType === "monthly" ? plan?.name ?? "Mensalidade" : capitalizeName(chargeDescription.trim() || (chargeType === "registration" ? "Taxa de inscrição" : "Serviço avulso")), chargeType, amount, dueDate, status: "pending" };
+      const nextCharges = [...charges, nextCharge].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+      setCharges(nextCharges);
+      writeLocalCollection(access.academyId, "monthlyCharges", nextCharges);
+      setStudentId(""); setPlanId(""); setDueDate(""); setChargeDescription(""); setChargeAmount("");
+      onFeedback("Cobrança criada no modo local.");
+      return;
+    }
     setSaving(true);
     try {
       await addDoc(collection(db, "academies", access.academyId, "monthlyCharges"), { studentId, studentName: student.name, planId: plan?.id ?? null, planName: chargeType === "monthly" ? plan?.name : chargeDescription.trim() || (chargeType === "registration" ? "Taxa de inscrição" : "Serviço avulso"), chargeType, amount, dueDate, status: "pending", createdBy: access.userId, createdAt: serverTimestamp() });
@@ -1329,7 +1588,16 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
 
   async function createPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !planName.trim() || !planPrice) return;
+    if (!planName.trim() || !planPrice) { onFeedback("Informe o nome e o valor do plano."); return; }
+    if (!db) {
+      const nextPlan: AcademyPlan = { id: `local-plan-${Date.now()}`, name: capitalizeName(planName.trim()), price: parseCurrency(planPrice), interval: planInterval, active: true };
+      const nextPlans = [...plans, nextPlan];
+      setPlans(nextPlans);
+      writeLocalCollection(access.academyId, "plans", nextPlans);
+      setPlanName(""); setPlanPrice(""); setPlanInterval("Mensal");
+      onFeedback("Plano cadastrado no modo local.");
+      return;
+    }
     setSaving(true);
     try {
       await addDoc(collection(db, "academies", access.academyId, "plans"), { name: planName.trim(), price: parseCurrency(planPrice), interval: planInterval, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
@@ -1340,7 +1608,15 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   }
 
   async function confirmPayment() {
-    if (!db || !paymentCharge) return;
+    if (!paymentCharge) return;
+    if (!db) {
+      const nextCharges = charges.map((charge) => charge.id === paymentCharge.id ? { ...charge, status: "paid" as const, paymentMethod } : charge);
+      setCharges(nextCharges);
+      writeLocalCollection(access.academyId, "monthlyCharges", nextCharges);
+      setPaymentCharge(null);
+      onFeedback("Pagamento registrado no modo local.");
+      return;
+    }
     setSavingPayment(true);
     try {
       await updateDoc(doc(db, "academies", access.academyId, "monthlyCharges", paymentCharge.id), { status: "paid", paymentMethod, paidAt: serverTimestamp(), paidBy: access.userId });
@@ -1351,7 +1627,13 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   }
 
   async function toggleCharge(charge: MonthlyCharge) {
-    if (!db) return;
+    if (!db) {
+      const nextCharges = charges.map((item) => item.id === charge.id ? { ...item, status: "pending" as const } : item);
+      setCharges(nextCharges);
+      writeLocalCollection(access.academyId, "monthlyCharges", nextCharges);
+      onFeedback("Cobrança reaberta no modo local.");
+      return;
+    }
     try {
       await updateDoc(doc(db, "academies", access.academyId, "monthlyCharges", charge.id), { status: "pending" });
       onFeedback(charge.status === "paid" ? "Mensalidade voltou para pendente." : "Mensalidade marcada como paga.");
@@ -1391,7 +1673,10 @@ function PlansModule({ onFeedback }: { onFeedback: (message: string) => void }) 
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setPlans(readLocalCollection<AcademyPlan>(access.academyId, "plans"));
+      return;
+    }
     return onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setPlans(snapshot.docs.map((plan) => {
         const data = plan.data() as { name?: string; price?: number; interval?: string; active?: boolean };
@@ -1402,7 +1687,16 @@ function PlansModule({ onFeedback }: { onFeedback: (message: string) => void }) 
 
   async function createPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !name.trim() || !price) return;
+    if (!name.trim() || !price) { onFeedback("Informe o nome e o valor do plano."); return; }
+    if (!db) {
+      const nextPlan: AcademyPlan = { id: `local-plan-${Date.now()}`, name: capitalizeName(name.trim()), price: parseCurrency(price), interval, active: true };
+      const nextPlans = [...plans, nextPlan];
+      setPlans(nextPlans);
+      writeLocalCollection(access.academyId, "plans", nextPlans);
+      setName(""); setPrice(""); setInterval("Mensal");
+      onFeedback("Plano criado no modo local.");
+      return;
+    }
     setSaving(true);
     try {
       await addDoc(collection(db, "academies", access.academyId, "plans"), {
@@ -1425,7 +1719,13 @@ function PlansModule({ onFeedback }: { onFeedback: (message: string) => void }) 
   }
 
   async function togglePlan(plan: AcademyPlan) {
-    if (!db) return;
+    if (!db) {
+      const nextPlans = plans.map((item) => item.id === plan.id ? { ...item, active: !item.active } : item);
+      setPlans(nextPlans);
+      writeLocalCollection(access.academyId, "plans", nextPlans);
+      onFeedback(plan.active ? "Plano desativado no modo local." : "Plano reativado no modo local.");
+      return;
+    }
     try {
       await updateDoc(doc(db, "academies", access.academyId, "plans", plan.id), { active: !plan.active });
       onFeedback(plan.active ? "Plano desativado." : "Plano reativado.");
@@ -1456,7 +1756,10 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      setTeachers(readLocalCollection<RegisteredTeacher>(access.academyId, "teachers"));
+      return;
+    }
     return onSnapshot(collection(db, "academies", access.academyId, "teachers"), (snapshot) => {
       setTeachers(snapshot.docs.map((teacher) => {
         const data = teacher.data() as { name?: string; email?: string | null; active?: boolean };
@@ -1476,7 +1779,17 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
 
   async function saveTeacher(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !selectedTeacher || !editName.trim()) return;
+    if (!selectedTeacher || !editName.trim()) {
+      onFeedback("Informe o nome completo do professor.");
+      return;
+    }
+    if (!db) {
+      const nextTeachers = teachers.map((teacher) => teacher.id === selectedTeacher.id ? { ...teacher, name: capitalizeName(editName.trim()), email: editEmail.trim() || null } : teacher);
+      setTeachers(nextTeachers);
+      writeLocalCollection(access.academyId, "teachers", nextTeachers);
+      onFeedback("Dados do professor atualizados no modo local.");
+      return;
+    }
     setSaving(true);
     try {
       await updateDoc(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { name: capitalizeName(editName.trim()), email: editEmail.trim() || null });
@@ -1489,7 +1802,14 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
   }
 
   async function toggleTeacher() {
-    if (!db || !selectedTeacher) return;
+    if (!selectedTeacher) return;
+    if (!db) {
+      const nextTeachers = teachers.map((teacher) => teacher.id === selectedTeacher.id ? { ...teacher, active: selectedTeacher.active === false } : teacher);
+      setTeachers(nextTeachers);
+      writeLocalCollection(access.academyId, "teachers", nextTeachers);
+      onFeedback(selectedTeacher.active === false ? "Acesso do professor ativado no modo local." : "Acesso do professor suspenso no modo local.");
+      return;
+    }
     try {
       const batch = writeBatch(db);
       batch.update(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { active: selectedTeacher.active === false });
@@ -1551,7 +1871,15 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
   const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const localStudents = readLocalCollection<RegisteredStudent>(access.academyId, "students");
+      setStudents(localStudents.map((student) => ({ ...student, active: student.active !== false, plan: student.plan ?? "Sem plano" })));
+      if (access.role === "admin") {
+        setTeachers(readLocalCollection<RegisteredTeacher>(access.academyId, "teachers"));
+        setPlans(readLocalCollection<BillingPlan>(access.academyId, "plans"));
+      }
+      return;
+    }
     const studentsRef = collection(db, "academies", access.academyId, "students");
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
@@ -1591,7 +1919,15 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
 
   useEffect(() => {
     if (!db || !selectedId) {
-      setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentMessages([]);
+      if (!selectedId) {
+        setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentMessages([]);
+        return;
+      }
+      setStudentWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === selectedId && item.status === "published"));
+      setStudentAssessments(readLocalCollection<AssessmentRecord>(access.academyId, "assessments").filter((item) => item.studentId === selectedId).sort((a, b) => b.date.localeCompare(a.date)));
+      setStudentCharges(access.role === "admin" ? readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === selectedId) : []);
+      setStudentExecutions([]);
+      setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
       return;
     }
     const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", selectedId)), (snapshot) => {
@@ -1612,12 +1948,26 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
     return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeMessages(); };
   }, [access.academyId, access.role, selectedId]);
 
+  useEffect(() => {
+    if (db || !selectedId) return;
+    const syncLocalMessages = () => setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
+    window.addEventListener("orquestra-fit:collection-updated", syncLocalMessages);
+    return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalMessages);
+  }, [access.academyId, selectedId]);
+
   async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (access.role !== "admin") { onFeedback("Somente a gestão pode alterar dados pessoais do aluno."); return; }
-    if (!db || !selectedStudent || !editName.trim()) return;
+    if (!selectedStudent || !editName.trim()) { onFeedback("Informe o nome completo do aluno."); return; }
     if (editName.trim().length < 2) { onFeedback("Informe o nome completo do aluno."); return; }
     if (!validEmail(editEmail.trim())) { onFeedback("Informe um e-mail válido ou deixe o campo vazio."); return; }
+    if (!db) {
+      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, plan: editPlan, teacherId: editTeacherId || null } : student);
+      setStudents(nextStudents);
+      writeLocalCollection(access.academyId, "students", nextStudents);
+      onFeedback("Dados do aluno atualizados no modo local.");
+      return;
+    }
     setSaving(true);
     try {
       const personalData = {
@@ -1636,7 +1986,14 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
   }
 
   async function toggleStudent() {
-    if (!db || !selectedStudent) return;
+    if (!selectedStudent) return;
+    if (!db) {
+      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, active: selectedStudent.active === false } : student);
+      setStudents(nextStudents);
+      writeLocalCollection(access.academyId, "students", nextStudents);
+      onFeedback(selectedStudent.active === false ? "Acesso do aluno ativado no modo local." : "Acesso do aluno suspenso no modo local.");
+      return;
+    }
     try {
       await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), { active: selectedStudent.active === false });
       onFeedback(selectedStudent.active === false ? "Acesso do aluno ativado." : "Acesso do aluno suspenso.");
@@ -1646,7 +2003,24 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
   }
 
   async function sendInternalMessage() {
-    if (!db || !selectedStudent || !messageBody.trim()) return;
+    if (!selectedStudent || !messageBody.trim()) {
+      onFeedback("Escreva uma mensagem antes de enviar.");
+      return;
+    }
+    if (!db) {
+      const message: InternalMessage = {
+        id: `local-message-${Date.now()}`,
+        studentId: selectedStudent.id,
+        senderId: access.userId,
+        senderName: accountName(access.user.displayName, access.user.email),
+        body: messageBody.trim(),
+      };
+      const messages = readLocalCollection<InternalMessage>(access.academyId, "messages");
+      writeLocalCollection(access.academyId, "messages", [message, ...messages]);
+      setMessageBody("");
+      onFeedback("Mensagem enviada ao aluno no modo local.");
+      return;
+    }
     setSendingMessage(true);
     try {
       await addDoc(collection(db, "academies", access.academyId, "messages"), { studentId: selectedStudent.id, senderId: access.userId, senderName: accountName(access.user.displayName, access.user.email), body: messageBody.trim(), createdAt: serverTimestamp(), read: false });
@@ -1776,19 +2150,22 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
   ];
 
   async function generateAccessCode() {
-    if (!db || !roleToAdd) return;
+    if (!roleToAdd) return;
     setGenerating(true);
     const random = Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36).toUpperCase()).join("").slice(0, 8);
     const code = `DF-${random}`;
     try {
-      await setDoc(doc(db, "accessCodes", code), {
-        academyId: access.academyId,
-        role: roleToAdd,
-        active: true,
-        createdBy: access.userId,
-        createdAt: serverTimestamp(),
-      });
+      if (db) {
+        await setDoc(doc(db, "accessCodes", code), {
+          academyId: access.academyId,
+          role: roleToAdd,
+          active: true,
+          createdBy: access.userId,
+          createdAt: serverTimestamp(),
+        });
+      }
       setGeneratedCode(code);
+      onFeedback(db ? "Código de convite gerado." : "Código gerado no modo local de demonstração.");
     } catch {
       onFeedback("Não foi possível gerar o código. Tente novamente.");
     } finally {
@@ -1826,7 +2203,15 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const [dashboardCharges, setDashboardCharges] = useState<MonthlyCharge[]>([]);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const syncLocalDashboard = () => {
+        setRegisteredStudents(readLocalCollection<RegisteredStudent>(access.academyId, "students"));
+        setDashboardCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges"));
+      };
+      syncLocalDashboard();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalDashboard);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalDashboard);
+    }
     const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
       setRegisteredStudents(snapshot.docs.map((student) => {
         const data = student.data() as { name?: string; plan?: string; active?: boolean };
@@ -1872,7 +2257,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
         </section>
         <section className="operations-grid">
           <article className="workspace-panel student-table-panel">
-            <header><div><span>OPERAÇÃO</span><h3>Alunos para acompanhar</h3><p>Planos, frequência e próximos treinos.</p></div><button onClick={() => feedback("Lista completa de alunos selecionada.")}>Ver todos <ArrowRight /></button></header>
+            <header><div><span>OPERAÇÃO</span><h3>Alunos para acompanhar</h3><p>Planos, frequência e próximos treinos.</p></div><button onClick={() => navigateWorkspace("Alunos")}>Ver todos <ArrowRight /></button></header>
             <div className="workspace-search"><Search /><input placeholder="Buscar aluno" /></div>
             <div className="student-table">
               <div className="table-row table-head"><span>Aluno</span><span>Plano</span><span>Situação</span><span>Visitas</span><span>Próximo treino</span><span /></div>
@@ -1881,13 +2266,13 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
                   <span className="table-person"><i>{student.initials}</i><strong>{student.name}</strong></span>
                   <span>{student.plan}</span>
                   <span><em className={student.status === "Em atraso" ? "late" : student.status === "Vence hoje" ? "due" : ""}>{student.status}</em></span>
-                  <span>{student.visits}</span><span>{student.next}</span><button aria-label={`Abrir ${student.name}`} onClick={() => feedback(`Perfil de ${student.name} selecionado.`)}><ChevronRight /></button>
+                  <span>{student.visits}</span><span>{student.next}</span><button aria-label={`Abrir ${student.name}`} onClick={() => { const match = registeredStudents.find((item) => item.name === student.name); navigateWorkspace("Alunos", match?.id); }}><ChevronRight /></button>
                 </div>
               ))}
             </div>
           </article>
           <aside className="workspace-panel finance-card">
-            <header><div><span>FINANCEIRO</span><h3>Recebimentos do mês</h3></div><button aria-label="Mais opções"><MoreHorizontal /></button></header>
+            <header><div><span>FINANCEIRO</span><h3>Recebimentos do mês</h3></div><button aria-label="Abrir financeiro" onClick={() => navigateWorkspace("Planos e mensalidades")}><MoreHorizontal /></button></header>
             <div className="finance-total"><small>PREVISTO</small><strong>{money(dashboardTotal)}</strong><span>{dashboardCharges.length} mensalidades cadastradas</span></div>
             <div className="finance-bar"><i style={{ width: `${dashboardPercent}%` }} /><b style={{ width: `${Math.max(0, 100 - dashboardPercent)}%` }} /></div>
             <div className="finance-legend">
@@ -1895,11 +2280,11 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
               <div><span><i className="pending" />Em aberto</span><strong>{money(dashboardOpen)}</strong></div>
               <div><span><i className="overdue" />Em atraso</span><strong>{money(dashboardOverdue.reduce((total, charge) => total + charge.amount, 0))}</strong></div>
             </div>
-            <button className="outline-action" onClick={() => feedback("Módulo financeiro selecionado.")}>Abrir financeiro <ArrowRight /></button>
+            <button className="outline-action" onClick={() => navigateWorkspace("Planos e mensalidades")}>Abrir financeiro <ArrowRight /></button>
           </aside>
         </section>
         <section className="admin-lower">
-          <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button onClick={() => setNewMemberRole("teacher")}><UserRoundCheck />Cadastrar professor</button><button onClick={() => feedback("Montagem de ficha de treino selecionada.")}><ClipboardList />Montar ficha de treino</button><button onClick={() => feedback("Cadastro de aula selecionado.")}><CalendarDays />Criar aula</button></div></article>
+          <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button onClick={() => setNewMemberRole("teacher")}><UserRoundCheck />Cadastrar professor</button><button onClick={() => navigateWorkspace("Treinos")}><ClipboardList />Montar ficha de treino</button><button onClick={() => navigateWorkspace("Aulas e reservas")}><CalendarDays />Criar aula</button></div></article>
           <article className="occupancy"><div><span>OCUPAÇÃO AGORA</span><strong>Sem registros</strong></div><div className="directory-empty"><p>A frequência da academia aparecerá aqui quando houver acessos registrados.</p></div></article>
         </section>
       </div>
@@ -1919,24 +2304,38 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db || !name.trim()) return;
+    if (!name.trim()) {
+      setError("Informe o nome completo.");
+      return;
+    }
     setSaving(true);
     setError(null);
     const random = Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36).toUpperCase()).join("").slice(0, 8);
     const invitationCode = `DF-${random}`;
     try {
-      await setDoc(doc(db, "accessCodes", invitationCode), {
-        academyId: access.academyId,
-        role,
-        invitedName: name.trim(),
-        invitedEmail: email.trim() || null,
-        ...(role === "student" ? { plan } : {}),
-        active: true,
-        createdBy: access.userId,
-        createdAt: serverTimestamp(),
-      });
+      if (db) {
+        await setDoc(doc(db, "accessCodes", invitationCode), {
+          academyId: access.academyId,
+          role,
+          invitedName: capitalizeName(name.trim()),
+          invitedEmail: email.trim() || null,
+          ...(role === "student" ? { plan } : {}),
+          active: true,
+          createdBy: access.userId,
+          createdAt: serverTimestamp(),
+        });
+      } else {
+        const id = `local-${role}-${Date.now()}`;
+        if (role === "student") {
+          const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, plan, teacherId: null, active: true }]);
+        } else {
+          const teachers = readLocalCollection<RegisteredTeacher>(access.academyId, "teachers");
+          writeLocalCollection(access.academyId, "teachers", [...teachers, { id, name: capitalizeName(name.trim()), email: email.trim() || null, active: true }]);
+        }
+      }
       setCode(invitationCode);
-      onFeedback("Aluno cadastrado. Envie o código para ativar o acesso.");
+      onFeedback(`${role === "student" ? "Aluno" : "Professor"} cadastrado. Envie o código para ativar o acesso.`);
     } catch {
       setError("Não foi possível cadastrar este aluno agora.");
     } finally {
@@ -1989,7 +2388,7 @@ function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeCha
           <article className="professor-focus">
             <span>PRÓXIMO ATENDIMENTO</span><div className="focus-time">— <small>AGUARDANDO AGENDA</small></div>
             <div className="focus-student"><i>—</i><div><strong>Nenhum atendimento agendado</strong><p>Os próximos compromissos aparecerão aqui.</p></div></div>
-            <button onClick={() => feedback("A agenda ainda não possui atendimentos cadastrados.")}>Ver agenda <ArrowRight /></button>
+            <button onClick={() => navigateWorkspace("Aulas e reservas")}>Ver agenda <ArrowRight /></button>
           </article>
           <div className="professor-metrics">
             <MetricCard icon={Users} label="Meus alunos" value={String(teacherStudentCount)} note={teacherStudentCount === 0 ? "Nenhum aluno vinculado" : "Alunos vinculados"} />
@@ -1998,7 +2397,7 @@ function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeCha
         </section>
         <section className="professor-grid">
           <article className="workspace-panel agenda-panel">
-            <header><div><span>AGENDA DE HOJE</span><h3>Atendimentos</h3></div><button>Ver semana <ArrowRight /></button></header>
+            <header><div><span>AGENDA DE HOJE</span><h3>Atendimentos</h3></div><button onClick={() => navigateWorkspace("Aulas e reservas")}>Ver semana <ArrowRight /></button></header>
             {today.length > 0 ? today.map((item) => (
               <div className="appointment" key={item.time}><strong>{item.time}</strong><div><h4>{item.name}</h4><p>{item.focus}</p></div><em className={item.status === "Confirmado" ? "confirmed" : ""}>{item.status}</em><button aria-label="Abrir" onClick={() => feedback(`Atendimento de ${item.name} selecionado.`)}><ChevronRight /></button></div>
             )) : <div className="directory-empty"><CalendarDays /><p>Nenhum atendimento cadastrado ainda.</p></div>}
@@ -2037,7 +2436,7 @@ function StudentDrawer({ onClose, onChange }: { onClose: () => void; onChange: (
         <header><AcademyBrand /><button aria-label="Fechar" onClick={onClose}><X /></button></header>
         <div className="drawer-profile"><span>{firstName(access.user.displayName, access.user.email).slice(0, 2).toUpperCase()}</span><div><strong>{accountName(access.user.displayName, access.user.email)}</strong><small>Aluno · plano ativo</small></div></div>
         <nav>{navItems.map(([id, Icon, label]) => <button key={id} onClick={() => { onChange(id); onClose(); }}><Icon /><span>{label}</span><ChevronRight /></button>)}</nav>
-        <div className="drawer-footer"><small>TECNOLOGIA</small><strong>Orquestra Fit</strong><span>Ambiente demonstrativo</span></div>
+        <div className="drawer-footer"><small>TECNOLOGIA</small><strong>Orquestra Fit</strong></div>
       </aside>
     </div>
   );

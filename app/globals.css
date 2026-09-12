@@ -21,8 +21,9 @@
 }
 
 * { box-sizing: border-box; }
-html { background: #050606; }
+html { background: #050606; scrollbar-width: thin; scrollbar-gutter: stable; }
 body { margin: 0; background: #050606; color: var(--paper); font-family: var(--font-sans); letter-spacing: 0; }
+.student-scroll { scrollbar-width: none; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 

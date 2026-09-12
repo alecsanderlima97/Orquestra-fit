@@ -13,6 +13,14 @@ export function AuthGate({ children }: AuthGateProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(isFirebaseConfigured);
   const [redirectError, setRedirectError] = useState<string | null>(null);
+  const [localLoggedOut, setLocalLoggedOut] = useState(false);
+
+  useEffect(() => {
+    if (isFirebaseConfigured) return;
+    const handleLocalLogout = () => setLocalLoggedOut(true);
+    window.addEventListener("orquestra-fit:local-logout", handleLocalLogout);
+    return () => window.removeEventListener("orquestra-fit:local-logout", handleLocalLogout);
+  }, []);
 
   useEffect(() => {
     if (!auth) return;
@@ -52,7 +60,10 @@ export function AuthGate({ children }: AuthGateProps) {
     };
   }, []);
 
-  if (!isFirebaseConfigured) return <AccessProvider value={{ user: { uid: "local-demo", displayName: "Gestor", email: "gestor@orquestra.fit" } as User, userId: "local-demo", academyId: "local-academy", role: "admin", accountType: "developer" }}>{children}</AccessProvider>;
+  if (!isFirebaseConfigured) {
+    if (localLoggedOut) return <main className="auth-loading"><div><h1>Sessão encerrada</h1><p>O modo local está pronto para uma nova demonstração.</p><button className="detail-save" onClick={() => setLocalLoggedOut(false)}>Entrar no modo demonstração</button></div></main>;
+    return <AccessProvider value={{ user: { uid: "local-demo", displayName: "Gestor", email: "gestor@orquestra.fit" } as User, userId: "local-demo", academyId: "local-academy", role: "admin", accountType: "developer" }}>{children}</AccessProvider>;
+  }
   if (loading) return <main className="auth-loading">Carregando acesso seguro...</main>;
   if (!user) return <LoginPanel initialStatus={redirectError} />;
 
