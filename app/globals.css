@@ -1071,17 +1071,19 @@ button { cursor: pointer; }
 .workspace-mobile-menu svg { width: 19px; }
 .workspace-drawer-backdrop { display: none; }
 .workspace-mobile-nav { display: none; }
-.workspace-actions { display: flex; align-items: center; gap: 8px; }
+.workspace-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .workspace-actions > button {
   width: 40px; height: 40px; border: 1px solid var(--line); background: #15181a;
   color: #858b8f; display: grid; place-items: center;
 }
 .workspace-actions > button svg { width: 18px; }
-.operator { display: flex; align-items: center; gap: 11px; margin-left: 8px; padding-left: 15px; border-left: 1px solid var(--line); }
+.operator { display: flex; align-items: center; gap: 11px; margin-left: 8px; padding-left: 15px; border-left: 1px solid var(--line); min-width: 112px; white-space: nowrap; }
+.workspace-actions > .operator { width: auto; height: auto; min-height: 40px; padding-right: 4px; background: transparent; border-top: 0; border-right: 0; border-bottom: 0; display: flex; place-items: initial; }
 .operator > span {
   width: 39px; height: 39px; border: 1px solid #6a5037; color: var(--bronze-300);
   display: grid; place-items: center; font-family: Georgia, serif; font-size: 13px;
 }
+.operator > span img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .operator div { display: grid; }
 .operator strong { font-size: 11px; }
 .operator small { color: var(--steel-500); font-size: 9px; margin-top: 3px; }
@@ -1324,7 +1326,7 @@ button { cursor: pointer; }
   .workspace-mobile-menu { display: inline-flex; }
   .workspace-topbar h1 { font-size: 19px; }
   .workspace-actions > button { display: none; }
-  .operator { border: 0; padding: 0; margin: 0; }
+  .workspace-actions > .operator { display: flex; width: auto; height: auto; min-width: 40px; min-height: 40px; border: 0; padding: 0; margin: 0; }
   .operator div { display: none; }
   .workspace-content { padding: 24px 16px 105px; }
   .workspace-intro { align-items: start; }
