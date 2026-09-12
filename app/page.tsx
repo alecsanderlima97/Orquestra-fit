@@ -31,11 +31,27 @@ function firstName(displayName: string | null, email: string | null) {
   return accountName(displayName, email).split(/\s+/)[0];
 }
 
+function profileStorageKey(userId: string) {
+  return `orquestra-fit:profile:${userId}`;
+}
+
 function useRegisteredProfile() {
   const access = useAccess();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const syncLocalProfile = () => {
+        try {
+          const stored = window.localStorage.getItem(profileStorageKey(access.userId));
+          setProfile(stored ? JSON.parse(stored) as AccountProfile : null);
+        } catch {
+          setProfile(null);
+        }
+      };
+      syncLocalProfile();
+      window.addEventListener("orquestra-fit:profile-updated", syncLocalProfile);
+      return () => window.removeEventListener("orquestra-fit:profile-updated", syncLocalProfile);
+    }
     return onSnapshot(doc(db, "users", access.userId), (snapshot) => setProfile(snapshot.exists() ? snapshot.data() as AccountProfile : null));
   }, [access.userId]);
   return profile;
@@ -790,6 +806,26 @@ function maskPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`;
 }
 
+function maskCnpj(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 14);
+  return digits.replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+}
+
+function capitalizeName(value: string) {
+  return value.toLocaleLowerCase("pt-BR").replace(/(^|[\s'-])(\p{L})/gu, (_, separator: string, letter: string) => `${separator}${letter.toLocaleUpperCase("pt-BR")}`);
+}
+
+function maskCurrency(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  return (Number(digits) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function parseCurrency(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits ? Number(digits) / 100 : 0;
+}
+
 function validEmail(value: string) {
   return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
@@ -1280,7 +1316,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     if (!db || !studentId || !dueDate) return;
     const student = students.find((item) => item.id === studentId);
     const plan = plans.find((item) => item.id === planId);
-    const amount = chargeType === "monthly" ? plan?.price ?? 0 : Number(chargeAmount.replace(",", "."));
+    const amount = chargeType === "monthly" ? plan?.price ?? 0 : parseCurrency(chargeAmount);
     if (!student || (chargeType === "monthly" && !plan) || !amount) return;
     setSaving(true);
     try {
@@ -1296,7 +1332,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     if (!db || !planName.trim() || !planPrice) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "plans"), { name: planName.trim(), price: Number(planPrice.replace(",", ".")), interval: planInterval, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
+      await addDoc(collection(db, "academies", access.academyId, "plans"), { name: planName.trim(), price: parseCurrency(planPrice), interval: planInterval, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
       setPlanName(""); setPlanPrice(""); setPlanInterval("Mensal");
       onFeedback("Plano cadastrado com sucesso.");
     } catch { onFeedback("Não foi possível cadastrar o plano."); }
@@ -1337,7 +1373,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
       <section className="billing-layout">
-        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Cadastrar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(event.target.value)} placeholder="Ex.: Plano mensal" required /></label><label>Valor<input value={planPrice} onChange={(event) => setPlanPrice(event.target.value)} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar plano"}</button></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(event.target.value)} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(event.target.value)} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
+        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Cadastrar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Valor<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar plano"}</button></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
         <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
       <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${charge.paymentMethod}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
@@ -1371,7 +1407,7 @@ function PlansModule({ onFeedback }: { onFeedback: (message: string) => void }) 
     try {
       await addDoc(collection(db, "academies", access.academyId, "plans"), {
         name: name.trim(),
-        price: Number(price.replace(",", ".")),
+        price: parseCurrency(price),
         interval,
         active: true,
         createdBy: access.userId,
@@ -1402,7 +1438,7 @@ function PlansModule({ onFeedback }: { onFeedback: (message: string) => void }) 
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Cadastre os planos que serão usados nas mensalidades dos alunos.</p></div></section>
       <section className="plans-layout">
-        <article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Criar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Plano mensal" required /></label><label>Valor mensal<input value={price} onChange={(event) => setPrice(event.target.value)} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={interval} onChange={(event) => setInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Criar plano"}</button></form></article>
+        <article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Criar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={name} onChange={(event) => setName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Valor mensal<input value={price} onChange={(event) => setPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={interval} onChange={(event) => setInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Criar plano"}</button></form></article>
         <article className="workspace-panel plans-list-panel"><header><div><span>PLANOS CADASTRADOS</span><h3>{plans.length} {plans.length === 1 ? "plano" : "planos"}</h3></div></header><div className="plans-list">{plans.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhum plano cadastrado ainda.</p></div> : plans.map((plan) => <div className="plan-row" key={plan.id}><div><strong>{plan.name}</strong><small>{plan.interval} · {plan.active ? "Disponível" : "Desativado"}</small></div><b>R$ {plan.price.toFixed(2).replace(".", ",")}</b><button className={plan.active ? "plan-disable" : "plan-enable"} onClick={() => togglePlan(plan)}>{plan.active ? "Desativar" : "Ativar"}</button></div>)}</div></article>
       </section>
       <div className="module-empty plans-next-step"><WalletCards /><h3>Mensalidades</h3><p>Depois dos planos, vamos gerar cobranças, vencimentos e status de pagamento por aluno.</p></div>
@@ -1443,7 +1479,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
     if (!db || !selectedTeacher || !editName.trim()) return;
     setSaving(true);
     try {
-      await updateDoc(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { name: editName.trim(), email: editEmail.trim() || null });
+      await updateDoc(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { name: capitalizeName(editName.trim()), email: editEmail.trim() || null });
       onFeedback("Dados do professor atualizados.");
     } catch {
       onFeedback("Não foi possível atualizar este professor.");
@@ -1481,7 +1517,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
           </div>
         </article>
         <aside className="workspace-panel student-detail-panel">
-          {selectedTeacher ? <><header><div><span>PERFIL DO PROFESSOR</span><h3>Editar cadastro</h3></div><span className={selectedTeacher.active === false ? "detail-status inactive" : "detail-status"}>{selectedTeacher.active === false ? "Suspenso" : "Ativo"}</span></header><form className="student-detail-form" onSubmit={saveTeacher}><label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} required /></label><label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button></form><button className="detail-toggle" onClick={toggleTeacher}>{selectedTeacher.active === false ? "Reativar acesso" : "Suspender acesso"}</button></> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um professor</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
+          {selectedTeacher ? <><header><div><span>PERFIL DO PROFESSOR</span><h3>Editar cadastro</h3></div><span className={selectedTeacher.active === false ? "detail-status inactive" : "detail-status"}>{selectedTeacher.active === false ? "Suspenso" : "Ativo"}</span></header><form className="student-detail-form" onSubmit={saveTeacher}><label>Nome completo<input value={editName} onChange={(event) => setEditName(capitalizeName(event.target.value))} required /></label><label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button></form><button className="detail-toggle" onClick={toggleTeacher}>{selectedTeacher.active === false ? "Reativar acesso" : "Suspender acesso"}</button></> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um professor</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
         </aside>
       </section>
     </div>
@@ -1585,7 +1621,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
     setSaving(true);
     try {
       const personalData = {
-        name: editName.trim(),
+        name: capitalizeName(editName.trim()),
         email: editEmail.trim() || null,
         phone: editPhone.trim() || null,
         cpf: editCpf.trim() || null,
@@ -1646,7 +1682,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <div className="student-profile-divider"><span>CADASTRO E ACESSO</span></div>
               {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
-              <label>Nome completo<input value={editName} onChange={(event) => setEditName(event.target.value)} autoComplete="name" required /></label>
+            <label>Nome completo<input value={editName} onChange={(event) => setEditName(capitalizeName(event.target.value))} autoComplete="name" required /></label>
               <label>Login de contato<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} autoComplete="email" placeholder="E-mail opcional" /></label>
               <label>Telefone<input value={editPhone} onChange={(event) => setEditPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label>
               <label>CPF<input value={editCpf} onChange={(event) => setEditCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label>
@@ -1694,12 +1730,34 @@ function ManagerProfilePanel({ profile, onClose, onFeedback }: { profile: Accoun
   useEffect(() => setForm(profile ?? {}), [profile]);
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!db) return;
     setSaving(true);
-    try { await updateDoc(doc(db, "users", access.userId), { ...form, updatedAt: serverTimestamp() }); onFeedback("Perfil atualizado."); onClose(); } catch { onFeedback("Não foi possível atualizar o perfil."); } finally { setSaving(false); }
+    const normalized = {
+      ...form,
+      name: capitalizeName(form.name?.trim() ?? ""),
+      phone: maskPhone(form.phone ?? ""),
+      cnpj: maskCnpj(form.cnpj ?? ""),
+      cpf: maskCpf(form.cpf ?? ""),
+    };
+    try {
+      if (!db) {
+        window.localStorage.setItem(profileStorageKey(access.userId), JSON.stringify(normalized));
+        window.dispatchEvent(new Event("orquestra-fit:profile-updated"));
+      } else {
+        await setDoc(doc(db, "users", access.userId), { ...normalized, updatedAt: serverTimestamp() }, { merge: true });
+      }
+      onFeedback("Perfil atualizado.");
+      onClose();
+    } catch {
+      onFeedback("Não foi possível atualizar o perfil.");
+    } finally {
+      setSaving(false);
+    }
   }
-  const update = (key: keyof AccountProfile, value: string) => setForm((current) => ({ ...current, [key]: value }));
-  return <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="profile-title"><section className="permissions-panel manager-profile-panel"><header><div><span>MEU PERFIL</span><h2 id="profile-title">Perfil do gestor</h2><p>Dados exibidos para a equipe e no rodapé do aplicativo.</p></div><button aria-label="Fechar perfil" onClick={onClose}><X /></button></header><form className="student-detail-form" onSubmit={save}>{form.photoUrl && <img className="manager-profile-photo" src={form.photoUrl} alt="Foto do gestor" />}{(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl"] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site" } as Record<string, string>)[key]}<input value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} /></label>)}<label>URL da foto<input value={form.photoUrl ?? ""} onChange={(event) => update("photoUrl", event.target.value)} placeholder="https://..." /></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar perfil"}</button><button className="secondary-action" type="button" onClick={() => void logout()}>Sair da conta</button></div></form></section></div>;
+  const update = (key: keyof AccountProfile, value: string) => {
+    const maskedValue = key === "name" ? capitalizeName(value) : key === "phone" ? maskPhone(value) : key === "cnpj" ? maskCnpj(value) : key === "cpf" ? maskCpf(value) : value;
+    setForm((current) => ({ ...current, [key]: maskedValue }));
+  };
+  return <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="profile-title"><section className="permissions-panel manager-profile-panel"><header><div><span>MEU PERFIL</span><h2 id="profile-title">Perfil do gestor</h2><p>Dados exibidos para a equipe e no rodapé do aplicativo.</p></div><button aria-label="Fechar perfil" onClick={onClose}><X /></button></header><form className="student-detail-form" onSubmit={save}>{form.photoUrl && <img className="manager-profile-photo" src={form.photoUrl} alt="Foto do gestor" />}{(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl"] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site" } as Record<string, string>)[key]}<input value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}<label>URL da foto<input type="url" value={form.photoUrl ?? ""} onChange={(event) => update("photoUrl", event.target.value)} placeholder="https://..." /></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar perfil"}</button><button className="secondary-action" type="button" onClick={() => void logout()}>Sair da conta</button></div></form></section></div>;
 }
 
 function AppearancePanel({ theme, onThemeChange, onClose }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void }) {
@@ -1892,7 +1950,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
         <header><div><span>NOVO CADASTRO</span><h2 id="new-student-title">Cadastrar {role === "student" ? "aluno" : "professor"}</h2><p>Crie o convite para o primeiro acesso.</p></div><button aria-label="Fechar cadastro" onClick={onClose}><X /></button></header>
         {!code ? (
           <form className="student-form" onSubmit={submit}>
-            <label>Nome completo<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required /></label>
+            <label>Nome completo<input value={name} onChange={(event) => setName(capitalizeName(event.target.value))} autoComplete="name" required /></label>
             <label>E-mail Google <small>(opcional)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
             {role === "student" && <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>}
             {error && <p className="auth-status" role="status">{error}</p>}
