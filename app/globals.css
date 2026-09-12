@@ -701,16 +701,18 @@ button { cursor: pointer; }
 .exercise-card footer svg, .exercise-card footer strong { color: var(--bronze-400); }
 .finish-workout { width: calc(100% - 28px); height: 52px; margin: 2px 14px 0; border: 0; background: var(--bronze-400); color: #17100a; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 900; }
 .finish-workout:disabled { background: #272b2d; color: #676d70; cursor: not-allowed; }
-.anatomy-screen { position: fixed; z-index: 120; inset: 0 auto 0 50%; transform: translateX(-50%); width: min(100%, 480px); min-height: 100dvh; overflow-y: auto; background: radial-gradient(circle at 50% 34%, #17242a 0, #091014 45%, #05090b 100%); color: #f7f8f8; box-shadow: 0 0 80px #000; }
+.anatomy-screen { position: fixed; z-index: 120; inset: 0 auto 0 50%; transform: translateX(-50%); width: min(100%, 480px); height: 100dvh; overflow-y: scroll; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: radial-gradient(circle at 50% 34%, #17242a 0, #091014 45%, #05090b 100%); color: #f7f8f8; box-shadow: 0 0 80px #000; }
 .anatomy-screen > header { position: sticky; z-index: 3; top: 0; min-height: 78px; padding: max(12px, env(safe-area-inset-top)) 18px 12px; border-bottom: 1px solid #25343b; background: rgba(6, 12, 15, .92); backdrop-filter: blur(18px); display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; }
 .anatomy-screen > header button { width: 42px; height: 42px; border: 0; background: transparent; color: #f5f7f7; display: grid; place-items: center; }
 .anatomy-screen > header button svg { width: 29px; height: 29px; }
 .anatomy-screen > header h2 { position: relative; margin: 0; padding-bottom: 11px; text-align: center; font-family: inherit; font-size: 24px; line-height: 1.1; }
 .anatomy-screen > header h2:after { content: ""; position: absolute; left: 28%; right: 28%; bottom: 0; height: 2px; background: var(--neon); box-shadow: 0 0 12px color-mix(in srgb, var(--neon) 60%, transparent); }
 .anatomy-screen > main { padding: 0 18px max(30px, env(safe-area-inset-bottom)); }
-.anatomy-stage { min-height: 510px; display: grid; place-items: center; }
-.anatomy-figure { display: block; width: min(100%, 330px); height: min(58vh, 540px); overflow: visible; }
-.anatomy-figure .muscle-base { fill: #5b666c; opacity: .3; }
+.anatomy-stage { height: clamp(360px, 47svh, 440px); display: grid; place-items: center; }
+.anatomy-figure { display: block; width: min(100%, 278px); height: 100%; overflow: visible; }
+.anatomy-real-body { opacity: .96; }
+.anatomy-muscle-overlay { mix-blend-mode: screen; }
+.anatomy-figure .muscle-base { fill: #5b666c; opacity: .12; }
 .anatomy-figure .muscle-primary { fill: #ff4646; stroke: #ff9892; filter: url(#muscle-glow); }
 .anatomy-figure .muscle-secondary { fill: #ff982f; stroke: #ffc07c; filter: url(#muscle-glow); }
 .muscle-legend { display: grid; gap: 10px; margin-bottom: 18px; }
