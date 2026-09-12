@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { ArrowLeft, Dumbbell, RefreshCw, Timer } from "lucide-react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ArrowLeft, Dumbbell, RefreshCw, RotateCcw, Timer, ZoomIn, ZoomOut } from "lucide-react";
 
 export type ExerciseAnatomyData = {
   name: string;
@@ -13,6 +13,8 @@ export type ExerciseAnatomyData = {
 };
 
 type MuscleZone = "shoulders" | "chest" | "arms" | "back" | "core" | "glutes" | "thighs" | "calves";
+type AnatomyProfile = "masculino" | "feminino";
+type AnatomySide = "front" | "back";
 
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -32,14 +34,15 @@ function muscleZones(value: string): Set<MuscleZone> {
   return zones;
 }
 
-function AnatomyFigure({ primary, secondary }: { primary: Set<MuscleZone>; secondary: Set<MuscleZone> }) {
+function AnatomyFigure({ primary, secondary, profile, side }: { primary: Set<MuscleZone>; secondary: Set<MuscleZone>; profile: AnatomyProfile; side: AnatomySide }) {
   const tone = (zone: MuscleZone) => primary.has(zone) ? "muscle-primary" : secondary.has(zone) ? "muscle-secondary" : "muscle-base";
+  const image = side === "back" ? "/anatomy-body-back.png" : profile === "feminino" ? "/anatomy-body-feminine.png" : "/anatomy-body-base.png";
   return (
-    <svg className="anatomy-figure" viewBox="0 0 320 560" role="img" aria-label="Mapa muscular do exercício">
+    <svg className={`anatomy-figure anatomy-figure-${side}`} viewBox="0 0 320 560" role="img" aria-label={`Mapa muscular ${side === "front" ? "frontal" : "posterior"} do exercício`}>
       <defs>
         <filter id="muscle-glow"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
       </defs>
-      <image href="/anatomy-body-base.png" x="0" y="0" width="320" height="560" preserveAspectRatio="xMidYMid slice" className="anatomy-real-body" />
+      <image href={image} x="0" y="0" width="320" height="560" preserveAspectRatio="xMidYMid slice" className="anatomy-real-body" />
       <g className="anatomy-muscle-overlay" filter="url(#muscle-glow)" stroke="#150807" strokeWidth="1">
         <path className={tone("shoulders")} d="M108 130 C91 136 84 151 83 173 C92 168 102 169 116 176 L127 144 Z" />
         <path className={tone("shoulders")} d="M212 130 C229 136 236 151 237 173 C228 168 218 169 204 176 L193 144 Z" />
@@ -67,17 +70,61 @@ function AnatomyFigure({ primary, secondary }: { primary: Set<MuscleZone>; secon
 export function ExerciseAnatomyView({ exercise, onClose }: { exercise: ExerciseAnatomyData; onClose: () => void }) {
   const primaryZones = muscleZones(exercise.primaryMuscle);
   const secondaryZones = muscleZones(exercise.secondaryMuscles ?? "");
+  const [profile, setProfile] = useState<AnatomyProfile>("masculino");
+  const [rotation, setRotation] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const lastPinchDistance = useRef<number | null>(null);
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose]);
 
+  const updateZoom = (amount: number) => setZoom((current) => Math.min(1.42, Math.max(.82, Number((current + amount).toFixed(2)))));
+  const resetView = () => { setRotation(0); setZoom(1); };
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const previous = pointers.current.get(event.pointerId);
+    if (!previous) return;
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const points = [...pointers.current.values()];
+    if (points.length === 1) {
+      setRotation((current) => current + (event.clientX - previous.x) * .55);
+      return;
+    }
+    const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    if (lastPinchDistance.current !== null) updateZoom((distance - lastPinchDistance.current) * .006);
+    lastPinchDistance.current = distance;
+  };
+  const onPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointers.current.delete(event.pointerId);
+    if (pointers.current.size < 2) lastPinchDistance.current = null;
+  };
+
   return (
     <div className="anatomy-screen" role="dialog" aria-modal="true" aria-labelledby="anatomy-title">
       <header><button type="button" aria-label="Voltar ao treino" onClick={onClose}><ArrowLeft /></button><h2 id="anatomy-title">{exercise.name}</h2><span /></header>
       <main>
-        <div className="anatomy-stage"><AnatomyFigure primary={primaryZones} secondary={secondaryZones} /></div>
+        <div className="anatomy-profile-switcher" role="group" aria-label="Perfil do boneco anatômico">
+          <button type="button" className={profile === "masculino" ? "active" : ""} onClick={() => setProfile("masculino")}>Masculino</button>
+          <button type="button" className={profile === "feminino" ? "active" : ""} onClick={() => setProfile("feminino")}>Feminino</button>
+        </div>
+        <div className="anatomy-stage">
+          <div className="anatomy-viewport" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd} onWheel={(event) => { event.preventDefault(); updateZoom(event.deltaY < 0 ? .08 : -.08); }}>
+            <div className="anatomy-orbit" style={{ transform: `rotateY(${rotation}deg) scale(${zoom})` }}>
+              <AnatomyFigure primary={primaryZones} secondary={secondaryZones} profile={profile} side="front" />
+              <AnatomyFigure primary={primaryZones} secondary={secondaryZones} profile={profile} side="back" />
+            </div>
+          </div>
+        </div>
+        <div className="anatomy-controls" aria-label="Controles da visualização anatômica">
+          <span>Arraste para girar · use dois dedos para zoom</span>
+          <div><button type="button" aria-label="Diminuir zoom" onClick={() => updateZoom(-.1)}><ZoomOut /></button><button type="button" aria-label="Restaurar visualização" onClick={resetView}><RotateCcw /></button><button type="button" aria-label="Aumentar zoom" onClick={() => updateZoom(.1)}><ZoomIn /></button></div>
+        </div>
         <section className="muscle-legend">
           <div><i className="primary" /><span>Músculo principal</span><strong>{exercise.primaryMuscle || "Grupo principal"}</strong></div>
           <div><i className="secondary" /><span>Auxiliares</span><strong>{exercise.secondaryMuscles || "Não informados"}</strong></div>
