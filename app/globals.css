@@ -696,7 +696,7 @@ button { cursor: pointer; }
 .drawer-footer span { color: #5c6265; font-size: 9px; }
 
 .role-switcher {
-  position: fixed; right: 18px; top: 82px; z-index: 120; display: flex;
+  position: fixed; right: 18px; bottom: 18px; z-index: 120; display: flex;
   padding: 3px; border: 1px solid #40372e; background: rgba(10,11,12,.9);
   box-shadow: 0 8px 24px #0006; backdrop-filter: blur(14px); opacity: .82;
 }
@@ -1291,7 +1291,7 @@ button { cursor: pointer; }
   .finance-card { display: none; }
 }
 @media (max-width: 520px) {
-  .role-switcher { right: 8px; top: 72px; opacity: .72; }
+  .role-switcher { right: 8px; bottom: 82px; opacity: .72; }
   .role-switcher button { min-width: 55px; height: 25px; padding: 0 7px; font-size: 8px; }
   .theme-switcher { left: 7px; bottom: 126px; height: 42px; }
   .theme-choice { min-width: 69px; padding: 0 8px; }
