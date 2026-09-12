@@ -149,16 +149,122 @@ const starterExercises = [
   ["Bicicleta ergométrica", "Cardio", "Pernas", "Condicionamento cardiovascular"],
   ["Esteira", "Cardio", "Pernas", "Condicionamento cardiovascular"],
   ["Elíptico", "Cardio", "Pernas, braços", "Condicionamento cardiovascular"]
+  ,["Supino declinado com barra", "Peito", "Tríceps, ombros", "Peitoral inferior"]
+  ,["Crossover na polia", "Peito", "Ombros", "Peitoral"]
+  ,["Pullover com halter", "Peito", "Dorsais, tríceps", "Peitoral e dorsais"]
+  ,["Barra fixa", "Costas", "Bíceps", "Dorsais"]
+  ,["Remada curvada com barra", "Costas", "Bíceps, lombar", "Dorsais e região central das costas"]
+  ,["Remada cavalinho", "Costas", "Bíceps", "Dorsais"]
+  ,["Pulldown com braços estendidos", "Costas", "Tríceps", "Dorsais"]
+  ,["Encolhimento com halteres", "Trapézio", "Ombros", "Trapézio"]
+  ,["Desenvolvimento militar com barra", "Ombros", "Tríceps", "Ombros"]
+  ,["Elevação frontal", "Ombros", "Peitoral superior", "Ombro anterior"]
+  ,["Crucifixo inverso", "Ombros", "Costas", "Ombro posterior"]
+  ,["Rosca Scott", "Bíceps", "Antebraço", "Parte frontal do braço"]
+  ,["Rosca concentrada", "Bíceps", "Antebraço", "Parte frontal do braço"]
+  ,["Rosca na polia", "Bíceps", "Antebraço", "Parte frontal do braço"]
+  ,["Tríceps testa", "Tríceps", "Ombros", "Parte posterior do braço"]
+  ,["Tríceps coice", "Tríceps", "Ombros", "Parte posterior do braço"]
+  ,["Mergulho nas paralelas", "Tríceps", "Peito, ombros", "Parte posterior do braço"]
+  ,["Agachamento sumô", "Glúteos", "Adutores, quadríceps", "Glúteos e coxas"]
+  ,["Agachamento búlgaro", "Quadríceps", "Glúteos, posteriores", "Coxas e glúteos"]
+  ,["Hack squat", "Quadríceps", "Glúteos", "Parte frontal da coxa"]
+  ,["Cadeira adutora", "Adutores", "Glúteos", "Parte interna da coxa"]
+  ,["Cadeira abdutora", "Abdutores", "Glúteos", "Parte externa da coxa"]
+  ,["Stiff com halteres", "Posteriores", "Glúteos, lombar", "Posteriores da coxa"]
+  ,["Cadeira flexora", "Posteriores", "Glúteos", "Parte posterior da coxa"]
+  ,["Glúteo na polia", "Glúteos", "Posteriores", "Glúteos"]
+  ,["Panturrilha sentada", "Panturrilhas", "", "Panturrilhas"]
+  ,["Abdominal supra", "Abdômen", "Core", "Abdômen"]
+  ,["Abdominal infra", "Abdômen", "Core", "Abdômen inferior"]
+  ,["Abdominal oblíquo", "Abdômen", "Core", "Laterais do abdômen"]
+  ,["Prancha lateral", "Core", "Ombros, oblíquos", "Região central lateral"]
+  ,["Elevação de pernas", "Abdômen", "Flexores do quadril", "Abdômen inferior"]
+  ,["Burpee", "Cardio", "Corpo inteiro", "Condicionamento cardiovascular"]
+  ,["Corda naval", "Cardio", "Ombros, core", "Condicionamento cardiovascular"]
+  ,["Remo ergométrico", "Cardio", "Costas, pernas", "Condicionamento cardiovascular"]
+  ,["Escada ergométrica", "Cardio", "Pernas, glúteos", "Condicionamento cardiovascular"]
+  ,["Mobilidade de ombros", "Mobilidade", "Ombros, peitoral", "Ombros"]
+  ,["Mobilidade de tornozelo", "Mobilidade", "Panturrilhas", "Tornozelos"]
+  ,["Alongamento de posteriores", "Posteriores", "Lombar", "Parte posterior da coxa"]
+  ,["Alongamento de panturrilha", "Panturrilhas", "", "Panturrilhas"]
+  ,["Alongamento de dorsais", "Costas", "Ombros", "Dorsais"]
+  ,["Supino reto na máquina", "Peito", "Tríceps, ombros", "Peitoral"]
+  ,["Supino inclinado na máquina", "Peito", "Tríceps, ombros", "Peitoral superior"]
+  ,["Chest press articulado", "Peito", "Tríceps, ombros", "Peitoral"]
+  ,["Crucifixo com halteres", "Peito", "Ombros", "Peitoral"]
+  ,["Crucifixo na polia baixa", "Peito", "Ombros", "Peitoral superior"]
+  ,["Crucifixo na polia alta", "Peito", "Ombros", "Peitoral inferior"]
+  ,["Flexão inclinada", "Peito", "Tríceps, ombros", "Peitoral inferior"]
+  ,["Flexão declinada", "Peito", "Tríceps, ombros", "Peitoral superior"]
+  ,["Puxada neutra na máquina", "Costas", "Bíceps", "Dorsais"]
+  ,["Puxada supinada", "Costas", "Bíceps", "Dorsais"]
+  ,["Remada articulada", "Costas", "Bíceps", "Dorsais e romboides"]
+  ,["Remada alta na polia", "Trapézio", "Ombros, bíceps", "Trapézio"]
+  ,["Remada máquina com apoio", "Costas", "Bíceps", "Dorsais"]
+  ,["Graviton barra assistida", "Costas", "Bíceps", "Dorsais"]
+  ,["Pullover na máquina", "Costas", "Peito, tríceps", "Dorsais"]
+  ,["Desenvolvimento na máquina", "Ombros", "Tríceps", "Ombros"]
+  ,["Desenvolvimento Arnold", "Ombros", "Tríceps", "Ombros"]
+  ,["Elevação lateral na máquina", "Ombros", "Trapézio", "Ombro lateral"]
+  ,["Elevação lateral na polia", "Ombros", "Trapézio", "Ombro lateral"]
+  ,["Elevação frontal com anilha", "Ombros", "Peitoral superior", "Ombro anterior"]
+  ,["Crucifixo inverso na máquina", "Ombros", "Costas", "Ombro posterior"]
+  ,["Rotação externa na polia", "Ombros", "Manguito rotador", "Ombro posterior"]
+  ,["Rosca bíceps na máquina", "Bíceps", "Antebraço", "Parte frontal do braço"]
+  ,["Rosca Scott na máquina", "Bíceps", "Antebraço", "Parte frontal do braço"]
+  ,["Rosca inclinada com halteres", "Bíceps", "Antebraço", "Parte frontal do braço"]
+  ,["Rosca 21", "Bíceps", "Antebraço", "Parte frontal do braço"]
+  ,["Rosca inversa com barra", "Antebraço", "Bíceps", "Antebraços"]
+  ,["Extensão de punho", "Antebraço", "", "Antebraços"]
+  ,["Flexão de punho", "Antebraço", "", "Antebraços"]
+  ,["Farmer walk", "Antebraço", "Trapézio, core", "Antebraços"]
+  ,["Tríceps na máquina", "Tríceps", "Ombros", "Parte posterior do braço"]
+  ,["Tríceps corda", "Tríceps", "Ombros", "Parte posterior do braço"]
+  ,["Tríceps unilateral na polia", "Tríceps", "Ombros", "Parte posterior do braço"]
+  ,["Mergulho no banco", "Tríceps", "Peito, ombros", "Parte posterior do braço"]
+  ,["Leg press horizontal", "Quadríceps", "Glúteos, posteriores", "Coxas"]
+  ,["Leg press vertical", "Quadríceps", "Glúteos, posteriores", "Coxas"]
+  ,["Agachamento no Smith", "Quadríceps", "Glúteos, posteriores", "Coxas e glúteos"]
+  ,["Passada no Smith", "Quadríceps", "Glúteos, posteriores", "Coxas e glúteos"]
+  ,["Extensão de quadril na máquina", "Glúteos", "Posteriores", "Glúteos"]
+  ,["Coice na máquina", "Glúteos", "Posteriores", "Glúteos"]
+  ,["Glúteo quatro apoios", "Glúteos", "Posteriores", "Glúteos"]
+  ,["Elevação pélvica na máquina", "Glúteos", "Posteriores", "Glúteos"]
+  ,["Flexora em pé unilateral", "Posteriores", "Glúteos", "Parte posterior da coxa"]
+  ,["Bom dia com barra", "Posteriores", "Glúteos, lombar", "Posteriores da coxa"]
+  ,["Panturrilha no leg press", "Panturrilhas", "", "Panturrilhas"]
+  ,["Panturrilha no Smith", "Panturrilhas", "", "Panturrilhas"]
+  ,["Abdominal na polia", "Abdômen", "Core", "Abdômen"]
+  ,["Abdominal no banco declinado", "Abdômen", "Core", "Abdômen"]
+  ,["Abdominal remador", "Abdômen", "Flexores do quadril", "Abdômen"]
+  ,["Woodchopper na polia", "Core", "Oblíquos", "Região central lateral"]
+  ,["Hiperextensão lombar", "Lombar", "Glúteos, posteriores", "Região lombar"]
+  ,["Sled push", "Cardio", "Pernas, ombros", "Condicionamento cardiovascular"]
+  ,["Air bike", "Cardio", "Pernas, braços", "Condicionamento cardiovascular"]
 ] as const;
 
 function starterClassification(name: string, muscleGroup: string): { bodyRegion: BodyRegion; phase: ExercisePhase; exerciseType: ExerciseType } {
-  if (["Alongamento de peitoral", "Alongamento de quadríceps", "Mobilidade de quadril"].includes(name)) return { bodyRegion: muscleGroup === "Peito" ? "Tronco anterior" : "Membros inferiores", phase: "Preparação", exerciseType: "Alongamento" };
-  if (["Prancha abdominal", "Abdominal na máquina"].includes(name)) return { bodyRegion: "Região central", phase: "Treino principal", exerciseType: name.startsWith("Prancha") ? "Peso corporal" : "Força" };
-  if (["Bicicleta ergométrica", "Esteira", "Elíptico"].includes(name)) return { bodyRegion: "Membros inferiores", phase: "Cardio", exerciseType: "Cardio" };
+  const normalizedName = name.toLocaleLowerCase("pt-BR");
+  if (normalizedName.includes("alongamento") || normalizedName.includes("mobilidade")) return { bodyRegion: ["Peito"].includes(muscleGroup) ? "Tronco anterior" : ["Costas"].includes(muscleGroup) ? "Tronco posterior" : ["Mobilidade"].includes(muscleGroup) && normalizedName.includes("ombro") ? "Membros superiores" : "Membros inferiores", phase: "Preparação", exerciseType: "Alongamento" };
+  if (muscleGroup === "Cardio") return { bodyRegion: "Membros inferiores", phase: "Cardio", exerciseType: "Cardio" };
+  if (["Core", "Abdômen"].includes(muscleGroup)) return { bodyRegion: "Região central", phase: "Treino principal", exerciseType: normalizedName.includes("prancha") ? "Peso corporal" : "Força" };
   if (["Flexão de braços", "Agachamento com peso corporal", "Avanço com peso corporal"].includes(name)) return { bodyRegion: muscleGroup === "Peito" ? "Tronco anterior" : "Membros inferiores", phase: "Treino principal", exerciseType: "Peso corporal" };
-  if (["Puxada frontal", "Remada baixa", "Remada unilateral com halter", "Levantamento terra romeno", "Mesa flexora"].includes(name)) return { bodyRegion: "Tronco posterior", phase: "Treino principal", exerciseType: "Força" };
-  if (["Supino reto com barra", "Supino inclinado com halteres", "Crucifixo na máquina", "Desenvolvimento com halteres", "Elevação lateral", "Face pull", "Rosca direta com barra", "Rosca alternada com halteres", "Rosca martelo", "Tríceps na polia", "Tríceps francês", "Rosca de punho"].includes(name)) return { bodyRegion: muscleGroup === "Peito" ? "Tronco anterior" : "Membros superiores", phase: "Treino principal", exerciseType: "Força" };
-  return { bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: "Força" };
+  if (["Costas", "Trapézio", "Lombar"].includes(muscleGroup)) return { bodyRegion: "Tronco posterior", phase: "Treino principal", exerciseType: "Força" };
+  if (muscleGroup === "Peito") return { bodyRegion: "Tronco anterior", phase: "Treino principal", exerciseType: "Força" };
+  if (["Ombros", "Bíceps", "Tríceps", "Antebraço"].includes(muscleGroup)) return { bodyRegion: "Membros superiores", phase: "Treino principal", exerciseType: "Força" };
+  return { bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: normalizedName.includes("peso corporal") ? "Peso corporal" : "Força" };
+}
+
+function exerciseArtwork(name: string, group: string, bodyRegion?: BodyRegion) {
+  const normalized = name.toLocaleLowerCase("pt-BR");
+  if (normalized.includes("rosca martelo")) return "/exercise-art/hammer-curl-anatomy-v1.png";
+  if (["supino", "crucifixo", "crossover", "flexão", "pullover"].some((term) => normalized.includes(term))) return "/exercise-art/chest-press-anatomy-v1.png";
+  if (["puxada", "remada", "barra fixa", "pulldown", "face pull"].some((term) => normalized.includes(term))) return "/exercise-art/back-row-anatomy-v1.png";
+  if (["prancha", "abdominal", "elevação de pernas"].some((term) => normalized.includes(term)) || ["Core", "Abdômen"].includes(group)) return "/exercise-art/plank-anatomy-v1.png";
+  if (["agachamento", "leg press", "afundo", "avanço", "cadeira", "mesa flexora", "terra", "stiff", "hip thrust", "glúteo", "panturrilha", "hack squat"].some((term) => normalized.includes(term)) || bodyRegion === "Membros inferiores") return "/exercise-art/squat-anatomy-v1.png";
+  if (bodyRegion === "Tronco posterior") return "/anatomy-body-back.png";
+  return "/anatomy-body-base.png";
 }
 
 export default function Home() {
@@ -927,7 +1033,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
           const isComplete = completedCount === exercise.sets;
           const isResting = restTimer?.exerciseIndex === exerciseIndex;
           return <article className={`exercise-card ${isOpen ? "expanded" : "collapsed"} ${isComplete ? "completed" : ""}`} key={exercise.name}>
-            <header><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
+            <header><span className="exercise-card-art" style={{ backgroundImage: `url("${exerciseArtwork(exercise.name, exercise.group, "bodyRegion" in exercise ? exercise.bodyRegion : undefined)}")` }} aria-hidden="true" /><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
             {isOpen ? <div className="exercise-card-body">
               {("instructions" in exercise && (exercise.instructions || exercise.anatomyRegion || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
               <button className="exercise-anatomy-trigger" type="button" onClick={() => setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest })}><PersonStanding /> Ver músculos e detalhes <ChevronRight /></button>
