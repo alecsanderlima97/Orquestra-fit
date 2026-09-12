@@ -136,7 +136,7 @@ export default function Home() {
         className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"}
         data-theme={theme === "prata" ? "ferro" : "forja"}
       >
-        <div className="prototype-flag"><Sparkles size={14} /> {access.accountType === "developer" ? "Ambiente interno de testes" : "Ambiente da academia"}</div>
+        <div className="prototype-flag"><Sparkles size={14} /> Ambiente da academia</div>
         {canSwitchRole && (
           <RoleSwitcher role={demoRole} onChange={(nextRole) => { setDemoRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
         )}
@@ -203,7 +203,7 @@ function ThemeSwitcher({ theme, onChange }: { theme: Theme; onChange: (theme: Th
 
 function RoleSwitcher({ role, onChange }: { role: Role; onChange: (role: Role) => void }) {
   return (
-    <div className="role-switcher" aria-label="Alternar perfil demonstrativo">
+    <div className="role-switcher" aria-label="Alternar área">
       {(["aluno", "professor", "gestao"] as Role[]).map((item) => (
         <button key={item} className={role === item ? "active" : ""} onClick={() => onChange(item)}>
           {item === "gestao" ? "Gestão" : item[0].toUpperCase() + item.slice(1)}
