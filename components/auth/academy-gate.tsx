@@ -201,6 +201,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         invitedName?: string;
         invitedEmail?: string;
         plan?: string;
+        anatomyProfile?: "masculino" | "feminino";
       };
       const memberRef = doc(firestore, "academies", invitation.academyId, "members", user.uid);
       const userRef = doc(firestore, "users", user.uid);
@@ -225,6 +226,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           email: invitation.invitedEmail ?? (user.email?.endsWith("@accounts.orquestra-fit.local") ? null : user.email) ?? null,
           username: user.email?.endsWith("@accounts.orquestra-fit.local") ? user.displayName ?? null : null,
           plan: invitation.plan ?? null,
+          anatomyProfile: invitation.anatomyProfile === "feminino" ? "feminino" : "masculino",
           active: true,
           activationCodeId: normalizedCode,
           createdAt: now,

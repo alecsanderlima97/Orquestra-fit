@@ -679,12 +679,23 @@ button { cursor: pointer; }
 .progress-ring strong { z-index: 1; font-size: 12px; }
 .session-exercises { padding: 18px 14px; display: grid; gap: 14px; }
 .exercise-card { border: 1px solid var(--line); background: #111315; }
-.exercise-card > header { min-height: 76px; padding: 13px 14px; display: grid; grid-template-columns: 31px 1fr 38px; gap: 11px; align-items: center; border-bottom: 1px solid var(--line); }
-.exercise-card > header > span { font-family: Georgia, serif; color: #5f6467; font-size: 20px; }
-.exercise-card header div { display: grid; }
+.exercise-card > header { min-height: 76px; padding: 0 14px; display: grid; grid-template-columns: 1fr 38px; gap: 10px; align-items: center; border-bottom: 1px solid var(--line); }
+.exercise-card-title { min-width: 0; min-height: 74px; border: 0; background: transparent; color: inherit; display: grid; grid-template-columns: 31px minmax(0, 1fr) 18px; gap: 11px; align-items: center; text-align: left; padding: 10px 0; }
+.exercise-card-title > span { font-family: Georgia, serif; color: #5f6467; font-size: 20px; }
+.exercise-card-title > div { min-width: 0; display: grid; }
 .exercise-card header small { color: var(--bronze-400); font-size: 8px; text-transform: uppercase; letter-spacing: 1px; }
 .exercise-card h2 { font-family: Georgia, serif; font-size: 17px; font-weight: 500; margin: 3px 0 0; }
-.exercise-card header button { width: 36px; height: 36px; border: 1px solid #4d3b2a; background: transparent; color: var(--bronze-300); display: grid; place-items: center; }
+.exercise-card-title h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exercise-card-title em { margin-top: 4px; color: #8b989d; font-size: 9px; font-style: normal; }
+.exercise-card-title > svg { width: 17px; color: var(--bronze-300); transition: transform .2s ease; }
+.exercise-card.collapsed .exercise-card-title > svg { transform: rotate(-90deg); }
+.exercise-video-button { width: 36px; height: 36px; border: 1px solid #4d3b2a; background: transparent; color: var(--bronze-300); display: grid; place-items: center; }
+.exercise-card-body { animation: exercise-expand .2s ease-out; }
+@keyframes exercise-expand { from { opacity: .35; transform: translateY(-4px); } }
+.exercise-card-start { width: 100%; min-height: 46px; border: 0; background: #0d1113; border-top: 1px solid #202427; color: #bac6c9; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: 11px; font-weight: 800; text-align: left; }
+.exercise-card-start svg:first-child { width: 15px; color: var(--neon); }
+.exercise-card-start svg:last-child { width: 15px; margin-left: auto; color: #657177; }
+.exercise-card.completed .exercise-card-start { color: #d9e9a7; }
 .set-labels, .set-row { display: grid; grid-template-columns: 43px 1fr 1fr 43px; gap: 9px; align-items: center; padding: 0 13px; }
 .set-labels { min-height: 34px; color: #62686b; font-size: 8px; text-align: center; text-transform: uppercase; }
 .set-labels span:first-child { text-align: left; }
@@ -697,8 +708,12 @@ button { cursor: pointer; }
 .set-row.done { background: #181711; }
 .set-row.done > button { background: var(--bronze-400); border-color: var(--bronze-400); }
 .set-row.done input { color: var(--bronze-300); }
-.exercise-card footer { min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--steel-500); font-size: 9px; border-top: 1px solid var(--line); }
-.exercise-card footer svg, .exercise-card footer strong { color: var(--bronze-400); }
+.exercise-card footer { min-height: 48px; border-top: 1px solid var(--line); }
+.rest-button { width: 100%; min-height: 48px; border: 0; background: #0d1113; color: var(--steel-500); display: flex; align-items: center; gap: 7px; padding: 0 14px; font-size: 10px; text-align: left; }
+.rest-button svg, .rest-button strong { color: var(--neon); }
+.rest-button strong { margin-left: auto; font-size: 10px; }
+.rest-button.running { color: #f4f7f8; background: #152126; }
+.rest-button.running strong { color: #ffb4a6; }
 .finish-workout { width: calc(100% - 28px); height: 52px; margin: 2px 14px 0; border: 0; background: var(--bronze-400); color: #17100a; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 900; }
 .finish-workout:disabled { background: #272b2d; color: #676d70; cursor: not-allowed; }
 .anatomy-screen { position: fixed; z-index: 120; inset: 0 auto 0 50%; transform: translateX(-50%); width: min(100%, 480px); height: 100dvh; overflow-y: scroll; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: radial-gradient(circle at 50% 34%, #17242a 0, #091014 45%, #05090b 100%); color: #f7f8f8; box-shadow: 0 0 80px #000; }
@@ -708,20 +723,18 @@ button { cursor: pointer; }
 .anatomy-screen > header h2 { position: relative; margin: 0; padding-bottom: 11px; text-align: center; font-family: inherit; font-size: 24px; line-height: 1.1; }
 .anatomy-screen > header h2:after { content: ""; position: absolute; left: 28%; right: 28%; bottom: 0; height: 2px; background: var(--neon); box-shadow: 0 0 12px color-mix(in srgb, var(--neon) 60%, transparent); }
 .anatomy-screen > main { padding: 0 18px max(30px, env(safe-area-inset-bottom)); }
-.anatomy-profile-switcher { display: grid; grid-template-columns: repeat(2, 1fr); width: min(100%, 280px); margin: 14px auto 0; padding: 3px; border: 1px solid #2d414a; border-radius: 8px; background: #080f13; }
-.anatomy-profile-switcher button { min-height: 34px; border: 0; border-radius: 5px; background: transparent; color: #8e9ba2; font-size: 11px; font-weight: 800; }
-.anatomy-profile-switcher button.active { background: #203139; color: #f8fbfc; box-shadow: inset 0 0 0 1px #45626e; }
 .anatomy-stage { height: clamp(330px, 43svh, 420px); display: grid; place-items: center; }
-.anatomy-viewport { position: relative; width: min(100%, 278px); height: 100%; perspective: 900px; touch-action: none; cursor: grab; user-select: none; }
+.anatomy-viewport { position: relative; width: min(100%, 278px); height: 100%; perspective: 900px; transform-style: preserve-3d; touch-action: none; cursor: grab; user-select: none; }
+.anatomy-viewport:after { content: ""; position: absolute; z-index: -1; left: 22%; right: 22%; bottom: 6%; height: 18px; border-radius: 50%; background: #000c; filter: blur(11px); transform: rotateX(68deg) translateZ(-28px); }
 .anatomy-viewport:active { cursor: grabbing; }
-.anatomy-orbit { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .08s linear; will-change: transform; }
-.anatomy-figure { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-.anatomy-figure-back { transform: rotateY(180deg); }
+.anatomy-orbit { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transform-origin: center center; transition: transform .08s linear; will-change: transform; filter: drop-shadow(0 18px 15px #0008); }
+.anatomy-figure { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; backface-visibility: hidden; -webkit-backface-visibility: hidden; transform: translateZ(3px); }
+.anatomy-figure-back { transform: rotateY(180deg) translateZ(3px); }
 .anatomy-real-body { opacity: .96; }
-.anatomy-muscle-overlay { mix-blend-mode: screen; }
-.anatomy-figure .muscle-base { fill: #5b666c; opacity: .12; }
-.anatomy-figure .muscle-primary { fill: #ff4646; stroke: #ff9892; filter: url(#muscle-glow); }
-.anatomy-figure .muscle-secondary { fill: #ff982f; stroke: #ffc07c; filter: url(#muscle-glow); }
+.anatomy-muscle-overlay { mix-blend-mode: screen; opacity: .86; }
+.anatomy-figure .muscle-base { opacity: .08; }
+.anatomy-figure .muscle-primary { stroke: #ffb4ad; stroke-width: 1.35; filter: url(#muscle-glow); }
+.anatomy-figure .muscle-secondary { stroke: #ffe0ad; stroke-width: 1.35; filter: url(#muscle-glow); }
 .muscle-legend { display: grid; gap: 10px; margin-bottom: 18px; }
 .muscle-legend > div { min-height: 68px; padding: 13px 14px; border: 1px solid #2d414a; background: rgba(8, 15, 19, .78); display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 10px; }
 .muscle-legend i { grid-row: 1 / 3; width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 16px currentColor; }
@@ -960,8 +973,8 @@ button { cursor: pointer; }
 }
 [data-theme="ferro"] .session-top button,
 [data-theme="neutro"] .session-top button,
-[data-theme="ferro"] .exercise-card header button,
-[data-theme="neutro"] .exercise-card header button {
+[data-theme="ferro"] .exercise-video-button,
+[data-theme="neutro"] .exercise-video-button {
   background: var(--iron-850); color: var(--bronze-300); border-color: var(--line);
 }
 [data-theme="ferro"] .progress-ring:after,

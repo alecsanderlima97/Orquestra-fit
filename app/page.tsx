@@ -747,12 +747,50 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
   const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>({});
   const [saving, setSaving] = useState(false);
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
+  const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
+  const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(0);
+  const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    const studentId = localStudentId(access.academyId, access.userId);
+    const setProfile = (value?: string) => setAnatomyProfile(value === "feminino" ? "feminino" : "masculino");
+    if (!db) {
+      setProfile(readLocalCollection<RegisteredStudent>(access.academyId, "students").find((student) => student.id === studentId)?.anatomyProfile);
+      return;
+    }
+    return onSnapshot(doc(db, "academies", access.academyId, "students", studentId), (snapshot) => setProfile(snapshot.data()?.anatomyProfile));
+  }, [access.academyId, access.userId]);
+  useEffect(() => {
+    if (!restTimer) return;
+    if (restTimer.remaining <= 0) {
+      setRestTimer(null);
+      feedback("Descanso concluído. Bora para a próxima série.");
+      return;
+    }
+    const timer = window.setTimeout(() => setRestTimer((current) => current ? { ...current, remaining: current.remaining - 1 } : null), 1000);
+    return () => window.clearTimeout(timer);
+  }, [restTimer, feedback]);
+  useEffect(() => {
+    if (openExerciseIndex === null) return;
+    const currentExercise = exercises[openExerciseIndex];
+    if (currentExercise && Array.from({ length: currentExercise.sets }).every((_, setIndex) => completedSets.includes(`${openExerciseIndex}-${setIndex}`))) setOpenExerciseIndex(null);
+  }, [completedSets, exercises, openExerciseIndex]);
   const elapsed = useMemo(() => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`, [seconds]);
+  const restLabel = (secondsToFormat: number) => `${String(Math.floor(secondsToFormat / 60)).padStart(2, "0")}:${String(secondsToFormat % 60).padStart(2, "0")}`;
+  function startRest(exerciseIndex: number) {
+    const configuredSeconds = Math.max(1, Number(String(exercises[exerciseIndex].rest).replace(/[^0-9]/g, "")) || 60);
+    setRestTimer({ exerciseIndex, total: configuredSeconds, remaining: configuredSeconds });
+  }
+  function toggleSet(exerciseIndex: number, setIndex: number) {
+    const id = `${exerciseIndex}-${setIndex}`;
+    const done = completedSets.includes(id);
+    onToggleSet(id);
+    if (!done) startRest(exerciseIndex);
+  }
 
   async function finishWorkout() {
     if (completedSets.length < totalSets || saving) return;
@@ -803,27 +841,26 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
         <div className="progress-ring" style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}><strong>{progress}%</strong></div>
       </section>
       <div className="session-exercises">
-        {exercises.map((exercise, exerciseIndex) => (
-          <article className="exercise-card" key={exercise.name}>
-            <header><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2></div><button aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
-            {("instructions" in exercise && (exercise.instructions || exercise.anatomyRegion || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
-            <button className="exercise-anatomy-trigger" type="button" onClick={() => setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest })}><PersonStanding /> Ver músculos e detalhes <ChevronRight /></button>
-            <div className="set-labels"><span>Série</span><span>Carga</span><span>Repetições</span><span>Feito</span></div>
-            {Array.from({ length: exercise.sets }).map((_, setIndex) => {
-              const id = `${exerciseIndex}-${setIndex}`;
-              const done = completedSets.includes(id);
-              return (
-                <div className={done ? "set-row done" : "set-row"} key={id}>
-                  <strong>{setIndex + 1}</strong>
-                  <label><input value={setValues[id]?.load ?? exercise.load} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: event.target.value, reps: current[id]?.reps ?? exercise.reps } }))} inputMode="numeric" aria-label="Carga" /><span>kg</span></label>
-                  <label><input value={setValues[id]?.reps ?? exercise.reps} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: event.target.value } }))} inputMode="numeric" aria-label="Repetições" /><span>rep</span></label>
-                  <button aria-label={`Concluir série ${setIndex + 1}`} onClick={() => onToggleSet(id)}>{done && <Check size={18} />}</button>
-                </div>
-              );
-            })}
-            <footer><Clock3 size={16} /> Descanso recomendado: <strong>{exercise.rest}</strong></footer>
-          </article>
-        ))}
+        {exercises.map((exercise, exerciseIndex) => {
+          const isOpen = openExerciseIndex === exerciseIndex;
+          const completedCount = Array.from({ length: exercise.sets }).filter((_, setIndex) => completedSets.includes(`${exerciseIndex}-${setIndex}`)).length;
+          const isComplete = completedCount === exercise.sets;
+          const isResting = restTimer?.exerciseIndex === exerciseIndex;
+          return <article className={`exercise-card ${isOpen ? "expanded" : "collapsed"} ${isComplete ? "completed" : ""}`} key={exercise.name}>
+            <header><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
+            {isOpen ? <div className="exercise-card-body">
+              {("instructions" in exercise && (exercise.instructions || exercise.anatomyRegion || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
+              <button className="exercise-anatomy-trigger" type="button" onClick={() => setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest })}><PersonStanding /> Ver músculos e detalhes <ChevronRight /></button>
+              <div className="set-labels"><span>Série</span><span>Carga</span><span>Repetições</span><span>Feito</span></div>
+              {Array.from({ length: exercise.sets }).map((_, setIndex) => {
+                const id = `${exerciseIndex}-${setIndex}`;
+                const done = completedSets.includes(id);
+                return <div className={done ? "set-row done" : "set-row"} key={id}><strong>{setIndex + 1}</strong><label><input value={setValues[id]?.load ?? exercise.load} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: event.target.value, reps: current[id]?.reps ?? exercise.reps } }))} inputMode="numeric" aria-label="Carga" /><span>kg</span></label><label><input value={setValues[id]?.reps ?? exercise.reps} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: event.target.value } }))} inputMode="numeric" aria-label="Repetições" /><span>rep</span></label><button aria-label={`Concluir série ${setIndex + 1}`} onClick={() => toggleSet(exerciseIndex, setIndex)}>{done && <Check size={18} />}</button></div>;
+              })}
+              <footer><button className={isResting ? "rest-button running" : "rest-button"} type="button" onClick={() => isResting ? setRestTimer(null) : startRest(exerciseIndex)}><Clock3 size={16} /><span>{isResting ? `Descansando · ${restLabel(restTimer.remaining)}` : `Iniciar descanso · ${exercise.rest}`}</span><strong>{isResting ? "Parar" : "Iniciar"}</strong></button></footer>
+            </div> : <button className="exercise-card-start" type="button" onClick={() => setOpenExerciseIndex(exerciseIndex)}>{isComplete ? <><Check /> Concluído</> : <><Play fill="currentColor" /> Iniciar exercício</>}<ChevronRight /></button>}
+          </article>;
+        })}
       </div>
       <button className="finish-workout" disabled={completedSets.length < totalSets || saving} onClick={finishWorkout}><Trophy size={20} /> {saving ? "Salvando treino..." : "Concluir treino"}</button>
       {anatomyExercise && <ExerciseAnatomyView exercise={anatomyExercise} onClose={closeAnatomy} />}
@@ -849,6 +886,7 @@ type RegisteredStudent = {
   cpf?: string | null;
   plan: string;
   teacherId?: string | null;
+  anatomyProfile?: "masculino" | "feminino";
   active?: boolean;
 };
 type InternalMessage = { id: string; studentId: string; senderId: string; senderName: string; body: string; createdAt?: { toDate?: () => Date } };
@@ -1967,6 +2005,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [editCpf, setEditCpf] = useState("");
   const [editPlan, setEditPlan] = useState("Mensal");
   const [editTeacherId, setEditTeacherId] = useState("");
+  const [editAnatomyProfile, setEditAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
   const [studentWorkouts, setStudentWorkouts] = useState<WorkoutRecord[]>([]);
   const [studentAssessments, setStudentAssessments] = useState<AssessmentRecord[]>([]);
   const [studentCharges, setStudentCharges] = useState<MonthlyCharge[]>([]);
@@ -1994,8 +2033,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; email?: string | null; phone?: string | null; cpf?: string | null; plan?: string; teacherId?: string | null; active?: boolean };
-        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, active: data.active !== false };
+        const data = student.data() as { name?: string; email?: string | null; phone?: string | null; cpf?: string | null; plan?: string; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     if (access.role !== "admin") return unsubscribeStudents;
@@ -2025,6 +2064,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     setEditCpf(selectedStudent.cpf ?? "");
     setEditPlan(selectedStudent.plan);
     setEditTeacherId(selectedStudent.teacherId ?? "");
+    setEditAnatomyProfile(selectedStudent.anatomyProfile === "feminino" ? "feminino" : "masculino");
   }, [selectedStudent]);
 
   useEffect(() => {
@@ -2072,7 +2112,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     if (editName.trim().length < 2) { onFeedback("Informe o nome completo do aluno."); return; }
     if (!validEmail(editEmail.trim())) { onFeedback("Informe um e-mail válido ou deixe o campo vazio."); return; }
     if (!db) {
-      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, plan: editPlan, teacherId: editTeacherId || null } : student);
+      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : student);
       setStudents(nextStudents);
       writeLocalCollection(access.academyId, "students", nextStudents);
       onFeedback("Dados do aluno atualizados no modo local.");
@@ -2086,7 +2126,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         phone: editPhone.trim() || null,
         cpf: editCpf.trim() || null,
       };
-      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), access.role === "admin" ? { ...personalData, plan: editPlan, teacherId: editTeacherId || null } : personalData);
+      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), access.role === "admin" ? { ...personalData, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : personalData);
       onFeedback("Dados do aluno atualizados.");
     } catch {
       onFeedback("Não foi possível atualizar este aluno.");
@@ -2203,6 +2243,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
               <label>Login de contato<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} autoComplete="email" placeholder="E-mail opcional" /></label>
               <label>Telefone<input value={editPhone} onChange={(event) => setEditPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label>
               <label>CPF<input value={editCpf} onChange={(event) => setEditCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label>
+              <label>Perfil anatômico<select value={editAnatomyProfile} onChange={(event) => setEditAnatomyProfile(event.target.value === "feminino" ? "feminino" : "masculino")}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>Usado para mostrar o boneco correspondente no treino.</small></label>
               {access.role === "admin" ? <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option value="Sem plano">Sem plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.name}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <div className="protected-field"><span>Plano atual</span><strong>{selectedStudent.plan}</strong><small>Alteração exclusiva da gestão.</small></div>}
               {access.role === "admin" && <label>Professor responsável<select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)}><option value="">Sem professor definido</option>{teachers.filter((teacher) => teacher.active !== false).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>}
               <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
@@ -2445,6 +2486,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [plan, setPlan] = useState("Mensal");
+  const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
   const [code, setCode] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2466,7 +2508,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
           role,
           invitedName: capitalizeName(name.trim()),
           invitedEmail: email.trim() || null,
-          ...(role === "student" ? { plan } : {}),
+          ...(role === "student" ? { plan, anatomyProfile } : {}),
           active: true,
           createdBy: access.userId,
           createdAt: serverTimestamp(),
@@ -2475,7 +2517,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
         const id = `local-${role}-${Date.now()}`;
         if (role === "student") {
           const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, plan, teacherId: null, active: true }]);
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, plan, teacherId: null, anatomyProfile, active: true }]);
         } else {
           const teachers = readLocalCollection<RegisteredTeacher>(access.academyId, "teachers");
           writeLocalCollection(access.academyId, "teachers", [...teachers, { id, name: capitalizeName(name.trim()), email: email.trim() || null, active: true }]);
@@ -2499,6 +2541,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <label>Nome completo<input value={name} onChange={(event) => setName(capitalizeName(event.target.value))} autoComplete="name" required /></label>
             <label>E-mail Google <small>(opcional)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
             {role === "student" && <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>}
+            {role === "student" && <label>Perfil anatômico<select value={anatomyProfile} onChange={(event) => setAnatomyProfile(event.target.value === "feminino" ? "feminino" : "masculino")}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>Define o modelo exibido durante o treino.</small></label>}
             {error && <p className="auth-status" role="status">{error}</p>}
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
           </form>
