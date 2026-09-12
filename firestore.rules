@@ -10,7 +10,7 @@ service cloud.firestore {
     }
 
     function belongsToAcademy(academyId) {
-      return signedIn() && request.auth.token.passwordChangeRequired != true && membership(academyId).data.active == true;
+      return signedIn() && request.auth.token.get('passwordChangeRequired', false) != true && membership(academyId).data.active == true;
     }
 
     function isAdmin(academyId) {
