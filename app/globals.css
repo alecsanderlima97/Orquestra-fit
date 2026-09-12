@@ -753,6 +753,13 @@ button { cursor: pointer; }
 .anatomy-controls button { width: 34px; height: 34px; border: 1px solid #2d414a; border-radius: 6px; background: #0a1318; color: #d4e5e9; display: grid; place-items: center; }
 .anatomy-controls button:active { border-color: var(--neon); color: var(--neon); }
 .anatomy-controls svg { width: 16px; height: 16px; }
+.anatomy-3d-shell { padding-top: 4px; }
+.anatomy-3d-viewport { position: relative; height: clamp(340px, 45svh, 430px); touch-action: none; cursor: grab; user-select: none; background: radial-gradient(circle at 50% 44%, #26383f80 0, #0a121600 64%); }
+.anatomy-3d-viewport:active { cursor: grabbing; }
+.anatomy-3d-canvas, .anatomy-3d-canvas canvas { width: 100%; height: 100%; display: block; }
+.anatomy-view-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: -2px 0 8px; padding: 3px; border: 1px solid #2d414a; border-radius: 8px; background: #080f13; }
+.anatomy-view-presets button { min-height: 34px; border: 0; border-radius: 5px; background: transparent; color: #8e9ba2; font-size: 10px; font-weight: 800; }
+.anatomy-view-presets button.active { background: #203139; color: #f8fbfc; box-shadow: inset 0 0 0 1px #45626e; }
 
 .drawer-backdrop { position: fixed; inset: 0; z-index: 100; background: #000b; display: flex; justify-content: center; }
 .student-drawer { width: min(100%, 480px); height: 100vh; margin-left: auto; background: #0d0f11; padding: 22px; overflow: auto; animation: drawer-in .22s ease-out; }
