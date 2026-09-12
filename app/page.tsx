@@ -7,7 +7,7 @@ import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp,
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
-  House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Search, Settings,
+  House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Printer, Search, Settings,
   PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
@@ -294,8 +294,64 @@ function AcademyBrand() {
   );
 }
 
+function normalizePublishedWorkout(id: string, data: Omit<WorkoutRecord, "id">): WorkoutRecord {
+  return { id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" };
+}
+
+function useStudentPublishedWorkouts() {
+  const access = useAccess();
+  const [workouts, setWorkouts] = useState<WorkoutRecord[]>([]);
+  const [loading, setLoading] = useState(Boolean(db));
+
+  useEffect(() => {
+    if (!db) {
+      const syncLocalWorkouts = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        setWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === studentId && item.status === "published"));
+        setLoading(false);
+      };
+      syncLocalWorkouts();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
+    }
+    setLoading(true);
+    const workoutsQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
+    return onSnapshot(workoutsQuery, (snapshot) => {
+      setWorkouts(snapshot.docs.map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">)));
+      setLoading(false);
+    }, (error) => {
+      console.error("Não foi possível carregar os treinos.", error);
+      setLoading(false);
+    });
+  }, [access.academyId, access.userId]);
+
+  return { workouts, loading };
+}
+
+function escapePrintText(value: string | number | undefined) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] ?? character);
+}
+
+function printWorkoutSheet(workout: WorkoutRecord) {
+  const printWindow = window.open("", "_blank", "width=900,height=720");
+  if (!printWindow) return;
+  const exercises = workout.exerciseDetails ?? [];
+  const exerciseRows = exercises.length > 0
+    ? exercises.map((exercise, index) => `<tr><td><b>${index + 1}. ${escapePrintText(exercise.name)}</b>${exercise.muscleGroup ? `<small>${escapePrintText(exercise.muscleGroup)}</small>` : ""}${exercise.instructions ? `<small>${escapePrintText(exercise.instructions)}</small>` : ""}</td><td>${escapePrintText(exercise.sets)}</td><td>${escapePrintText(exercise.reps)}</td><td>${escapePrintText(exercise.load || "—")}</td><td>${escapePrintText(exercise.rest)}s</td></tr>`).join("")
+    : `<tr><td colspan="5">Exercícios vinculados: ${workout.exerciseIds.length}</td></tr>`;
+  const printedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date());
+  printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapePrintText(workout.name)} - ${escapePrintText(workout.studentName)}</title><style>@page{margin:5mm}*{box-sizing:border-box}body{margin:0 auto;max-width:190mm;color:#111;background:#fff;font-family:Arial,sans-serif;font-size:10pt}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}header strong{display:block;font-family:Georgia,serif;font-size:16pt}header span{display:block;font-size:8pt;letter-spacing:.18em;margin-top:2px}h1{font-family:Georgia,serif;font-size:15pt;margin:0 0 3px}.student{margin:0 0 12px;font-size:9pt}.student b{display:block;font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #bbb;padding:6px 3px;text-align:center;vertical-align:top}th{font-size:7.5pt;text-transform:uppercase}th:first-child,td:first-child{text-align:left;width:48%}td b,td small{display:block}td small{font-size:7.5pt;line-height:1.3;margin-top:2px;color:#333}footer{margin-top:12px;padding-top:8px;border-top:1px dashed #777;text-align:center;font-size:7.5pt}.no-print{display:block;width:100%;margin:16px 0;padding:10px;border:0;background:#111;color:#fff;font-weight:bold}@media print{.no-print{display:none}}@media(max-width:90mm){body{font-size:8pt}header strong{font-size:13pt}h1{font-size:12pt}th,td{padding:4px 2px}th:first-child,td:first-child{width:44%}}</style></head><body><header><strong>DAMA DE FERRO</strong><span>ACADEMIA · ORQUESTRA FIT</span></header><main><h1>${escapePrintText(workout.name)}</h1><p class="student"><span>ALUNO</span><b>${escapePrintText(workout.studentName)}</b></p><table><thead><tr><th>Exercício</th><th>Séries</th><th>Reps</th><th>Carga</th><th>Desc.</th></tr></thead><tbody>${exerciseRows}</tbody></table></main><footer>Impresso em ${escapePrintText(printedAt)} · Orientações e cargas podem ser ajustadas pelo professor.</footer><button class="no-print" onclick="window.print()">Imprimir treino</button></body></html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  window.setTimeout(() => printWindow.print(), 250);
+}
+
 function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutRecord) => void; onEvolution: () => void }) {
   const access = useAccess();
+  const { workouts, loading } = useStudentPublishedWorkouts();
+  const workout = workouts[0];
+  const exerciseCount = workout?.exerciseDetails?.length || workout?.exerciseIds.length || 0;
+  const totalSets = workout?.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) ?? 0;
   return (
     <div className="student-view home-view">
       <section className="welcome-row">
@@ -306,13 +362,13 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
       <article className="today-workout">
         <div className="workout-copy">
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
-          <h2>Nenhum treino publicado</h2>
-          <p>Seu professor ainda não publicou um treino.</p>
+          <h2>{loading ? "Carregando seu treino" : workout?.name ?? "Nenhum treino publicado"}</h2>
+          <p>{loading ? "Buscando sua ficha atual." : workout ? `Ficha publicada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}.` : "Seu professor ainda não publicou um treino."}</p>
           <div className="workout-meta">
-            <span><Clock3 size={16} /> Aguardando</span>
-            <span><Dumbbell size={16} /> Sem exercícios</span>
+            <span><Clock3 size={16} /> {workout ? `${totalSets || "—"} séries` : "Aguardando"}</span>
+            <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Sem exercícios"}</span>
           </div>
-          <button disabled>Treino indisponível <ArrowRight size={19} /></button>
+          <button disabled={loading || !workout} onClick={() => workout && onStart(workout)}>{loading ? "Carregando..." : workout ? "Iniciar treino" : "Treino indisponível"} <ArrowRight size={19} /></button>
         </div>
         <div className="workout-art" aria-hidden="true">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -413,23 +469,7 @@ function StudentMessagesInbox() {
 }
 
 function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => void }) {
-  const access = useAccess();
-  const [publishedWorkouts, setPublishedWorkouts] = useState<WorkoutRecord[]>([]);
-  useEffect(() => {
-    if (!db) {
-      const syncLocalWorkouts = () => {
-        const studentId = localStudentId(access.academyId, access.userId);
-        setPublishedWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === studentId && item.status === "published"));
-      };
-      syncLocalWorkouts();
-      window.addEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
-      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
-    }
-    const workoutsQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
-    return onSnapshot(workoutsQuery, (snapshot) => {
-      setPublishedWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" }; }));
-    }, (error) => console.error("Não foi possível carregar os treinos.", error));
-  }, [access.academyId, access.userId]);
+  const { workouts: publishedWorkouts, loading } = useStudentPublishedWorkouts();
   return (
     <div className="student-view">
       <PageIntro kicker="PROGRAMA ATUAL" title="Seus treinos" copy="Um plano construído para evoluir com consistência." />
@@ -439,10 +479,11 @@ function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => voi
       </div>
       <div className="workout-list">
         {publishedWorkouts.length > 0 ? publishedWorkouts.map((workout, index) => (
-          <button key={workout.id} className={index === 0 ? "active" : ""} onClick={() => onStart(workout)}>
-            <span className="workout-index">0{index + 1}</span><div><small>{index === 0 ? "PROGRAMADO PARA HOJE" : "TREINO PUBLICADO"}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios</p></div><span className="play-button"><Play size={18} fill="currentColor" /></span>
-          </button>
-        )) : <div className="directory-empty"><Dumbbell /><p>Nenhum treino publicado ainda.</p></div>}
+          <article key={workout.id} className={index === 0 ? "workout-library-card active" : "workout-library-card"}>
+            <button className="workout-open" type="button" onClick={() => onStart(workout)}><span className="workout-index">0{index + 1}</span><div><small>{index === 0 ? "PROGRAMADO PARA HOJE" : "TREINO PUBLICADO"}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios</p></div><span className="play-button"><Play size={18} fill="currentColor" /></span></button>
+            <button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={16} /> Imprimir</button>
+          </article>
+        )) : <div className="directory-empty"><Dumbbell /><p>{loading ? "Carregando seus treinos..." : "Nenhum treino publicado ainda."}</p></div>}
       </div>
     </div>
   );
@@ -1261,7 +1302,7 @@ function ExerciseLibrary({ exercises, accessRole, onEdit, onRemove }: { exercise
 
 function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTemplate, onEditWorkout, onRemoveWorkout }: { templates: WorkoutTemplateRecord[]; workouts: WorkoutRecord[]; onEditTemplate: (template: WorkoutTemplateRecord) => void; onRemoveTemplate: (template: WorkoutTemplateRecord) => void; onEditWorkout: (workout: WorkoutRecord) => void; onRemoveWorkout: (workout: WorkoutRecord) => void }) {
   const empty = templates.length === 0 && workouts.length === 0;
-  return <section className="workspace-panel published-workouts"><header><div><span>MODELOS E TREINOS PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{empty ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha para reutilizar depois.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Modelo</em><button type="button" onClick={() => onEditTemplate(template)}>Editar</button><button type="button" onClick={() => onRemoveTemplate(template)}>Excluir</button></div></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Publicado</em><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>)}</div>}</section>;
+  return <section className="workspace-panel published-workouts"><header><div><span>MODELOS E TREINOS PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{empty ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha para reutilizar depois.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Modelo</em><button type="button" onClick={() => onEditTemplate(template)}>Editar</button><button type="button" onClick={() => onRemoveTemplate(template)}>Excluir</button></div></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Publicado</em><button type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={13} /> Imprimir</button><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>)}</div>}</section>;
 }
 
 function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {

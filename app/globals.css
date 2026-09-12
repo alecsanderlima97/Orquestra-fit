@@ -395,7 +395,7 @@ button { cursor: pointer; }
 .published-list small { margin-top: 5px; color: var(--steel-500); font-size: 10px; }
 .published-list em { border: 1px solid #4b5b45; color: #b7d59c; padding: 5px 7px; font-size: 9px; font-style: normal; }
 .published-list .published-item-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.published-list .published-item-actions button { border: 1px solid var(--line); background: transparent; color: var(--bronze-300); padding: 6px 8px; font-size: 10px; font-weight: 800; cursor: pointer; }
+.published-list .published-item-actions button { border: 1px solid var(--line); background: transparent; color: var(--bronze-300); padding: 6px 8px; font-size: 10px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
 .published-list .published-item-actions button:last-child { color: #e39a8e; }
 @media (max-width: 900px) { .billing-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .plans-layout { grid-template-columns: 1fr; } }
@@ -565,6 +565,11 @@ button { cursor: pointer; }
   display: grid; grid-template-columns: 39px 1fr 40px; align-items: center; gap: 13px; padding: 14px; text-align: left;
 }
 .workout-list > button.active { border-color: #705137; background: linear-gradient(90deg, #1c1813, #121416); }
+.workout-library-card { width: 100%; border: 1px solid var(--line); background: #111315; overflow: hidden; }
+.workout-library-card.active { border-color: #705137; background: linear-gradient(90deg, #1c1813, #121416); }
+.workout-open { min-height: 94px; width: 100%; border: 0; background: transparent; color: #fff; display: grid; grid-template-columns: 39px 1fr 40px; align-items: center; gap: 13px; padding: 14px; text-align: left; }
+.workout-open > div { display: grid; gap: 3px; }
+.workout-print { min-height: 36px; width: calc(100% - 28px); margin: 0 14px 12px; border: 1px solid var(--line); background: transparent; color: var(--bronze-300); display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 10px; font-weight: 800; }
 .workout-index { color: #4e5356; font-family: Georgia, serif; font-size: 22px; }
 .workout-list button div { display: grid; gap: 3px; }
 .workout-list small { color: var(--bronze-400); font-size: 8px; font-weight: 900; letter-spacing: 1px; }
@@ -853,6 +858,8 @@ button { cursor: pointer; }
 [data-theme="neutro"] .program-summary,
 [data-theme="ferro"] .workout-list > button,
 [data-theme="neutro"] .workout-list > button,
+[data-theme="ferro"] .workout-library-card,
+[data-theme="neutro"] .workout-library-card,
 [data-theme="ferro"] .evolution-hero,
 [data-theme="neutro"] .evolution-hero,
 [data-theme="ferro"] .evolution-grid article,
@@ -868,12 +875,14 @@ button { cursor: pointer; }
 [data-theme="ferro"] .program-summary,
 [data-theme="ferro"] .evolution-hero,
 [data-theme="ferro"] .workout-list > button.active,
+[data-theme="ferro"] .workout-library-card.active,
 [data-theme="ferro"] .class-card {
   background: linear-gradient(135deg, #f9fafb, #e5e9eb);
 }
 [data-theme="neutro"] .program-summary,
 [data-theme="neutro"] .evolution-hero,
 [data-theme="neutro"] .workout-list > button.active,
+[data-theme="neutro"] .workout-library-card.active,
 [data-theme="neutro"] .class-card {
   background: linear-gradient(135deg, #fff, #ebe9e3);
 }
@@ -1014,6 +1023,7 @@ button { cursor: pointer; }
 [data-theme="ferro"] .academy-note,
 [data-theme="ferro"] .program-summary,
 [data-theme="ferro"] .workout-list > button,
+[data-theme="ferro"] .workout-library-card,
 [data-theme="ferro"] .evolution-hero,
 [data-theme="ferro"] .evolution-grid article,
 [data-theme="ferro"] .class-card,
@@ -1273,7 +1283,7 @@ button { cursor: pointer; }
   background: var(--neon);
 }
 .week-bars i.peak { box-shadow: 0 0 18px color-mix(in srgb, var(--neon) 52%, transparent); }
-.workout-list > button.active { border-color: color-mix(in srgb, var(--neon) 70%, var(--bronze-500)); }
+.workout-list > button.active, .workout-library-card.active { border-color: color-mix(in srgb, var(--neon) 70%, var(--bronze-500)); }
 .progress-ring { background: conic-gradient(var(--neon) var(--progress), #292c2e 0); }
 .set-row.done input { color: var(--neon); }
 .exercise-card footer svg,
