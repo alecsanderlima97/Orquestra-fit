@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 export type AnatomyMuscleZone = "shoulders" | "chest" | "arms" | "back" | "core" | "glutes" | "thighs" | "calves";
 
@@ -14,59 +15,86 @@ type AnatomyModel3DProps = {
 
 type ModelView = { yaw: number; pitch: number; zoom: number };
 
-function createMaterial(zone: AnatomyMuscleZone | null, primary: Set<AnatomyMuscleZone>, secondary: Set<AnatomyMuscleZone>) {
-  if (zone && primary.has(zone)) return new THREE.MeshStandardMaterial({ color: 0xff3f48, emissive: 0x5f070c, emissiveIntensity: .72, metalness: .18, roughness: .42 });
-  if (zone && secondary.has(zone)) return new THREE.MeshStandardMaterial({ color: 0xffa12e, emissive: 0x5a2b00, emissiveIntensity: .62, metalness: .18, roughness: .42 });
-  return new THREE.MeshStandardMaterial({ color: zone ? 0x66747a : 0x39464c, metalness: .58, roughness: .5 });
+function activeMaterial(zone: AnatomyMuscleZone, primary: Set<AnatomyMuscleZone>, secondary: Set<AnatomyMuscleZone>) {
+  if (primary.has(zone)) return new THREE.MeshPhysicalMaterial({ color: 0xff3f48, emissive: 0x71080e, emissiveIntensity: .58, roughness: .38, metalness: .05, clearcoat: .45, transparent: true, opacity: .86, depthWrite: false });
+  if (secondary.has(zone)) return new THREE.MeshPhysicalMaterial({ color: 0xffa12e, emissive: 0x6b3100, emissiveIntensity: .5, roughness: .4, metalness: .04, clearcoat: .4, transparent: true, opacity: .82, depthWrite: false });
+  return null;
 }
 
-function addMesh(group: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number], scale: [number, number, number], rotation: [number, number, number] = [0, 0, 0]) {
+function addHighlight(group: THREE.Group, zone: AnatomyMuscleZone, geometry: THREE.BufferGeometry, primary: Set<AnatomyMuscleZone>, secondary: Set<AnatomyMuscleZone>, position: [number, number, number], scale: [number, number, number], rotation: [number, number, number] = [0, 0, 0]) {
+  const material = activeMaterial(zone, primary, secondary);
+  if (!material) {
+    geometry.dispose();
+    return;
+  }
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(...position);
   mesh.scale.set(...scale);
   mesh.rotation.set(...rotation);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  mesh.renderOrder = 3;
   group.add(mesh);
-  return mesh;
 }
 
-function buildMannequin(profile: "masculino" | "feminino", primary: Set<AnatomyMuscleZone>, secondary: Set<AnatomyMuscleZone>) {
-  const body = new THREE.Group();
+function buildHighlights(profile: "masculino" | "feminino", primary: Set<AnatomyMuscleZone>, secondary: Set<AnatomyMuscleZone>) {
+  const highlights = new THREE.Group();
   const feminine = profile === "feminino";
-  const shoulderWidth = feminine ? .9 : 1;
-  const waistWidth = feminine ? .86 : 1;
-  const hipWidth = feminine ? 1.12 : 1;
-  const limbWidth = feminine ? .9 : 1;
-  const material = (zone: AnatomyMuscleZone | null = null) => createMaterial(zone, primary, secondary);
+  const shoulder = feminine ? .92 : 1;
+  const hip = feminine ? 1.08 : 1;
 
-  addMesh(body, new THREE.SphereGeometry(1, 30, 24), material(), [0, 3.22, 0], [.43, .56, .42]);
-  addMesh(body, new THREE.CylinderGeometry(.25, .31, .58, 24), material(), [0, 2.72, 0], [1, 1, .9]);
-  addMesh(body, new THREE.SphereGeometry(1, 32, 22), material(), [0, 1.6, 0], [shoulderWidth, 1.16, .48]);
-  addMesh(body, new THREE.CapsuleGeometry(.43, .86, 12, 24), material("core"), [0, .72, .02], [waistWidth, 1, .82]);
-  addMesh(body, new THREE.SphereGeometry(1, 28, 20), material(), [0, .03, 0], [.72 * hipWidth, .43, .5]);
-
-  addMesh(body, new THREE.SphereGeometry(1, 26, 18), material("chest"), [-.39 * shoulderWidth, 1.92, .36], [.5 * shoulderWidth, .43, .22]);
-  addMesh(body, new THREE.SphereGeometry(1, 26, 18), material("chest"), [.39 * shoulderWidth, 1.92, .36], [.5 * shoulderWidth, .43, .22]);
-  addMesh(body, new THREE.SphereGeometry(1, 26, 18), material("back"), [-.43 * shoulderWidth, 1.42, -.4], [.46 * shoulderWidth, .75, .16], [0, 0, -.12]);
-  addMesh(body, new THREE.SphereGeometry(1, 26, 18), material("back"), [.43 * shoulderWidth, 1.42, -.4], [.46 * shoulderWidth, .75, .16], [0, 0, .12]);
+  addHighlight(highlights, "chest", new THREE.SphereGeometry(1, 28, 18), primary, secondary, [-.3 * shoulder, 1.55, .47], [.35 * shoulder, .3, .12]);
+  addHighlight(highlights, "chest", new THREE.SphereGeometry(1, 28, 18), primary, secondary, [.3 * shoulder, 1.55, .47], [.35 * shoulder, .3, .12]);
+  addHighlight(highlights, "core", new THREE.CapsuleGeometry(.19, .78, 10, 20), primary, secondary, [0, .68, .43], [1.28, 1, .48]);
+  addHighlight(highlights, "back", new THREE.SphereGeometry(1, 28, 18), primary, secondary, [-.28 * shoulder, 1.15, -.43], [.34 * shoulder, .62, .11], [0, 0, -.08]);
+  addHighlight(highlights, "back", new THREE.SphereGeometry(1, 28, 18), primary, secondary, [.28 * shoulder, 1.15, -.43], [.34 * shoulder, .62, .11], [0, 0, .08]);
 
   [-1, 1].forEach((side) => {
-    addMesh(body, new THREE.SphereGeometry(1, 24, 18), material("shoulders"), [side * 1.02 * shoulderWidth, 2.02, 0], [.38 * limbWidth, .4, .39]);
-    addMesh(body, new THREE.CapsuleGeometry(.22, .82, 10, 18), material("arms"), [side * 1.23 * shoulderWidth, 1.25, 0], [limbWidth, 1, limbWidth], [0, 0, side * -.12]);
-    addMesh(body, new THREE.SphereGeometry(1, 20, 15), material(), [side * 1.34 * shoulderWidth, .7, 0], [.23 * limbWidth, .23, .23 * limbWidth]);
-    addMesh(body, new THREE.CapsuleGeometry(.18, .78, 10, 18), material("arms"), [side * 1.43 * shoulderWidth, .12, 0], [limbWidth, 1, limbWidth], [0, 0, side * -.08]);
-    addMesh(body, new THREE.CapsuleGeometry(.18, .2, 8, 16), material(), [side * 1.5 * shoulderWidth, -.48, .02], [.9 * limbWidth, 1, .62]);
-
-    addMesh(body, new THREE.SphereGeometry(1, 24, 18), material("glutes"), [side * .35 * hipWidth, -.08, -.38], [.39 * hipWidth, .4, .31]);
-    addMesh(body, new THREE.CapsuleGeometry(.35, 1.18, 12, 22), material("thighs"), [side * .43 * hipWidth, -.88, 0], [limbWidth, 1, limbWidth]);
-    addMesh(body, new THREE.SphereGeometry(1, 20, 15), material(), [side * .43 * hipWidth, -1.7, .02], [.29 * limbWidth, .28, .3 * limbWidth]);
-    addMesh(body, new THREE.CapsuleGeometry(.23, 1.02, 12, 20), material("calves"), [side * .43 * hipWidth, -2.4, -.02], [limbWidth, 1, limbWidth]);
-    addMesh(body, new THREE.SphereGeometry(1, 20, 14), material(), [side * .43 * hipWidth, -3.09, .13], [.29 * limbWidth, .18, .5]);
+    addHighlight(highlights, "shoulders", new THREE.SphereGeometry(1, 24, 16), primary, secondary, [side * .7 * shoulder, 1.63, .02], [.19, .28, .29]);
+    addHighlight(highlights, "arms", new THREE.CapsuleGeometry(.105, .72, 8, 16), primary, secondary, [side * .82 * shoulder, .93, .02], [1, 1, 1], [0, 0, side * -.035]);
+    addHighlight(highlights, "arms", new THREE.CapsuleGeometry(.075, .62, 8, 16), primary, secondary, [side * .84 * shoulder, .18, .02], [1, 1, 1]);
+    addHighlight(highlights, "glutes", new THREE.SphereGeometry(1, 24, 16), primary, secondary, [side * .25 * hip, -.08, -.43], [.29 * hip, .32, .16]);
+    addHighlight(highlights, "thighs", new THREE.CapsuleGeometry(.19, .92, 10, 18), primary, secondary, [side * .27 * hip, -.92, .18], [1, 1, .62]);
+    addHighlight(highlights, "calves", new THREE.CapsuleGeometry(.115, .66, 10, 18), primary, secondary, [side * .26 * hip, -2.15, -.04], [1, 1, .86]);
   });
+  return highlights;
+}
 
-  body.rotation.order = "YXZ";
-  return body;
+function shapeProfile(model: THREE.Object3D, profile: "masculino" | "feminino") {
+  model.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.geometry = object.geometry.clone();
+    if (profile === "feminino") {
+      const position = object.geometry.attributes.position;
+      object.geometry.computeBoundingBox();
+      const bounds = object.geometry.boundingBox;
+      if (bounds && position) {
+        const height = Math.max(.001, bounds.max.y - bounds.min.y);
+        for (let index = 0; index < position.count; index += 1) {
+          const y = position.getY(index);
+          const level = (y - bounds.min.y) / height;
+          const shoulderNarrowing = .09 * Math.exp(-Math.pow((level - .76) / .085, 2));
+          const waistNarrowing = .1 * Math.exp(-Math.pow((level - .59) / .085, 2));
+          const hipWidening = .1 * Math.exp(-Math.pow((level - .47) / .075, 2));
+          position.setX(index, position.getX(index) * (1 - shoulderNarrowing - waistNarrowing + hipWidening));
+        }
+        position.needsUpdate = true;
+        object.geometry.computeVertexNormals();
+      }
+    }
+    const originalMaterials = Array.isArray(object.material) ? object.material : [object.material];
+    originalMaterials.forEach((material) => material.dispose());
+    object.material = new THREE.MeshPhysicalMaterial({ color: 0x8a969b, metalness: .24, roughness: .62, clearcoat: .18 });
+    object.castShadow = true;
+    object.receiveShadow = true;
+  });
+}
+
+function disposeObject(object: THREE.Object3D) {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.geometry.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => material.dispose());
+  });
 }
 
 export function AnatomyModel3D({ primary, secondary, profile }: AnatomyModel3DProps) {
@@ -74,45 +102,70 @@ export function AnatomyModel3D({ primary, secondary, profile }: AnatomyModel3DPr
   const targetView = useRef<ModelView>({ yaw: 0, pitch: 0, zoom: 1 });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const lastPinch = useRef<number | null>(null);
-  const [preset, setPreset] = useState<"front" | "side" | "back">("front");
+  const [preset, setPreset] = useState<"front" | "side" | "back" | "free">("front");
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const primaryKey = [...primary].sort().join("|");
   const secondaryKey = [...secondary].sort().join("|");
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+    setLoadState("loading");
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(31, 1, .1, 100);
-    camera.position.set(0, .05, 13.3);
+    const camera = new THREE.PerspectiveCamera(30, 1, .1, 100);
+    camera.position.set(0, .05, 13.2);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setClearColor(0x000000, 0);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.7));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xe6f6ff, 0x101519, 2.4));
-    const key = new THREE.DirectionalLight(0xffffff, 3.3);
+    scene.add(new THREE.HemisphereLight(0xe8f7ff, 0x11181b, 2.3));
+    const key = new THREE.DirectionalLight(0xffffff, 3.4);
     key.position.set(4, 6, 6);
     key.castShadow = true;
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x56dbe8, 2.1);
+    const rim = new THREE.DirectionalLight(0x52d9e7, 2.2);
     rim.position.set(-5, 2, -5);
     scene.add(rim);
-    const warm = new THREE.PointLight(0xffbc73, 1.3, 20);
+    const warm = new THREE.PointLight(0xffb769, 1.15, 20);
     warm.position.set(3, 0, 4);
     scene.add(warm);
 
-    const body = buildMannequin(profile, new Set(primaryKey.split("|").filter(Boolean) as AnatomyMuscleZone[]), new Set(secondaryKey.split("|").filter(Boolean) as AnatomyMuscleZone[]));
-    body.position.y = -.05;
-    scene.add(body);
+    const bodyRoot = new THREE.Group();
+    bodyRoot.rotation.order = "YXZ";
+    scene.add(bodyRoot);
+    const primarySet = new Set(primaryKey.split("|").filter(Boolean) as AnatomyMuscleZone[]);
+    const secondarySet = new Set(secondaryKey.split("|").filter(Boolean) as AnatomyMuscleZone[]);
+    const highlights = buildHighlights(profile, primarySet, secondarySet);
+    bodyRoot.add(highlights);
 
-    const floorMaterial = new THREE.ShadowMaterial({ color: 0x000000, opacity: .45 });
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(2.1, 48), floorMaterial);
+    const floorMaterial = new THREE.ShadowMaterial({ color: 0x000000, opacity: .42 });
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(1.8, 48), floorMaterial);
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -3.3;
+    floor.position.y = -3.28;
     floor.receiveShadow = true;
     scene.add(floor);
+
+    let disposed = false;
+    let loadedModel: THREE.Object3D | null = null;
+    new GLTFLoader().load("/models/human-anatomy-base.glb", (gltf) => {
+      if (disposed) {
+        disposeObject(gltf.scene);
+        return;
+      }
+      loadedModel = gltf.scene;
+      shapeProfile(loadedModel, profile);
+      const sourceBounds = new THREE.Box3().setFromObject(loadedModel);
+      const size = sourceBounds.getSize(new THREE.Vector3());
+      const scale = 6.45 / Math.max(size.y, .001);
+      const center = sourceBounds.getCenter(new THREE.Vector3());
+      loadedModel.scale.setScalar(scale);
+      loadedModel.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+      bodyRoot.add(loadedModel);
+      setLoadState("ready");
+    }, undefined, () => { if (!disposed) setLoadState("error"); });
 
     const resize = () => {
       const width = mount.clientWidth || 278;
@@ -128,23 +181,20 @@ export function AnatomyModel3D({ primary, secondary, profile }: AnatomyModel3DPr
     let frame = 0;
     const render = () => {
       const target = targetView.current;
-      body.rotation.y += (target.yaw - body.rotation.y) * .16;
-      body.rotation.x += (target.pitch - body.rotation.x) * .16;
-      camera.position.z += ((13.3 / target.zoom) - camera.position.z) * .15;
+      bodyRoot.rotation.y += (target.yaw - bodyRoot.rotation.y) * .16;
+      bodyRoot.rotation.x += (target.pitch - bodyRoot.rotation.x) * .16;
+      camera.position.z += ((13.2 / target.zoom) - camera.position.z) * .15;
       renderer.render(scene, camera);
       frame = window.requestAnimationFrame(render);
     };
     render();
 
     return () => {
+      disposed = true;
       window.cancelAnimationFrame(frame);
       observer.disconnect();
-      body.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((item) => item.dispose());
-      });
+      disposeObject(highlights);
+      if (loadedModel) disposeObject(loadedModel);
       floor.geometry.dispose();
       floorMaterial.dispose();
       renderer.dispose();
@@ -152,9 +202,7 @@ export function AnatomyModel3D({ primary, secondary, profile }: AnatomyModel3DPr
     };
   }, [primaryKey, profile, secondaryKey]);
 
-  const changeZoom = (amount: number) => {
-    targetView.current.zoom = Math.min(1.48, Math.max(.78, targetView.current.zoom + amount));
-  };
+  const changeZoom = (amount: number) => { targetView.current.zoom = Math.min(1.48, Math.max(.78, targetView.current.zoom + amount)); };
   const setModelPreset = (next: "front" | "side" | "back") => {
     setPreset(next);
     targetView.current.yaw = next === "front" ? 0 : next === "side" ? Math.PI / 2 : Math.PI;
@@ -172,7 +220,7 @@ export function AnatomyModel3D({ primary, secondary, profile }: AnatomyModel3DPr
     if (points.length === 1) {
       targetView.current.yaw += (event.clientX - previous.x) * .012;
       targetView.current.pitch = Math.min(.22, Math.max(-.22, targetView.current.pitch + (event.clientY - previous.y) * .004));
-      setPreset("front");
+      setPreset("free");
       return;
     }
     const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
@@ -183,18 +231,16 @@ export function AnatomyModel3D({ primary, secondary, profile }: AnatomyModel3DPr
     pointers.current.delete(event.pointerId);
     if (pointers.current.size < 2) lastPinch.current = null;
   };
-  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    changeZoom(event.deltaY < 0 ? .1 : -.1);
-  };
   const reset = () => {
     targetView.current = { yaw: 0, pitch: 0, zoom: 1 };
     setPreset("front");
   };
 
   return <div className="anatomy-3d-shell">
-    <div className="anatomy-3d-viewport" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd} onWheel={onWheel}>
+    <div className="anatomy-3d-viewport" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd} onWheel={(event: ReactWheelEvent<HTMLDivElement>) => { event.preventDefault(); changeZoom(event.deltaY < 0 ? .1 : -.1); }}>
       <div ref={mountRef} className="anatomy-3d-canvas" role="img" aria-label={`Manequim anatômico 3D ${profile}`} />
+      {loadState === "loading" && <span className="anatomy-3d-status">Carregando modelo 3D…</span>}
+      {loadState === "error" && <span className="anatomy-3d-status error">Não foi possível carregar o modelo 3D.</span>}
     </div>
     <div className="anatomy-view-presets" role="group" aria-label="Posição do manequim">
       <button type="button" className={preset === "front" ? "active" : ""} onClick={() => setModelPreset("front")}>Frente</button>

@@ -757,6 +757,8 @@ button { cursor: pointer; }
 .anatomy-3d-viewport { position: relative; height: clamp(340px, 45svh, 430px); touch-action: none; cursor: grab; user-select: none; background: radial-gradient(circle at 50% 44%, #26383f80 0, #0a121600 64%); }
 .anatomy-3d-viewport:active { cursor: grabbing; }
 .anatomy-3d-canvas, .anatomy-3d-canvas canvas { width: 100%; height: 100%; display: block; }
+.anatomy-3d-status { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); color: #93a3aa; font-size: 10px; white-space: nowrap; }
+.anatomy-3d-status.error { color: #ff9b91; }
 .anatomy-view-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: -2px 0 8px; padding: 3px; border: 1px solid #2d414a; border-radius: 8px; background: #080f13; }
 .anatomy-view-presets button { min-height: 34px; border: 0; border-radius: 5px; background: transparent; color: #8e9ba2; font-size: 10px; font-weight: 800; }
 .anatomy-view-presets button.active { background: #203139; color: #f8fbfc; box-shadow: inset 0 0 0 1px #45626e; }
