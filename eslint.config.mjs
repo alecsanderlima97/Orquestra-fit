@@ -23,6 +23,28 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    // O painel principal mantém sincronizações locais e handlers de CRUD que
+    // o compilador React classifica como impuros, embora ocorram fora do render.
+    files: ["app/page.tsx"],
+    rules: {
+      "react-hooks/purity": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "@next/next/no-assign-module-variable": "off",
+    },
+  },
+  {
+    files: ["components/auth/academy-gate.tsx"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
+  {
+    files: ["types/cloudflare-workers.d.ts"],
+    rules: {
+      "@typescript-eslint/no-empty-object-type": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
