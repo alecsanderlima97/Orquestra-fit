@@ -264,6 +264,9 @@ button { cursor: pointer; }
 .exercise-guidance p { color: var(--steel-300); font-size: 10px; line-height: 1.5; margin: 6px 0 0; }
 .exercise-guidance b { color: var(--paper); }
 .exercise-guidance a { display: inline-block; margin-top: 8px; color: var(--bronze-300); font-size: 10px; font-weight: 800; }
+.exercise-anatomy-trigger { width: calc(100% - 28px); min-height: 42px; margin: 0 14px 14px; padding: 0 12px; border: 1px solid #425057; background: #11191d; color: var(--paper); display: grid; grid-template-columns: 20px 1fr 16px; align-items: center; gap: 9px; text-align: left; font-size: 11px; font-weight: 800; }
+.exercise-anatomy-trigger svg:first-child { color: var(--bronze-300); }
+.exercise-anatomy-trigger svg:last-child { width: 15px; color: var(--steel-500); }
 .assessment-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--line); padding: 14px 0; }
 .assessment-row strong, .assessment-row small { display: block; }
 .assessment-row strong { color: var(--paper); font-size: 13px; }
@@ -698,6 +701,30 @@ button { cursor: pointer; }
 .exercise-card footer svg, .exercise-card footer strong { color: var(--bronze-400); }
 .finish-workout { width: calc(100% - 28px); height: 52px; margin: 2px 14px 0; border: 0; background: var(--bronze-400); color: #17100a; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 900; }
 .finish-workout:disabled { background: #272b2d; color: #676d70; cursor: not-allowed; }
+.anatomy-screen { position: fixed; z-index: 120; inset: 0 auto 0 50%; transform: translateX(-50%); width: min(100%, 480px); min-height: 100dvh; overflow-y: auto; background: radial-gradient(circle at 50% 34%, #17242a 0, #091014 45%, #05090b 100%); color: #f7f8f8; box-shadow: 0 0 80px #000; }
+.anatomy-screen > header { position: sticky; z-index: 3; top: 0; min-height: 78px; padding: max(12px, env(safe-area-inset-top)) 18px 12px; border-bottom: 1px solid #25343b; background: rgba(6, 12, 15, .92); backdrop-filter: blur(18px); display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; }
+.anatomy-screen > header button { width: 42px; height: 42px; border: 0; background: transparent; color: #f5f7f7; display: grid; place-items: center; }
+.anatomy-screen > header button svg { width: 29px; height: 29px; }
+.anatomy-screen > header h2 { position: relative; margin: 0; padding-bottom: 11px; text-align: center; font-family: inherit; font-size: 24px; line-height: 1.1; }
+.anatomy-screen > header h2:after { content: ""; position: absolute; left: 28%; right: 28%; bottom: 0; height: 2px; background: var(--neon); box-shadow: 0 0 12px color-mix(in srgb, var(--neon) 60%, transparent); }
+.anatomy-screen > main { padding: 0 18px max(30px, env(safe-area-inset-bottom)); }
+.anatomy-stage { min-height: 510px; display: grid; place-items: center; }
+.anatomy-figure { display: block; width: min(100%, 330px); height: min(58vh, 540px); overflow: visible; }
+.anatomy-figure .muscle-base { fill: #5b666c; opacity: .3; }
+.anatomy-figure .muscle-primary { fill: #ff4646; stroke: #ff9892; filter: url(#muscle-glow); }
+.anatomy-figure .muscle-secondary { fill: #ff982f; stroke: #ffc07c; filter: url(#muscle-glow); }
+.muscle-legend { display: grid; gap: 10px; margin-bottom: 18px; }
+.muscle-legend > div { min-height: 68px; padding: 13px 14px; border: 1px solid #2d414a; background: rgba(8, 15, 19, .78); display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 10px; }
+.muscle-legend i { grid-row: 1 / 3; width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 16px currentColor; }
+.muscle-legend i.primary { color: #ff4646; background: #ff4646; }
+.muscle-legend i.secondary { color: #ff982f; background: #ff982f; }
+.muscle-legend span { color: #a7b0b5; font-size: 11px; }
+.muscle-legend strong { align-self: start; color: #f6f7f7; font-size: 14px; }
+.anatomy-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; padding-top: 18px; border-top: 1px solid #34505a; }
+.anatomy-metrics > div { min-height: 128px; padding: 14px 7px; border: 1px solid #2d414a; background: rgba(8, 15, 19, .78); display: grid; justify-items: center; align-content: center; gap: 5px; text-align: center; }
+.anatomy-metrics svg { width: 28px; height: 28px; margin-bottom: 8px; color: var(--neon); }
+.anatomy-metrics strong { font-size: 27px; line-height: 1; }
+.anatomy-metrics span { color: #a7b0b5; font-size: 11px; }
 
 .drawer-backdrop { position: fixed; inset: 0; z-index: 100; background: #000b; display: flex; justify-content: center; }
 .student-drawer { width: min(100%, 480px); height: 100vh; margin-left: auto; background: #0d0f11; padding: 22px; overflow: auto; animation: drawer-in .22s ease-out; }
