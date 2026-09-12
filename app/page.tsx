@@ -53,8 +53,8 @@ function writeLocalCollection<T>(academyId: string, collectionName: string, reco
   window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
 }
 
-function navigateWorkspace(module: string, studentId?: string) {
-  window.dispatchEvent(new CustomEvent("orquestra-fit:navigate", { detail: { module, studentId } }));
+function navigateWorkspace(module: string, studentId?: string, search?: string) {
+  window.dispatchEvent(new CustomEvent("orquestra-fit:navigate", { detail: { module, studentId, search } }));
 }
 
 function localStudentId(academyId: string, userId: string) {
@@ -772,23 +772,26 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const [searchTerm, setSearchTerm] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
+  const [focusSearch, setFocusSearch] = useState("");
   function navigateToModule(module: string, studentId?: string) {
     if (profile === "Professor" && module === "Planos e mensalidades") {
       feedback("O módulo financeiro é exclusivo da gestão.");
       return;
     }
     setFocusStudentId(studentId ?? null);
+    setFocusSearch("");
     setActiveModule(module);
   }
   useEffect(() => {
     const handleNavigation = (event: Event) => {
-      const detail = (event as CustomEvent<{ module?: string; studentId?: string }>).detail;
+      const detail = (event as CustomEvent<{ module?: string; studentId?: string; search?: string }>).detail;
       if (!detail?.module) return;
       if (profile === "Professor" && detail.module === "Planos e mensalidades") {
         feedback("O módulo financeiro é exclusivo da gestão.");
         return;
       }
       setFocusStudentId(detail.studentId ?? null);
+      setFocusSearch(detail.search ?? "");
       setActiveModule(detail.module);
     };
     window.addEventListener("orquestra-fit:navigate", handleNavigation);
@@ -816,13 +819,13 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
         <header className="workspace-topbar">
           <div className="workspace-heading"><button className="workspace-mobile-menu" aria-label="Abrir menu" onClick={() => setMobileMenuOpen(true)}><Menu /></button><div><span>DAMA DE FERRO ACADEMIA</span><h1>{activeModule === "Visão geral" ? (profile === "Gestão" ? "Visão geral" : "Área do professor") : activeModule}</h1></div></div>
           <div className="workspace-actions">
-            {searchOpen && <form className="workspace-search-inline" onSubmit={(event) => { event.preventDefault(); feedback(searchTerm.trim() ? `Pesquisa por “${searchTerm.trim()}”.` : "Digite algo para pesquisar."); }}><input autoFocus value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Pesquisar" aria-label="Pesquisar" /></form>}
+            {searchOpen && <form className="workspace-search-inline" onSubmit={(event) => { event.preventDefault(); const term = searchTerm.trim(); if (!term) { feedback("Digite algo para pesquisar."); return; } navigateWorkspace("Alunos", undefined, term); setSearchOpen(false); }}><input autoFocus value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Pesquisar alunos" aria-label="Pesquisar alunos" /></form>}
             <button aria-label="Buscar" onClick={() => setSearchOpen((open) => !open)}><Search /></button>
             <button aria-label="Notificações" onClick={() => feedback("Você não tem novas notificações.")}><Bell /></button>
             <button className="operator" type="button" onClick={() => setProfileOpen(true)} title="Abrir perfil"><span>{registeredProfile?.photoUrl ? <img src={registeredProfile.photoUrl} alt="" /> : operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile}</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} initialSearch={focusSearch} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
         <AcademyFooter />
       </div>
       <WorkspaceMobileNav profile={profile} activeModule={activeModule} onNavigate={navigateToModule} onMore={() => setMobileMenuOpen(true)} />
@@ -1848,7 +1851,7 @@ function StudentMessagesPanel({ messages, body, sending, onBodyChange, onSend }:
   return <section className="student-profile-messages"><div className="student-profile-message-heading"><span><MessageCircle /> MENSAGEM INTERNA</span><small>{messages.length} enviada(s)</small></div>{messages.length > 0 && <div className="student-message-history">{messages.slice(0, 2).map((message) => <div key={message.id}><strong>{message.senderName}</strong><p>{message.body}</p></div>)}</div>}<div className="student-message-compose"><textarea value={body} onChange={(event) => onBodyChange(event.target.value)} placeholder="Escreva uma orientação ou lembrete para o aluno..." /><button type="button" onClick={onSend} disabled={sending || !body.trim()}>{sending ? "Enviando..." : "Enviar mensagem"}</button></div></section>;
 }
 
-function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void }) {
+function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = "" }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void; initialSearch?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
@@ -1869,6 +1872,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate }: { onNewStudent
   const [studentMessages, setStudentMessages] = useState<InternalMessage[]>([]);
   const [messageBody, setMessageBody] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+
+  useEffect(() => setSearch(initialSearch), [initialSearch]);
 
   useEffect(() => {
     if (!db) {
@@ -2201,6 +2206,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const [newMemberRole, setNewMemberRole] = useState<"student" | "teacher" | null>(null);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
   const [dashboardCharges, setDashboardCharges] = useState<MonthlyCharge[]>([]);
+  const [dashboardSearch, setDashboardSearch] = useState("");
 
   useEffect(() => {
     if (!db) {
@@ -2229,6 +2235,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   }, [access.academyId]);
 
   const students = registeredStudents.map((student) => ({
+      id: student.id,
       initials: student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
       name: student.name,
       plan: student.plan,
@@ -2236,6 +2243,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
       visits: "—",
       next: "A definir",
     }));
+  const visibleStudents = students.filter((student) => `${student.name} ${student.plan}`.toLowerCase().includes(dashboardSearch.trim().toLowerCase()));
   const dashboardTotal = dashboardCharges.reduce((total, charge) => total + charge.amount, 0);
   const dashboardReceived = dashboardCharges.filter((charge) => charge.status === "paid").reduce((total, charge) => total + charge.amount, 0);
   const dashboardOverdue = dashboardCharges.filter((charge) => chargeViewStatus(charge) === "overdue");
@@ -2258,15 +2266,15 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
         <section className="operations-grid">
           <article className="workspace-panel student-table-panel">
             <header><div><span>OPERAÇÃO</span><h3>Alunos para acompanhar</h3><p>Planos, frequência e próximos treinos.</p></div><button onClick={() => navigateWorkspace("Alunos")}>Ver todos <ArrowRight /></button></header>
-            <div className="workspace-search"><Search /><input placeholder="Buscar aluno" /></div>
+            <div className="workspace-search"><Search /><input value={dashboardSearch} onChange={(event) => setDashboardSearch(event.target.value)} placeholder="Buscar aluno" aria-label="Buscar aluno" /></div>
             <div className="student-table">
               <div className="table-row table-head"><span>Aluno</span><span>Plano</span><span>Situação</span><span>Visitas</span><span>Próximo treino</span><span /></div>
-              {students.length === 0 ? <div className="directory-empty"><Users /><p>Nenhum aluno cadastrado ainda.</p></div> : students.map((student) => (
-                <div className="table-row" key={student.name}>
+              {visibleStudents.length === 0 ? <div className="directory-empty"><Users /><p>{students.length === 0 ? "Nenhum aluno cadastrado ainda." : "Nenhum aluno encontrado."}</p></div> : visibleStudents.map((student) => (
+                <div className="table-row" key={student.id}>
                   <span className="table-person"><i>{student.initials}</i><strong>{student.name}</strong></span>
                   <span>{student.plan}</span>
                   <span><em className={student.status === "Em atraso" ? "late" : student.status === "Vence hoje" ? "due" : ""}>{student.status}</em></span>
-                  <span>{student.visits}</span><span>{student.next}</span><button aria-label={`Abrir ${student.name}`} onClick={() => { const match = registeredStudents.find((item) => item.name === student.name); navigateWorkspace("Alunos", match?.id); }}><ChevronRight /></button>
+                  <span>{student.visits}</span><span>{student.next}</span><button aria-label={`Abrir ${student.name}`} onClick={() => navigateWorkspace("Alunos", student.id)}><ChevronRight /></button>
                 </div>
               ))}
             </div>
