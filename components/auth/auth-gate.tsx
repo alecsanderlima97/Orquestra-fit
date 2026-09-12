@@ -5,6 +5,7 @@ import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPass
 import { LockKeyhole, Mail, ShieldCheck, UserRound } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
+import { AccessProvider } from "./access-context";
 
 type AuthGateProps = { children: ReactNode };
 
@@ -51,7 +52,7 @@ export function AuthGate({ children }: AuthGateProps) {
     };
   }, []);
 
-  if (!isFirebaseConfigured) return <>{children}</>;
+  if (!isFirebaseConfigured) return <AccessProvider value={{ user: { uid: "local-demo", displayName: "Usuário local", email: "local@orquestra.fit" } as User, userId: "local-demo", academyId: "local-academy", role: "admin", accountType: "developer" }}>{children}</AccessProvider>;
   if (loading) return <main className="auth-loading">Carregando acesso seguro...</main>;
   if (!user) return <LoginPanel initialStatus={redirectError} />;
 
