@@ -70,7 +70,7 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .generated-code { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
 .generated-code code { flex: 1; border: 1px dashed var(--bronze-500); color: var(--bronze-300); padding: 10px 12px; font-size: 18px; letter-spacing: .12em; font-weight: 900; }
 .permissions-note { display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--steel-500); font-size: 12px; line-height: 1.5; }
-.student-modal { width: min(520px, 100%); border: 1px solid var(--line); background: #111315; box-shadow: 0 24px 70px #000b; padding: 28px; }
+.student-modal { width: min(520px, 100%); max-height: min(88vh, 820px); overflow-y: auto; border: 1px solid var(--line); background: #111315; box-shadow: 0 24px 70px #000b; padding: 28px; }
 .student-modal > header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
 .student-modal header span, .student-invite-result > span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
 .student-modal h2 { margin: 6px 0 4px; color: #f4f1ea; font-size: 28px; }

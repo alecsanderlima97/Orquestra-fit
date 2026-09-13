@@ -195,7 +195,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         return;
       }
 
-      const invitation = codeSnapshot.data() as {
+        const invitation = codeSnapshot.data() as {
         academyId: string;
         role: "admin" | "teacher" | "student";
         invitedName?: string;
@@ -204,7 +204,8 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         anatomyProfile?: "masculino" | "feminino";
         birthDate?: string | null;
         phone?: string | null;
-        cpf?: string | null;
+          cpf?: string | null;
+          address?: string | null;
         cref?: string | null;
         specialty?: string | null;
       };
@@ -233,6 +234,9 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           plan: invitation.plan ?? null,
           anatomyProfile: invitation.anatomyProfile === "feminino" ? "feminino" : "masculino",
           birthDate: invitation.birthDate ?? null,
+          phone: invitation.phone ?? null,
+          cpf: invitation.cpf ?? null,
+          address: invitation.address ?? null,
           active: true,
           activationCodeId: normalizedCode,
           createdAt: now,
