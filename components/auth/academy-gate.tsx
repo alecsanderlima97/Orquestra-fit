@@ -202,6 +202,11 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         invitedEmail?: string;
         plan?: string;
         anatomyProfile?: "masculino" | "feminino";
+        birthDate?: string | null;
+        phone?: string | null;
+        cpf?: string | null;
+        cref?: string | null;
+        specialty?: string | null;
       };
       const memberRef = doc(firestore, "academies", invitation.academyId, "members", user.uid);
       const userRef = doc(firestore, "users", user.uid);
@@ -227,6 +232,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           username: user.email?.endsWith("@accounts.orquestra-fit.local") ? user.displayName ?? null : null,
           plan: invitation.plan ?? null,
           anatomyProfile: invitation.anatomyProfile === "feminino" ? "feminino" : "masculino",
+          birthDate: invitation.birthDate ?? null,
           active: true,
           activationCodeId: normalizedCode,
           createdAt: now,
@@ -236,6 +242,11 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           userId: user.uid,
           name: invitation.invitedName ?? user.displayName ?? user.email ?? "Professor",
           email: invitation.invitedEmail ?? user.email ?? null,
+          phone: invitation.phone ?? null,
+          cpf: invitation.cpf ?? null,
+          birthDate: invitation.birthDate ?? null,
+          cref: invitation.cref ?? null,
+          specialty: invitation.specialty ?? null,
           active: true,
           activationCodeId: normalizedCode,
           createdAt: now,

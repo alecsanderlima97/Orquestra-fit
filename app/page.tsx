@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword, updateProfile } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
@@ -8,10 +8,12 @@ import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Printer, Search, Settings,
-  Eye, EyeOff, PersonStanding, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, X,
+  Eye, EyeOff, PersonStanding, QrCode, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
+import { FinanceModule } from "@/components/finance/finance-module";
+import { AppGuide } from "@/components/assistant/app-guide";
 import { auth, db, functions } from "@/lib/firebase/client";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
@@ -66,6 +68,28 @@ function localStudentId(academyId: string, userId: string) {
   return readLocalCollection<{ id: string }>(academyId, "students")[0]?.id ?? userId;
 }
 
+function calculateAge(birthDate?: string | null, referenceDate = new Date()) {
+  if (!birthDate) return null;
+  const [year, month, day] = birthDate.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  let age = referenceDate.getFullYear() - year;
+  if (referenceDate.getMonth() + 1 < month || (referenceDate.getMonth() + 1 === month && referenceDate.getDate() < day)) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+function scrollToContent(selector: string) {
+  window.setTimeout(() => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+}
+
+function brazilGreeting() {
+  const hour = Number(new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", hour12: false }).format(new Date()));
+  return hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
+}
+
+function brazilLongDate() {
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "numeric", month: "long" }).format(new Date()).toLocaleUpperCase("pt-BR");
+}
+
 function useRegisteredProfile() {
   const access = useAccess();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
@@ -86,6 +110,32 @@ function useRegisteredProfile() {
     return onSnapshot(doc(db, "users", access.userId), (snapshot) => setProfile(snapshot.exists() ? snapshot.data() as AccountProfile : null));
   }, [access.userId]);
   return profile;
+}
+
+function BirthdayGreeting() {
+  const access = useAccess();
+  const [student, setStudent] = useState<{ name?: string; birthDate?: string } | null>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const studentId = localStudentId(access.academyId, access.userId);
+    if (!db) {
+      setStudent(readLocalCollection<{ id: string; name?: string; birthDate?: string }>(access.academyId, "students").find((item) => item.id === studentId) ?? null);
+      return;
+    }
+    return onSnapshot(doc(db, "academies", access.academyId, "students", studentId), (snapshot) => setStudent(snapshot.exists() ? snapshot.data() as { name?: string; birthDate?: string } : null));
+  }, [access.academyId, access.userId]);
+  useEffect(() => {
+    if (!student?.birthDate) return;
+    const today = new Date();
+    const [, month, day] = student.birthDate.split("-").map(Number);
+    const annualKey = `orquestra-fit:birthday:${access.academyId}:${access.userId}:${today.getFullYear()}`;
+    if (today.getMonth() + 1 === month && today.getDate() === day && !window.localStorage.getItem(annualKey)) {
+      setVisible(true);
+      window.localStorage.setItem(annualKey, "shown");
+    }
+  }, [access.academyId, access.userId, student]);
+  if (!visible) return null;
+  return <div className="birthday-backdrop" role="dialog" aria-modal="true" aria-label="Mensagem de aniversário"><section className="birthday-card"><Sparkles /><small>DAMA DE FERRO ACADEMIA</small><h2>Feliz aniversário, {firstName(student?.name ?? null, null)}!</h2><p>Que seu novo ciclo venha com muita saúde, força e conquistas. É um prazer ter você treinando com a gente.</p><button type="button" onClick={() => setVisible(false)}>Começar meu dia</button></section></div>;
 }
 
 async function logout() {
@@ -267,6 +317,38 @@ function exerciseArtwork(name: string, group: string, bodyRegion?: BodyRegion) {
   return "/anatomy-body-base.png";
 }
 
+function machineCode(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function equipmentForExercise(name: string) {
+  const normalized = name.toLocaleLowerCase("pt-BR");
+  if (normalized.includes("smith")) return "Máquina Smith";
+  if (normalized.includes("polia")) return "Estação de polias";
+  if (normalized.includes("leg press 45")) return "Leg press 45°";
+  if (normalized.includes("leg press horizontal")) return "Leg press horizontal";
+  if (normalized.includes("leg press vertical")) return "Leg press vertical";
+  if (normalized.includes("hack squat")) return "Máquina Hack squat";
+  if (normalized.includes("graviton")) return "Máquina Graviton";
+  if (normalized.includes("cadeira extensora")) return "Cadeira extensora";
+  if (normalized.includes("cadeira flexora")) return "Cadeira flexora";
+  if (normalized.includes("cadeira adutora")) return "Cadeira adutora";
+  if (normalized.includes("cadeira abdutora")) return "Cadeira abdutora";
+  if (normalized.includes("mesa flexora")) return "Mesa flexora";
+  if (normalized.includes("máquina") || normalized.includes("articulad")) return name.replace(/^(rosca bíceps|rosca scott|supino reto|supino inclinado|desenvolvimento|tríceps|pullover|remada)\s+(na|no)\s+/i, "Máquina de ");
+  if (normalized.includes("halter")) return "Halteres";
+  if (normalized.includes("barra")) return "Barra livre e anilhas";
+  if (normalized.includes("esteira")) return "Esteira ergométrica";
+  if (normalized.includes("bicicleta")) return "Bicicleta ergométrica";
+  if (normalized.includes("elíptico")) return "Elíptico";
+  if (normalized.includes("remo ergométrico")) return "Remo ergométrico";
+  if (normalized.includes("escada ergométrica")) return "Escada ergométrica";
+  if (normalized.includes("air bike")) return "Air bike";
+  if (normalized.includes("corda naval")) return "Corda naval";
+  if (normalized.includes("banco")) return "Banco de exercícios";
+  return "Área livre / peso corporal";
+}
+
 export default function Home() {
   const access = useAccess();
   const accountRole: Role = access.role === "admin" ? "gestao" : access.role === "teacher" ? "professor" : "aluno";
@@ -308,6 +390,7 @@ export default function Home() {
         )}
         {role === "aluno" && (
         <section className={sessionOpen ? "student-app session-active" : "student-app"}>
+          <BirthdayGreeting />
           {sessionOpen ? (
             <WorkoutSession
               workout={activeWorkout ?? undefined}
@@ -338,6 +421,7 @@ export default function Home() {
       )}
         {role === "professor" && <ProfessorWorkspace theme={theme} onThemeChange={setTheme} />}
         {role === "gestao" && <AdminWorkspace theme={theme} onThemeChange={setTheme} />}
+        <AppGuide role={role} />
         {feedback && <div className="action-feedback" role="status">{feedback}</div>}
       </main>
     </FeedbackContext.Provider>
@@ -535,7 +619,7 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
   return (
     <div className="student-view home-view">
       <section className="welcome-row">
-        <div><p>SEGUNDA, 1 DE SETEMBRO</p><h1>Olá, {firstName(access.user.displayName, access.user.email)}.</h1><span>Seu ritmo começa aqui.</span></div>
+        <div><p>{brazilLongDate()}</p><h1>{brazilGreeting()}, {firstName(access.user.displayName, access.user.email)}.</h1><span>Seu ritmo começa aqui.</span></div>
         <div className="streak" aria-label="Sequência de treinos"><Flame size={20} /><strong>—</strong><small>sem histórico</small></div>
       </section>
 
@@ -746,7 +830,7 @@ function Evolution() {
         </>}
       </section>
       <section className="history-panel">
-        <div className="section-heading"><div><span>HISTÓRICO</span><h2>Últimos registros</h2></div></div>
+        <div className="section-heading"><div><span>DESEMPENHO</span><h2>Suas melhores cargas</h2><p>Mostra o maior peso registrado em cada exercício concluído.</p></div></div>
         {bestLoads.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Conclua um treino para ver suas cargas registradas aqui.</p></div> : bestLoads.map((item) => (
           <div className="history-row" key={item.exerciseName}><span>{item.exerciseName}</span><strong>{item.load > 0 ? `${item.load} kg` : "Sem carga"}</strong><small>{item.reps} rep · melhor carga</small></div>
         ))}
@@ -923,13 +1007,79 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   );
 }
 
+type SessionExercise = Omit<WorkoutExerciseDetail, "sets" | "rest"> & { group?: string; sets: number; rest: string };
+
+function normalizeMachineQr(rawValue: string) {
+  const value = rawValue.trim();
+  try {
+    const url = new URL(value);
+    const code = url.searchParams.get("machine") || url.searchParams.get("maquina");
+    if (code) return machineCode(code);
+  } catch { /* O QR pode conter apenas o código interno. */ }
+  return machineCode(value.replace(/^OF[|:/-]+/i, "").split("|").at(-1) || value);
+}
+
+function MachineQrReader({ exercises, onClose, onSelect }: { exercises: SessionExercise[]; onClose: () => void; onSelect: (index: number) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scannerRef = useRef<{ stop: () => void; destroy: () => void } | null>(null);
+  const [manualCode, setManualCode] = useState("");
+  const [scannedCode, setScannedCode] = useState("");
+  const [cameraError, setCameraError] = useState("");
+  const compatible = useMemo(() => exercises.map((exercise, index) => ({ exercise, index })).filter(({ exercise }) => {
+    const code = exercise.machineCode || machineCode(exercise.equipmentName || equipmentForExercise(exercise.name));
+    return scannedCode && code === scannedCode;
+  }), [exercises, scannedCode]);
+
+  useEffect(() => {
+    let disposed = false;
+    async function startScanner() {
+      if (!videoRef.current) return;
+      try {
+        const { default: QrScanner } = await import("qr-scanner");
+        if (disposed || !videoRef.current) return;
+        const scanner = new QrScanner(videoRef.current, (result) => setScannedCode(normalizeMachineQr(typeof result === "string" ? result : result.data)), {
+          preferredCamera: "environment",
+          highlightScanRegion: true,
+          highlightCodeOutline: true,
+          returnDetailedScanResult: true,
+        });
+        scannerRef.current = scanner;
+        await scanner.start();
+      } catch {
+        setCameraError("Não foi possível abrir a câmera. Digite o código impresso abaixo do QR.");
+      }
+    }
+    void startScanner();
+    return () => {
+      disposed = true;
+      scannerRef.current?.stop();
+      scannerRef.current?.destroy();
+    };
+  }, []);
+
+  function submitManual(event: React.FormEvent) {
+    event.preventDefault();
+    if (manualCode.trim()) setScannedCode(normalizeMachineQr(manualCode));
+  }
+
+  return <div className="machine-reader-backdrop" role="dialog" aria-modal="true" aria-label="Leitor de QR da máquina">
+    <section className="machine-reader">
+      <header><div><small>ESTAÇÃO INTELIGENTE</small><h2>Qual é esta máquina?</h2></div><button type="button" aria-label="Fechar leitor" onClick={onClose}><X /></button></header>
+      {!scannedCode && <><div className="machine-camera"><video ref={videoRef} muted playsInline /><span><QrCode /> Aponte para o QR da máquina</span></div>{cameraError && <p className="machine-camera-error">{cameraError}</p>}</>}
+      <form className="machine-code-form" onSubmit={submitManual}><label>Código da máquina<input value={manualCode} onChange={(event) => setManualCode(event.target.value)} placeholder="Ex.: leg-press-45" /></label><button type="submit">Consultar</button></form>
+      {scannedCode && <div className="machine-result"><small>MÁQUINA IDENTIFICADA</small><h3>{compatible[0]?.exercise.equipmentName || scannedCode.replace(/-/g, " ")}</h3>{compatible.length ? <><p>Exercícios disponíveis no seu treino:</p>{compatible.map(({ exercise, index }) => <button type="button" key={`${exercise.name}-${index}`} onClick={() => onSelect(index)}><Dumbbell /><span><strong>{exercise.name}</strong><small>{exercise.sets} séries · {exercise.reps} repetições</small></span><ChevronRight /></button>)}</> : <p>Nenhum exercício do seu treino atual usa esta máquina.</p>}<button className="machine-scan-again" type="button" onClick={() => setScannedCode("")}>Ler outro QR</button></div>}
+    </section>
+  </div>;
+}
+
 function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
   const access = useAccess();
   const feedback = useFeedback();
-  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
+  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const progress = Math.round((completedSets.length / totalSets) * 100);
   const [seconds, setSeconds] = useState(0);
+  const [machineReaderOpen, setMachineReaderOpen] = useState(false);
   const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>({});
   const [saving, setSaving] = useState(false);
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
@@ -960,11 +1110,6 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
     const timer = window.setTimeout(() => setRestTimer((current) => current ? { ...current, remaining: current.remaining - 1 } : null), 1000);
     return () => window.clearTimeout(timer);
   }, [restTimer, feedback]);
-  useEffect(() => {
-    if (openExerciseIndex === null) return;
-    const currentExercise = exercises[openExerciseIndex];
-    if (currentExercise && Array.from({ length: currentExercise.sets }).every((_, setIndex) => completedSets.includes(`${openExerciseIndex}-${setIndex}`))) setOpenExerciseIndex(null);
-  }, [completedSets, exercises, openExerciseIndex]);
   const elapsed = useMemo(() => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`, [seconds]);
   const restLabel = (secondsToFormat: number) => `${String(Math.floor(secondsToFormat / 60)).padStart(2, "0")}:${String(secondsToFormat % 60).padStart(2, "0")}`;
   function startRest(exerciseIndex: number) {
@@ -974,8 +1119,12 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
   function toggleSet(exerciseIndex: number, setIndex: number) {
     const id = `${exerciseIndex}-${setIndex}`;
     const done = completedSets.includes(id);
+    const completedBefore = Array.from({ length: exercises[exerciseIndex].sets }).filter((_, index) => completedSets.includes(`${exerciseIndex}-${index}`)).length;
     onToggleSet(id);
-    if (!done) startRest(exerciseIndex);
+    if (!done) {
+      startRest(exerciseIndex);
+      if (completedBefore + 1 === exercises[exerciseIndex].sets) window.setTimeout(() => setOpenExerciseIndex(null), 220);
+    }
   }
 
   async function finishWorkout() {
@@ -1026,6 +1175,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
         <div><span>{workout ? "TREINO PUBLICADO" : "FORÇA A"}</span><h1>{workout?.name ?? "Pernas e estabilidade"}</h1><p>{completedSets.length} de {totalSets} séries concluídas</p></div>
         <div className="progress-ring" style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}><strong>{progress}%</strong></div>
       </section>
+      <button className="machine-reader-trigger" type="button" onClick={() => setMachineReaderOpen(true)}><QrCode /><span><strong>Ler QR da máquina</strong><small>Veja os exercícios disponíveis nesta estação</small></span><ChevronRight /></button>
       <div className="session-exercises">
         {exercises.map((exercise, exerciseIndex) => {
           const isOpen = openExerciseIndex === exerciseIndex;
@@ -1033,7 +1183,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
           const isComplete = completedCount === exercise.sets;
           const isResting = restTimer?.exerciseIndex === exerciseIndex;
           return <article className={`exercise-card ${isOpen ? "expanded" : "collapsed"} ${isComplete ? "completed" : ""}`} key={exercise.name}>
-            <header><span className="exercise-card-art" style={{ backgroundImage: `url("${exerciseArtwork(exercise.name, exercise.group, "bodyRegion" in exercise ? exercise.bodyRegion : undefined)}")` }} aria-hidden="true" /><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
+            <header><span className="exercise-card-art" style={{ backgroundImage: `url("${exerciseArtwork(exercise.name, exercise.group, "bodyRegion" in exercise ? exercise.bodyRegion : undefined)}")` }} aria-hidden="true" /><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{"equipmentName" in exercise && exercise.equipmentName && <b className="exercise-equipment"><Dumbbell />{exercise.equipmentName}</b>}{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
             {isOpen ? <div className="exercise-card-body">
               {("instructions" in exercise && (exercise.instructions || exercise.anatomyRegion || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
               <button className="exercise-anatomy-trigger" type="button" onClick={() => setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest })}><PersonStanding /> Ver músculos e detalhes <ChevronRight /></button>
@@ -1050,6 +1200,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
       </div>
       <button className="finish-workout" disabled={completedSets.length < totalSets || saving} onClick={finishWorkout}><Trophy size={20} /> {saving ? "Salvando treino..." : "Concluir treino"}</button>
       {anatomyExercise && <ExerciseAnatomyView exercise={anatomyExercise} onClose={closeAnatomy} />}
+      {machineReaderOpen && <MachineQrReader exercises={exercises as SessionExercise[]} onClose={() => setMachineReaderOpen(false)} onSelect={(index) => { setOpenExerciseIndex(index); setMachineReaderOpen(false); window.setTimeout(() => document.querySelectorAll(".exercise-card")[index]?.scrollIntoView({ behavior: "smooth", block: "center" }), 80); }} />}
     </div>
   );
 }
@@ -1058,7 +1209,7 @@ const workspaceNav = [
   ["Visão geral", LayoutDashboard],
   ["Alunos", Users],
   ["Professores", UserRoundCheck],
-  ["Planos e mensalidades", WalletCards],
+  ["Financeiro", WalletCards],
   ["Treinos", Dumbbell],
   ["Aulas e reservas", CalendarDays],
   ["Avaliações", BarChart3],
@@ -1070,6 +1221,7 @@ type RegisteredStudent = {
   email?: string | null;
   phone?: string | null;
   cpf?: string | null;
+  birthDate?: string | null;
   plan: string;
   teacherId?: string | null;
   anatomyProfile?: "masculino" | "feminino";
@@ -1081,6 +1233,11 @@ type RegisteredTeacher = {
   id: string;
   name: string;
   email?: string | null;
+  phone?: string | null;
+  cpf?: string | null;
+  birthDate?: string | null;
+  cref?: string | null;
+  specialty?: string | null;
   active?: boolean;
 };
 
@@ -1100,7 +1257,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const [focusStudentId, setFocusStudentId] = useState<string | null>(null);
   const [focusSearch, setFocusSearch] = useState("");
   function navigateToModule(module: string, studentId?: string) {
-    if (profile === "Professor" && module === "Planos e mensalidades") {
+    if (profile === "Professor" && module === "Financeiro") {
       feedback("O módulo financeiro é exclusivo da gestão.");
       return;
     }
@@ -1112,7 +1269,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
     const handleNavigation = (event: Event) => {
       const detail = (event as CustomEvent<{ module?: string; studentId?: string; search?: string }>).detail;
       if (!detail?.module) return;
-      if (profile === "Professor" && detail.module === "Planos e mensalidades") {
+      if (profile === "Professor" && detail.module === "Financeiro") {
         feedback("O módulo financeiro é exclusivo da gestão.");
         return;
       }
@@ -1124,7 +1281,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
     return () => window.removeEventListener("orquestra-fit:navigate", handleNavigation);
   }, [feedback, profile]);
   useEffect(() => {
-    if (profile === "Professor" && activeModule === "Planos e mensalidades") setActiveModule("Visão geral");
+    if (profile === "Professor" && activeModule === "Financeiro") setActiveModule("Visão geral");
   }, [activeModule, profile]);
   const visibleNav = profile === "Professor"
     ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Aulas e reservas", "Avaliações"].includes(label))
@@ -1151,7 +1308,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
             <button className="operator" type="button" onClick={() => setProfileOpen(true)} title="Abrir perfil"><span>{registeredProfile?.photoUrl ? <img src={registeredProfile.photoUrl} alt="" /> : operatorInitials}</span><div><strong>{operatorName}</strong><small>{profile}</small></div></button>
           </div>
         </header>
-        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} initialSearch={focusSearch} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Planos e mensalidades" ? <BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
+        {activeModule === "Visão geral" ? children : activeModule === "Alunos" ? <StudentsModule onNewStudent={onNewStudent} onFeedback={feedback} onNavigate={navigateToModule} initialSearch={focusSearch} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Professores" ? <TeachersModule onFeedback={feedback} /> : activeModule === "Financeiro" ? <FinanceModule onFeedback={feedback} billing={<BillingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} />} /> : activeModule === "Treinos" ? <TrainingModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : activeModule === "Aulas e reservas" ? <ClassesModule onFeedback={feedback} /> : activeModule === "Avaliações" ? <AssessmentsModule onFeedback={feedback} initialStudentId={focusStudentId ?? ""} /> : <WorkspaceModule title={activeModule} profile={profile} onFeedback={feedback} />}
         <AcademyFooter />
       </div>
       <WorkspaceMobileNav profile={profile} activeModule={activeModule} onNavigate={navigateToModule} onMore={() => setMobileMenuOpen(true)} />
@@ -1225,8 +1382,8 @@ function StudentProfilePhoto({ profile }: { profile: AccountProfile | null }) {
 function WorkspaceMobileNav({ profile, activeModule, onNavigate, onMore }: { profile: "Gestão" | "Professor"; activeModule: string; onNavigate: (module: string) => void; onMore: () => void }) {
   const items = profile === "Professor"
     ? [["Visão geral", LayoutDashboard], ["Alunos", Users], ["Treinos", Dumbbell], ["Aulas e reservas", CalendarDays]] as const
-    : [["Visão geral", LayoutDashboard], ["Alunos", Users], ["Professores", UserRoundCheck], ["Planos e mensalidades", WalletCards]] as const;
-  return <nav className="workspace-mobile-nav" aria-label="Acessos rápidos">{items.map(([label, Icon]) => <button key={label} className={activeModule === label ? "active" : ""} onClick={() => onNavigate(label)}><Icon /><span>{label === "Visão geral" ? "Início" : label === "Planos e mensalidades" ? "Planos" : label.split(" ")[0]}</span></button>)}<button onClick={onMore}><MoreHorizontal /><span>Mais</span></button></nav>;
+    : [["Visão geral", LayoutDashboard], ["Alunos", Users], ["Professores", UserRoundCheck], ["Financeiro", WalletCards]] as const;
+  return <nav className="workspace-mobile-nav" aria-label="Acessos rápidos">{items.map(([label, Icon]) => <button key={label} className={activeModule === label ? "active" : ""} onClick={() => onNavigate(label)}><Icon /><span>{label === "Visão geral" ? "Início" : label}</span></button>)}<button onClick={onMore}><MoreHorizontal /><span>Mais</span></button></nav>;
 }
 
 function WorkspaceMobileDrawer({ profile, visibleNav, activeModule, onNavigate, onClose, operatorName, operatorInitials, onSettings }: { profile: "Gestão" | "Professor"; visibleNav: ReadonlyArray<readonly [string, React.ElementType]>; activeModule: string; onNavigate: (module: string) => void; onClose: () => void; operatorName: string; operatorInitials: string; onSettings: () => void }) {
@@ -1274,7 +1431,7 @@ function StudentPlanPanel() {
 }
 
 type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
-type BillingStudent = { id: string; name: string; active: boolean; teacherId?: string | null };
+type BillingStudent = { id: string; name: string; active: boolean; teacherId?: string | null; birthDate?: string | null };
 type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type PaymentMethod = "pix" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
@@ -1282,8 +1439,8 @@ type MonthlyCharge = { id: string; studentId: string; studentName: string; planN
 type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
 type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
 type ExerciseType = "Força" | "Peso corporal" | "Alongamento" | "Cardio";
-type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
-type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type WorkoutTemplateRecord = { id: string; name: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
@@ -1387,7 +1544,7 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
       setAssessments(readLocalCollection<AssessmentRecord>(access.academyId, "assessments").sort((a, b) => b.date.localeCompare(a.date)));
       return;
     }
-    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false }; })));
+    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; birthDate?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", birthDate: data.birthDate ?? null, active: data.active !== false }; })));
     const unsubscribeAssessments = onSnapshot(collection(db, "academies", access.academyId, "assessments"), (snapshot) => setAssessments(snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date))));
     return () => { unsubscribeStudents(); unsubscribeAssessments(); };
   }, [access.academyId]);
@@ -1415,6 +1572,8 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
   }
 
   const selectedAssessments = assessments.filter((item) => item.studentId === selectedStudentId);
+  const selectedStudentProfile = students.find((item) => item.id === (selectedStudentId || studentId));
+  const selectedStudentAge = calculateAge(selectedStudentProfile?.birthDate);
   const selectedLatest = selectedAssessments[0] ?? null;
   const selectedPrevious = selectedAssessments[1] ?? null;
   const selectedDelta = (key: "weight" | "bodyFat" | "biceps" | "waist" | "chest" | "thigh") => {
@@ -1422,10 +1581,11 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
     const previous = selectedPrevious?.[key] ? Number(selectedPrevious[key]!.replace(",", ".")) : null;
     return current !== null && previous !== null ? current - previous : null;
   };
+  useEffect(() => { if (selectedStudentId && selectedLatest) scrollToContent(".staff-assessment-detail"); }, [selectedStudentId, selectedLatest?.id]);
 
   return (
     <div className="workspace-content module-view">
-      <section className="workspace-intro"><div><span>EVOLUÇÃO · GESTÃO</span><h2>Avaliações físicas</h2><p>Registre medidas básicas e acompanhe a evolução dos alunos.</p></div></section>
+      <section className="workspace-intro"><div><span>EVOLUÇÃO · GESTÃO</span><h2>Avaliações físicas</h2><p>{selectedStudentProfile ? `${selectedStudentProfile.name} · ${selectedStudentAge !== null ? `${selectedStudentAge} anos` : "data de nascimento não informada"}` : "Registre medidas básicas e acompanhe a evolução dos alunos."}</p></div></section>
       <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><AssessmentAnatomyReference /><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{assessments.length} {assessments.length === 1 ? "avaliação" : "avaliações"}</h3></div></header><label className="assessment-filter">Ver evolução de<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Selecione um aluno</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><div className="assessment-list">{assessments.length === 0 ? <div className="directory-empty"><Activity /><p>Nenhuma avaliação registrada ainda.</p></div> : assessments.map((item) => <button className="assessment-row assessment-row-button" key={item.id} onClick={() => setSelectedStudentId(item.studentId)}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></button>)}</div>{selectedLatest && <div className="staff-assessment-detail"><span>COMPARAÇÃO DO ALUNO</span><strong>{selectedLatest.studentName}</strong><small>{selectedPrevious ? `${formatDate(selectedPrevious.date)} → ${formatDate(selectedLatest.date)}` : "Primeira avaliação registrada"}</small><div className="staff-measure-grid">{([ ["Peso", "weight", "kg"], ["Gordura", "bodyFat", "%"], ["Bíceps", "biceps", "cm"], ["Cintura", "waist", "cm"] ] as const).map(([label, key, unit]) => { const value = selectedLatest[key] ? `${selectedLatest[key]} ${unit}` : "Não informado"; const delta = selectedDelta(key); return <div key={key}><small>{label}</small><strong>{value}</strong><span>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${unit}`}</span></div>; })}</div></div>}</article></section>
     </div>
   );
@@ -1510,6 +1670,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
 
   function editClass(item: ClassRecord) {
     setEditingClassId(item.id); setName(item.name); setInstructor(item.instructor); setDate(item.date); setTime(item.time); setCapacity(String(item.capacity));
+    scrollToContent(".classes-layout .plan-form-panel");
   }
 
   function clearForm() {
@@ -1620,6 +1781,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [exerciseSnapshotReady, setExerciseSnapshotReady] = useState(false);
   const [librarySyncAttempted, setLibrarySyncAttempted] = useState(false);
   const [exerciseName, setExerciseName] = useState("");
+  const [exerciseEquipment, setExerciseEquipment] = useState("");
   const [muscleGroup, setMuscleGroup] = useState("");
   const [secondaryMuscles, setSecondaryMuscles] = useState("");
   const [anatomyRegion, setAnatomyRegion] = useState("");
@@ -1653,7 +1815,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; teacherId?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
       setExerciseSnapshotReady(true);
     });
     const unsubscribeWorkouts = onSnapshot(collection(db, "academies", access.academyId, "workouts"), (snapshot) => {
@@ -1669,17 +1831,19 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     event.preventDefault();
     if (!db || !exerciseName.trim() || !muscleGroup.trim()) return;
     try {
-      await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), bodyRegion: "Membros superiores", phase: "Treino principal", exerciseType: "Força", createdBy: access.userId, createdAt: serverTimestamp() });
-      setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); onFeedback("Exercício cadastrado.");
+      const equipmentName = exerciseEquipment.trim() || equipmentForExercise(exerciseName.trim());
+      await addDoc(collection(db, "academies", access.academyId, "exercises"), { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), equipmentName, machineCode: machineCode(equipmentName), bodyRegion: "Membros superiores", phase: "Treino principal", exerciseType: "Força", createdBy: access.userId, createdAt: serverTimestamp() });
+      setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); onFeedback("Exercício cadastrado.");
     } catch { onFeedback("Não foi possível cadastrar o exercício."); }
   }
 
   function editExercise(exercise: ExerciseRecord) {
-    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
+    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setExerciseEquipment(exercise.equipmentName ?? equipmentForExercise(exercise.name)); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
+    scrollToContent(".training-form-panel");
   }
 
   function clearExerciseForm() {
-    setEditingExerciseId(null); setExerciseName(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
+    setEditingExerciseId(null); setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
   }
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
@@ -1690,6 +1854,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     if (!db) {
       const fallback = starterClassification(exerciseName.trim(), muscleGroup.trim());
+      const equipmentName = exerciseEquipment.trim() || equipmentForExercise(exerciseName.trim());
       const localExercise: ExerciseRecord = {
         id: editingExerciseId ?? `local-exercise-${Date.now()}`,
         name: capitalizeName(exerciseName.trim()),
@@ -1699,6 +1864,8 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
         anatomyRegion: anatomyRegion.trim(),
         instructions: instructions.trim(),
         videoUrl: videoUrl.trim(),
+        equipmentName,
+        machineCode: machineCode(equipmentName),
         bodyRegion,
         phase,
         exerciseType,
@@ -1710,7 +1877,8 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       onFeedback(editingExerciseId ? "Exercício atualizado no modo local." : "Exercício cadastrado no modo local.");
       return;
     }
-    const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), bodyRegion, phase, exerciseType, updatedBy: access.userId, updatedAt: serverTimestamp() };
+    const equipmentName = exerciseEquipment.trim() || equipmentForExercise(exerciseName.trim());
+    const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), equipmentName, machineCode: machineCode(equipmentName), bodyRegion, phase, exerciseType, updatedBy: access.userId, updatedAt: serverTimestamp() };
     try {
       if (editingExerciseId) {
         await updateDoc(doc(db, "academies", access.academyId, "exercises", editingExerciseId), data);
@@ -1742,7 +1910,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function seedStarterExercises() {
     if (!db) {
-      const seeded = starterExercises.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => ({ id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...starterClassification(name, muscleGroup) }));
+      const seeded = starterExercises.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => { const equipmentName = equipmentForExercise(name); return { id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...starterClassification(name, muscleGroup) }; });
       const nextExercises = exercises.length ? exercises : seeded;
       setExercises(nextExercises);
       writeLocalCollection(access.academyId, "exercises", nextExercises);
@@ -1752,19 +1920,20 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const firestore = db;
     const existingNames = new Set(exercises.map((exercise) => exercise.name.trim().toLocaleLowerCase("pt-BR")));
     const pending = starterExercises.filter(([name]) => !existingNames.has(name.toLocaleLowerCase("pt-BR")));
-    if (pending.length === 0) {
-      onFeedback("A biblioteca inicial já foi carregada.");
-      return;
-    }
     const batch = writeBatch(firestore);
+    exercises.forEach((exercise) => {
+      const equipmentName = exercise.equipmentName || equipmentForExercise(exercise.name);
+      batch.set(doc(firestore, "academies", access.academyId, "exercises", exercise.id), { equipmentName, machineCode: exercise.machineCode || machineCode(equipmentName) }, { merge: true });
+    });
     pending.forEach(([name, primary, secondary, region]) => {
       const exerciseRef = doc(collection(firestore, "academies", access.academyId, "exercises"));
       const classification = starterClassification(name, primary);
-      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, createdBy: access.userId, createdAt: serverTimestamp(), source: "starter-library" });
+      const equipmentName = equipmentForExercise(name);
+      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, createdBy: access.userId, createdAt: serverTimestamp(), source: "starter-library" });
     });
     try {
       await batch.commit();
-      onFeedback(`${pending.length} exercícios adicionados à biblioteca.`);
+      onFeedback(pending.length ? `${pending.length} exercícios adicionados e máquinas identificadas.` : "Equipamentos e códigos das máquinas atualizados.");
     } catch {
       onFeedback("Não foi possível carregar a biblioteca inicial.");
     }
@@ -1798,7 +1967,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (!student) { onFeedback("Aluno não encontrado."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
       const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
@@ -1833,7 +2002,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (preparationCount < 1 || preparationCount > 3) { onFeedback("Inclua de 1 a 3 exercícios de preparação no modelo."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
       const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
@@ -1864,19 +2033,20 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     setWorkoutName(template.name);
     setSelectedExercises(template.exerciseIds);
     setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
+    scrollToContent(".training-layout-redesigned .training-form-panel");
     onFeedback("Modelo carregado. Adapte os dados antes de publicar.");
   }
 
   function beginTemplateEdit(template: WorkoutTemplateRecord) {
     setEditingTemplateId(template.id); setEditingWorkoutId(null); setWorkoutName(template.name); setStudentId(""); setSelectedExercises(template.exerciseIds);
     setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
-    window.scrollTo({ top: 0, behavior: "smooth" }); onFeedback("Modelo carregado para edição.");
+    scrollToContent(".training-layout-redesigned .training-form-panel"); onFeedback("Modelo carregado para edição.");
   }
 
   function beginWorkoutEdit(workout: WorkoutRecord) {
     setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setStudentId(workout.studentId); setSelectedExercises(workout.exerciseIds);
     setExerciseDetails(Object.fromEntries((workout.exerciseDetails ?? []).map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
-    window.scrollTo({ top: 0, behavior: "smooth" }); onFeedback("Treino carregado para edição.");
+    scrollToContent(".training-layout-redesigned .training-form-panel"); onFeedback("Treino carregado para edição.");
   }
 
   async function removeTemplate(template: WorkoutTemplateRecord) {
@@ -1947,6 +2117,8 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   const [paymentCharge, setPaymentCharge] = useState<MonthlyCharge | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
   const [savingPayment, setSavingPayment] = useState(false);
+  const [hiddenBillingCards, setHiddenBillingCards] = useState<string[]>(["plan", "charge"]);
+  function toggleBillingCard(card: string) { setHiddenBillingCards((current) => current.includes(card) ? current.filter((item) => item !== card) : [...current, card]); }
 
   useEffect(() => {
     if (!db) {
@@ -2070,11 +2242,12 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
-      <section className="billing-layout">
+      <nav className="billing-visibility" aria-label="Exibir ou ocultar cartões financeiros">{[["plan", "Novo plano"], ["charge", "Nova cobrança"], ["summary", "Resumo financeiro"], ["charges", "Mensalidades"]].map(([id, label]) => <button type="button" key={id} className={hiddenBillingCards.includes(id) ? "" : "active"} onClick={() => toggleBillingCard(id)}>{hiddenBillingCards.includes(id) ? <Eye /> : <EyeOff />} {hiddenBillingCards.includes(id) ? `Mostrar ${label}` : `Ocultar ${label}`}</button>)}</nav>
+      <section className={`billing-layout ${hiddenBillingCards.map((card) => `hide-${card}`).join(" ")}`}>
         <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Cadastrar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Valor<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar plano"}</button></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
         <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
-      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${charge.paymentMethod}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
+      {!hiddenBillingCards.includes("charges") && <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${charge.paymentMethod}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>}
       {paymentCharge && <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="payment-title"><section className="payment-modal"><header><div><span>BAIXA MANUAL</span><h2 id="payment-title">Registrar pagamento</h2><p>{paymentCharge.studentName} · R$ {paymentCharge.amount.toFixed(2).replace(".", ",")}</p></div><button aria-label="Fechar registro de pagamento" onClick={() => setPaymentCharge(null)}><X /></button></header><div className="payment-method-grid">{([['pix', 'Pix'], ['maquininha', 'Maquininha'], ['dinheiro', 'Dinheiro'], ['transferencia', 'Transferência'], ['boleto', 'Boleto']] as const).map(([value, label]) => <button key={value} className={paymentMethod === value ? "active" : ""} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><div className="payment-modal-actions"><button className="modal-secondary" onClick={() => setPaymentCharge(null)}>Cancelar</button><button className="detail-save" onClick={confirmPayment} disabled={savingPayment}>{savingPayment ? "Salvando..." : "Confirmar pagamento"}</button></div></section></div>}
     </div>
   );
@@ -2169,6 +2342,11 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editCpf, setEditCpf] = useState("");
+  const [editBirthDate, setEditBirthDate] = useState("");
+  const [editCref, setEditCref] = useState("");
+  const [editSpecialty, setEditSpecialty] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -2178,8 +2356,8 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
     }
     return onSnapshot(collection(db, "academies", access.academyId, "teachers"), (snapshot) => {
       setTeachers(snapshot.docs.map((teacher) => {
-        const data = teacher.data() as { name?: string; email?: string | null; active?: boolean };
-        return { id: teacher.id, name: data.name ?? "Professor sem nome", email: data.email ?? null, active: data.active !== false };
+        const data = teacher.data() as Omit<RegisteredTeacher, "id">;
+        return { id: teacher.id, name: data.name ?? "Professor sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, cref: data.cref ?? null, specialty: data.specialty ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os professores.", error));
   }, [access.academyId]);
@@ -2191,6 +2369,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
     if (!selectedTeacher) return;
     setEditName(selectedTeacher.name);
     setEditEmail(selectedTeacher.email ?? "");
+    setEditPhone(selectedTeacher.phone ?? ""); setEditCpf(selectedTeacher.cpf ?? ""); setEditBirthDate(selectedTeacher.birthDate ?? ""); setEditCref(selectedTeacher.cref ?? ""); setEditSpecialty(selectedTeacher.specialty ?? "");
   }, [selectedTeacher]);
 
   async function saveTeacher(event: React.FormEvent<HTMLFormElement>) {
@@ -2200,7 +2379,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
       return;
     }
     if (!db) {
-      const nextTeachers = teachers.map((teacher) => teacher.id === selectedTeacher.id ? { ...teacher, name: capitalizeName(editName.trim()), email: editEmail.trim() || null } : teacher);
+      const nextTeachers = teachers.map((teacher) => teacher.id === selectedTeacher.id ? { ...teacher, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone || null, cpf: editCpf || null, birthDate: editBirthDate || null, cref: editCref.trim() || null, specialty: capitalizeName(editSpecialty.trim()) || null } : teacher);
       setTeachers(nextTeachers);
       writeLocalCollection(access.academyId, "teachers", nextTeachers);
       onFeedback("Dados do professor atualizados no modo local.");
@@ -2208,7 +2387,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
     }
     setSaving(true);
     try {
-      await updateDoc(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { name: capitalizeName(editName.trim()), email: editEmail.trim() || null });
+      await updateDoc(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone || null, cpf: editCpf || null, birthDate: editBirthDate || null, cref: editCref.trim() || null, specialty: capitalizeName(editSpecialty.trim()) || null });
       onFeedback("Dados do professor atualizados.");
     } catch {
       onFeedback("Não foi possível atualizar este professor.");
@@ -2246,14 +2425,27 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
           <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
           <div className="directory-list">
             {filteredTeachers.length === 0 ? <div className="directory-empty"><UserRoundCheck /><p>{teachers.length === 0 ? "Nenhum professor cadastrado ainda." : "Nenhum professor encontrado."}</p></div> : filteredTeachers.map((teacher) => (
-              <button className={selectedId === teacher.id ? "directory-row selected" : "directory-row"} key={teacher.id} onClick={() => setSelectedId(teacher.id)}>
+              <button className={selectedId === teacher.id ? "directory-row selected" : "directory-row"} key={teacher.id} onClick={() => { setSelectedId(teacher.id); scrollToContent(".student-detail-panel"); }}>
                 <i>{teacher.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{teacher.name}</strong><small>{teacher.email || "E-mail ainda não informado"}</small></span><em className={teacher.active === false ? "inactive" : ""}>{teacher.active === false ? "Suspenso" : "Ativo"}</em><ChevronRight />
               </button>
             ))}
           </div>
         </article>
         <aside className="workspace-panel student-detail-panel">
-          {selectedTeacher ? <><header><div><span>PERFIL DO PROFESSOR</span><h3>Editar cadastro</h3></div><span className={selectedTeacher.active === false ? "detail-status inactive" : "detail-status"}>{selectedTeacher.active === false ? "Suspenso" : "Ativo"}</span></header><form className="student-detail-form" onSubmit={saveTeacher}><label>Nome completo<input value={editName} onChange={(event) => setEditName(capitalizeName(event.target.value))} required /></label><label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button></form><button className="detail-toggle" onClick={toggleTeacher}>{selectedTeacher.active === false ? "Reativar acesso" : "Suspender acesso"}</button></> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um professor</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
+          {selectedTeacher ? <>
+            <header><div><span>PERFIL DO PROFESSOR</span><h3>{selectedTeacher.name}</h3><p className="student-profile-subtitle">{selectedTeacher.specialty || "Especialidade não informada"}</p></div><span className={selectedTeacher.active === false ? "detail-status inactive" : "detail-status"}>{selectedTeacher.active === false ? "Suspenso" : "Ativo"}</span></header>
+            <form className="student-detail-form" onSubmit={saveTeacher}>
+              <label>Nome completo<input value={editName} onChange={(event) => setEditName(capitalizeName(event.target.value))} required /></label>
+              <label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
+              <label>Telefone<input value={editPhone} onChange={(event) => setEditPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label>
+              <label>CPF<input value={editCpf} onChange={(event) => setEditCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label>
+              <label>Data de nascimento<input type="date" value={editBirthDate} onChange={(event) => setEditBirthDate(event.target.value)} max={todayIso()} /></label>
+              <label>CREF<input value={editCref} onChange={(event) => setEditCref(event.target.value.toUpperCase())} placeholder="Ex.: 012345-G/SP" /></label>
+              <label>Especialidade<input value={editSpecialty} onChange={(event) => setEditSpecialty(capitalizeName(event.target.value))} placeholder="Ex.: Musculação e treinamento funcional" /></label>
+              <button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</button>
+            </form>
+            <button className="detail-toggle" onClick={toggleTeacher}>{selectedTeacher.active === false ? "Reativar acesso" : "Suspender acesso"}</button>
+          </> : <div className="directory-empty detail-empty"><UserRoundCheck /><h3>Selecione um professor</h3><p>Escolha um cadastro para visualizar e editar os dados.</p></div>}
         </aside>
       </section>
     </div>
@@ -2264,18 +2456,19 @@ function StudentMessagesPanel({ messages, body, sending, onBodyChange, onSend }:
   return <section className="student-profile-messages"><div className="student-profile-message-heading"><span><MessageCircle /> MENSAGEM INTERNA</span><small>{messages.length} enviada(s)</small></div>{messages.length > 0 && <div className="student-message-history">{messages.slice(0, 2).map((message) => <div key={message.id}><strong>{message.senderName}</strong><p>{message.body}</p></div>)}</div>}<div className="student-message-compose"><textarea value={body} onChange={(event) => onBodyChange(event.target.value)} placeholder="Escreva uma orientação ou lembrete para o aluno..." /><button type="button" onClick={onSend} disabled={sending || !body.trim()}>{sending ? "Enviando..." : "Enviar mensagem"}</button></div></section>;
 }
 
-function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = "" }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void; initialSearch?: string }) {
+function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = "", initialStudentId = "" }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void; initialSearch?: string; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialStudentId || null);
   const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editCpf, setEditCpf] = useState("");
+  const [editBirthDate, setEditBirthDate] = useState("");
   const [editPlan, setEditPlan] = useState("Mensal");
   const [editTeacherId, setEditTeacherId] = useState("");
   const [editAnatomyProfile, setEditAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
@@ -2291,6 +2484,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => setSearch(initialSearch), [initialSearch]);
+  useEffect(() => { if (initialStudentId) { setSelectedId(initialStudentId); scrollToContent(".student-detail-panel"); } }, [initialStudentId]);
 
   useEffect(() => {
     if (!db) {
@@ -2306,8 +2500,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; email?: string | null; phone?: string | null; cpf?: string | null; plan?: string; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
-        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
+        const data = student.data() as { name?: string; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     if (access.role !== "admin") return unsubscribeStudents;
@@ -2335,6 +2529,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     setEditEmail(selectedStudent.email ?? "");
     setEditPhone(selectedStudent.phone ?? "");
     setEditCpf(selectedStudent.cpf ?? "");
+    setEditBirthDate(selectedStudent.birthDate ?? "");
     setEditPlan(selectedStudent.plan);
     setEditTeacherId(selectedStudent.teacherId ?? "");
     setEditAnatomyProfile(selectedStudent.anatomyProfile === "feminino" ? "feminino" : "masculino");
@@ -2385,7 +2580,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     if (editName.trim().length < 2) { onFeedback("Informe o nome completo do aluno."); return; }
     if (!validEmail(editEmail.trim())) { onFeedback("Informe um e-mail válido ou deixe o campo vazio."); return; }
     if (!db) {
-      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : student);
+      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, birthDate: editBirthDate || null, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : student);
       setStudents(nextStudents);
       writeLocalCollection(access.academyId, "students", nextStudents);
       onFeedback("Dados do aluno atualizados no modo local.");
@@ -2398,6 +2593,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         email: editEmail.trim() || null,
         phone: editPhone.trim() || null,
         cpf: editCpf.trim() || null,
+        birthDate: editBirthDate || null,
       };
       await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), access.role === "admin" ? { ...personalData, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : personalData);
       onFeedback("Dados do aluno atualizados.");
@@ -2497,7 +2693,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
           <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
           <div className="directory-list">
             {filteredStudents.length === 0 ? <div className="directory-empty"><Users /><p>{students.length === 0 ? "Nenhum aluno cadastrado ainda." : "Nenhum aluno encontrado."}</p></div> : filteredStudents.map((student) => (
-              <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => setSelectedId(student.id)}>
+              <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => { setSelectedId(student.id); scrollToContent(".student-detail-panel"); }}>
                 <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small></span><em className={student.active === false ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.plan}</em><ChevronRight />
               </button>
             ))}
@@ -2508,7 +2704,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
             <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
             <div className="student-profile-overview"><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>VISITAS REGISTRADAS</small><strong>{studentExecutions.length}</strong></div></div>
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{workout.name}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
-            <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}>Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}>Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onNavigate("Planos e mensalidades", selectedStudent.id)}>Ver financeiro</button>}</div>
+            <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}>Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}>Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onNavigate("Financeiro", selectedStudent.id)}>Ver financeiro</button>}</div>
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <div className="student-profile-divider"><span>CADASTRO E ACESSO</span></div>
               {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
@@ -2516,6 +2712,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
               <label>Login de contato<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} autoComplete="email" placeholder="E-mail opcional" /></label>
               <label>Telefone<input value={editPhone} onChange={(event) => setEditPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label>
               <label>CPF<input value={editCpf} onChange={(event) => setEditCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label>
+              <label>Data de nascimento<input type="date" value={editBirthDate} onChange={(event) => setEditBirthDate(event.target.value)} max={todayIso()} /><small>{calculateAge(editBirthDate) !== null ? `${calculateAge(editBirthDate)} anos` : "Usada para idade e mensagem de aniversário."}</small></label>
               <label>Perfil anatômico<select value={editAnatomyProfile} onChange={(event) => setEditAnatomyProfile(event.target.value === "feminino" ? "feminino" : "masculino")}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>Usado para mostrar o boneco correspondente no treino.</small></label>
               {access.role === "admin" ? <label>Plano<select value={editPlan} onChange={(event) => setEditPlan(event.target.value)}><option value="Sem plano">Sem plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.name}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <div className="protected-field"><span>Plano atual</span><strong>{selectedStudent.plan}</strong><small>Alteração exclusiva da gestão.</small></div>}
               {access.role === "admin" && <label>Professor responsável<select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)}><option value="">Sem professor definido</option>{teachers.filter((teacher) => teacher.active !== false).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></label>}
@@ -2576,6 +2773,7 @@ function ManagerProfilePanel({ profile, onClose, onFeedback }: { profile: Accoun
         window.dispatchEvent(new Event("orquestra-fit:profile-updated"));
       } else {
         await setDoc(doc(db, "users", access.userId), { ...normalized, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, updatedAt: serverTimestamp() }, { merge: true });
       }
       onFeedback("Perfil atualizado.");
       onClose();
@@ -2677,8 +2875,8 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
     }
     const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => {
       setRegisteredStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; plan?: string; active?: boolean };
-        return { id: student.id, name: data.name ?? "Aluno sem nome", plan: data.plan ?? "Sem plano", active: data.active };
+        const data = student.data() as { name?: string; plan?: string; birthDate?: string | null; active?: boolean };
+        return { id: student.id, name: data.name ?? "Aluno sem nome", plan: data.plan ?? "Sem plano", birthDate: data.birthDate ?? null, active: data.active };
       }));
     }, (error) => console.error("Não foi possível atualizar a lista de alunos.", error));
     const unsubscribeCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
@@ -2706,12 +2904,14 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const dashboardOverdue = dashboardCharges.filter((charge) => chargeViewStatus(charge) === "overdue");
   const dashboardOpen = dashboardCharges.filter((charge) => charge.status !== "paid").reduce((total, charge) => total + charge.amount, 0);
   const dashboardPercent = dashboardTotal ? Math.round((dashboardReceived / dashboardTotal) * 100) : 0;
+  const today = new Date();
+  const birthdayStudents = registeredStudents.filter((student) => { const parts = student.birthDate?.split("-").map(Number); return parts?.[1] === today.getMonth() + 1 && parts?.[2] === today.getDate(); });
   const money = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
   return (
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange} onNewStudent={() => setNewMemberRole("student")}>
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>OPERAÇÃO DA ACADEMIA · DADOS REAIS</span><h2>Olá, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
+          <div><span>{brazilLongDate()}</span><h2>{brazilGreeting()}, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
           <button onClick={() => setNewMemberRole("student")}><Plus /> Novo aluno</button>
         </section>
         <div className="dashboard-metrics-heading"><span>INDICADORES</span><button type="button" onClick={() => setMetricsVisible((visible) => !visible)} aria-label={metricsVisible ? "Ocultar indicadores" : "Mostrar indicadores"}>{metricsVisible ? <EyeOff /> : <Eye />}<span>{metricsVisible ? "Ocultar valores" : "Mostrar valores"}</span></button></div>
@@ -2721,6 +2921,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
           <MetricCard icon={Banknote} label="Em aberto" value={metricsVisible ? money(dashboardOpen) : "R$ ••••"} note={metricsVisible ? `${dashboardCharges.filter((charge) => charge.status !== "paid").length} mensalidades` : "Valor protegido"} warning={dashboardOpen > 0} />
           <MetricCard icon={Activity} label="Frequência hoje" value={metricsVisible ? "—" : "••••"} note={metricsVisible ? "Sem registros ainda" : "Valor protegido"} />
         </section>
+        {birthdayStudents.length > 0 && <section className="birthday-alert"><Sparkles /><div><small>ANIVERSARIANTE DO DIA</small><strong>{birthdayStudents.map((student) => student.name).join(", ")}</strong><span>{birthdayStudents.length === 1 ? "Hoje é aniversário deste aluno." : "Hoje é aniversário destes alunos."}</span></div><button type="button" onClick={() => navigateWorkspace("Alunos", birthdayStudents[0].id)}>Abrir cadastro <ChevronRight /></button></section>}
         <section className="operations-grid">
           <article className="workspace-panel student-table-panel">
             <header><div><span>OPERAÇÃO</span><h3>Alunos para acompanhar</h3><p>Planos, frequência e próximos treinos.</p></div><button onClick={() => navigateWorkspace("Alunos")}>Ver todos <ArrowRight /></button></header>
@@ -2738,7 +2939,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
             </div>
           </article>
           <aside className="workspace-panel finance-card">
-            <header><div><span>FINANCEIRO</span><h3>Recebimentos do mês</h3></div><button aria-label="Abrir financeiro" onClick={() => navigateWorkspace("Planos e mensalidades")}><MoreHorizontal /></button></header>
+            <header><div><span>FINANCEIRO</span><h3>Recebimentos do mês</h3></div><button aria-label="Abrir financeiro" onClick={() => navigateWorkspace("Financeiro")}><MoreHorizontal /></button></header>
             <div className="finance-total"><small>PREVISTO</small><strong>{money(dashboardTotal)}</strong><span>{dashboardCharges.length} mensalidades cadastradas</span></div>
             <div className="finance-bar"><i style={{ width: `${dashboardPercent}%` }} /><b style={{ width: `${Math.max(0, 100 - dashboardPercent)}%` }} /></div>
             <div className="finance-legend">
@@ -2746,7 +2947,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
               <div><span><i className="pending" />Em aberto</span><strong>{money(dashboardOpen)}</strong></div>
               <div><span><i className="overdue" />Em atraso</span><strong>{money(dashboardOverdue.reduce((total, charge) => total + charge.amount, 0))}</strong></div>
             </div>
-            <button className="outline-action" onClick={() => navigateWorkspace("Planos e mensalidades")}>Abrir financeiro <ArrowRight /></button>
+            <button className="outline-action" onClick={() => navigateWorkspace("Financeiro")}>Abrir financeiro <ArrowRight /></button>
           </aside>
         </section>
         <section className="admin-lower">
@@ -2763,7 +2964,12 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
   const access = useAccess();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [cref, setCref] = useState("");
+  const [specialty, setSpecialty] = useState("");
   const [plan, setPlan] = useState("Mensal");
+  const [birthDate, setBirthDate] = useState("");
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
   const [code, setCode] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -2786,7 +2992,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
           role,
           invitedName: capitalizeName(name.trim()),
           invitedEmail: email.trim() || null,
-          ...(role === "student" ? { plan, anatomyProfile } : {}),
+          ...(role === "student" ? { plan, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
           active: true,
           createdBy: access.userId,
           createdAt: serverTimestamp(),
@@ -2795,10 +3001,10 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
         const id = `local-${role}-${Date.now()}`;
         if (role === "student") {
           const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, plan, teacherId: null, anatomyProfile, active: true }]);
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, birthDate: birthDate || null, plan, teacherId: null, anatomyProfile, active: true }]);
         } else {
           const teachers = readLocalCollection<RegisteredTeacher>(access.academyId, "teachers");
-          writeLocalCollection(access.academyId, "teachers", [...teachers, { id, name: capitalizeName(name.trim()), email: email.trim() || null, active: true }]);
+          writeLocalCollection(access.academyId, "teachers", [...teachers, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null, active: true }]);
         }
       }
       setCode(invitationCode);
@@ -2818,7 +3024,9 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
           <form className="student-form" onSubmit={submit}>
             <label>Nome completo<input value={name} onChange={(event) => setName(capitalizeName(event.target.value))} autoComplete="name" required /></label>
             <label>E-mail Google <small>(opcional)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
+            {role === "teacher" && <><label>Telefone<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} /></label><label>CREF<input value={cref} onChange={(event) => setCref(event.target.value.toUpperCase())} placeholder="Ex.: 012345-G/SP" /></label><label>Especialidade<input value={specialty} onChange={(event) => setSpecialty(capitalizeName(event.target.value))} placeholder="Ex.: Musculação" /></label></>}
             {role === "student" && <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>}
+            {role === "student" && <label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} required /><small>Usada para calcular a idade e felicitar o aluno no aniversário.</small></label>}
             {role === "student" && <label>Perfil anatômico<select value={anatomyProfile} onChange={(event) => setAnatomyProfile(event.target.value === "feminino" ? "feminino" : "masculino")}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>Define o modelo exibido durante o treino.</small></label>}
             {error && <p className="auth-status" role="status">{error}</p>}
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
@@ -2849,7 +3057,7 @@ function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeCha
     <WorkspaceShell profile="Professor" theme={theme} onThemeChange={onThemeChange}>
       {trainingOpen ? <TrainingModule onFeedback={feedback} /> : <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>ACOMPANHAMENTO · PROFESSOR</span><h2>Olá, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
+          <div><span>{brazilLongDate()}</span><h2>{brazilGreeting()}, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Seus alunos, no ritmo certo. Acompanhe quem precisa de treino novo, revisão ou avaliação.</p></div>
           <button onClick={() => setTrainingOpen(true)}><Plus /> Criar treino</button>
         </section>
         <section className="professor-summary">
@@ -2917,6 +3125,7 @@ function ManagerAnnouncementComposer() {
   const announcements = useAcademyAnnouncements();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   async function publish(event: React.FormEvent) {
     event.preventDefault();
@@ -2925,25 +3134,44 @@ function ManagerAnnouncementComposer() {
     const senderName = profile?.name || profile?.displayName || accountName(access.user.displayName, access.user.email);
     try {
       if (!db) {
-        const announcement: AcademyAnnouncement = { id: `local-announcement-${Date.now()}`, title: capitalizeName(title.trim()), body: body.trim(), senderName };
-        writeLocalCollection(access.academyId, "announcements", [announcement, ...announcements]);
+        const announcement: AcademyAnnouncement = { id: editingId ?? `local-announcement-${Date.now()}`, title: capitalizeName(title.trim()), body: body.trim(), senderName };
+        writeLocalCollection(access.academyId, "announcements", editingId ? announcements.map((item) => item.id === editingId ? announcement : item) : [announcement, ...announcements]);
       } else {
-        await addDoc(collection(db, "academies", access.academyId, "announcements"), { title: capitalizeName(title.trim()), body: body.trim(), senderName, senderId: access.userId, createdAt: serverTimestamp() });
+        const data = { title: capitalizeName(title.trim()), body: body.trim(), senderName, senderId: access.userId, updatedAt: serverTimestamp() };
+        if (editingId) await updateDoc(doc(db, "academies", access.academyId, "announcements", editingId), data);
+        else await addDoc(collection(db, "academies", access.academyId, "announcements"), { ...data, createdAt: serverTimestamp() });
       }
-      setTitle(""); setBody(""); feedback("Comunicado publicado para toda a academia.");
+      setTitle(""); setBody(""); setEditingId(null); feedback(editingId ? "Comunicado atualizado." : "Comunicado publicado para toda a academia.");
     } catch { feedback("Não foi possível publicar o comunicado."); }
     finally { setSending(false); }
   }
+  function editAnnouncement(item: AcademyAnnouncement) { setEditingId(item.id); setTitle(item.title); setBody(item.body); scrollToContent(".announcement-composer"); }
+  async function removeAnnouncement(item: AcademyAnnouncement) {
+    if (!window.confirm(`Excluir o comunicado “${item.title}”?`)) return;
+    try {
+      if (!db) writeLocalCollection(access.academyId, "announcements", announcements.filter((current) => current.id !== item.id));
+      else await deleteDoc(doc(db, "academies", access.academyId, "announcements", item.id));
+      if (editingId === item.id) { setEditingId(null); setTitle(""); setBody(""); }
+      feedback("Comunicado excluído.");
+    } catch { feedback("Não foi possível excluir o comunicado."); }
+  }
   return <section className="workspace-panel announcement-composer">
     <header><div><span>COMUNICAÇÃO GERAL</span><h3>Comunicado da academia</h3><p>O aviso aparece na página inicial e nas notificações de todos.</p></div><Bell /></header>
-    <form onSubmit={publish}><label>Título<input value={title} onChange={(event) => setTitle(capitalizeName(event.target.value))} placeholder="Ex.: Horário especial neste sábado" maxLength={80} /></label><label>Mensagem<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Escreva um aviso curto e objetivo." maxLength={280} /></label><button type="submit" disabled={sending || !title.trim() || !body.trim()}>{sending ? "Publicando..." : "Publicar para todos"}</button></form>
-    {announcements[0] && <div className="announcement-latest"><span>ÚLTIMO PUBLICADO</span><strong>{announcements[0].title}</strong><p>{announcements[0].body}</p></div>}
+    <form onSubmit={publish}><label>Título<input value={title} onChange={(event) => setTitle(capitalizeName(event.target.value))} placeholder="Ex.: Horário especial neste sábado" maxLength={80} /></label><label>Mensagem<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Escreva um aviso curto e objetivo." maxLength={280} /></label><button type="submit" disabled={sending || !title.trim() || !body.trim()}>{sending ? "Salvando..." : editingId ? "Salvar comunicado" : "Publicar para todos"}</button></form>
+    {announcements.slice(0, 5).map((item) => <div className="announcement-latest" key={item.id}><span>COMUNICADO PUBLICADO</span><strong>{item.title}</strong><p>{item.body}</p><div className="announcement-actions"><button type="button" onClick={() => editAnnouncement(item)}>Editar</button><button type="button" onClick={() => void removeAnnouncement(item)}>Excluir</button></div></div>)}
   </section>;
 }
 
 function AcademyFooter() {
   const access = useAccess();
-  const [academy, setAcademy] = useState<{ instagramUrl?: string; siteUrl?: string }>({});
-  useEffect(() => { if (!db) return; return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => setAcademy(snapshot.exists() ? snapshot.data() as { instagramUrl?: string; siteUrl?: string } : {})); }, [access.academyId]);
-  return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div>{academy.instagramUrl && <a href={academy.instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{academy.siteUrl && <a href={academy.siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div></footer>;
+  const profile = useRegisteredProfile();
+  const [academy, setAcademy] = useState<{ phone?: string; instagramUrl?: string; siteUrl?: string }>({});
+  useEffect(() => { if (!db) { setAcademy({ phone: profile?.phone, instagramUrl: profile?.instagramUrl, siteUrl: profile?.siteUrl }); return; } return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => setAcademy(snapshot.exists() ? snapshot.data() as { phone?: string; instagramUrl?: string; siteUrl?: string } : {})); }, [access.academyId, profile?.instagramUrl, profile?.phone, profile?.siteUrl]);
+  const profileFallback = access.role === "admin" ? profile : null;
+  const contactPhone = academy.phone || profileFallback?.phone;
+  const instagramUrl = academy.instagramUrl || profileFallback?.instagramUrl;
+  const siteUrl = academy.siteUrl || profileFallback?.siteUrl;
+  const whatsappNumber = contactPhone?.replace(/\D/g, "");
+  const whatsappDestination = whatsappNumber?.startsWith("55") ? whatsappNumber : `55${whatsappNumber}`;
+  return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div>{whatsappNumber && <a href={`https://wa.me/${whatsappDestination}`} target="_blank" rel="noreferrer">WhatsApp · {contactPhone}</a>}{instagramUrl && <a href={instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{siteUrl && <a href={siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div></footer>;
 }

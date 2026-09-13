@@ -199,7 +199,7 @@ service cloud.firestore {
     match /academies/{academyId}/announcements/{announcementId} {
       allow read: if belongsToAcademy(academyId);
       allow create, update: if isAdmin(academyId);
-      allow delete: if false;
+      allow delete: if isAdmin(academyId);
     }
 
     match /academies/{academyId}/{document=**} {
