@@ -10,6 +10,7 @@ type Charge = { id: string; studentName: string; planName: string; amount: numbe
 type ExpenseKind = "payable" | "supplier" | "fixed";
 type Expense = { id: string; kind: ExpenseKind; description: string; supplier?: string; amount: number; dueDate: string; status: "pending" | "paid" };
 type Invoice = { id: string; number: string; customer: string; amount: number; issueDate: string; status: "issued" | "cancelled" };
+type Sale = { id: string; description: string; studentName?: string; amount: number; paymentMethod?: string; date: string };
 type Tab = "overview" | "plans" | "payable" | "supplier" | "invoices" | "fixed" | "reports";
 
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -31,6 +32,7 @@ export function FinanceModule({ onFeedback, billing }: { onFeedback: (message: s
   const [charges, setCharges] = useState<Charge[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
   const [description, setDescription] = useState("");
   const [supplier, setSupplier] = useState("");
   const [amount, setAmount] = useState("");
@@ -45,20 +47,22 @@ export function FinanceModule({ onFeedback, billing }: { onFeedback: (message: s
   useEffect(() => {
     if (!db) {
       const read = <T,>(name: string): T[] => { try { return JSON.parse(localStorage.getItem(`orquestra-fit:${access.academyId}:${name}`) || "[]") as T[]; } catch { return []; } };
-      const sync = () => { setCharges(read<Charge>("monthlyCharges")); setExpenses(read<Expense>("financialExpenses")); setInvoices(read<Invoice>("invoices")); };
+      const sync = () => { setCharges(read<Charge>("monthlyCharges")); setExpenses(read<Expense>("financialExpenses")); setInvoices(read<Invoice>("invoices")); setSales(read<Sale>("financialSales").length ? read<Sale>("financialSales") : read<Sale>("stock-financialSales")); };
       sync(); window.addEventListener("orquestra-fit:collection-updated", sync); return () => window.removeEventListener("orquestra-fit:collection-updated", sync);
     }
     const offCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snap) => setCharges(snap.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<Charge, "id">), amount: Number(item.data().amount || 0) }))));
     const offExpenses = onSnapshot(collection(db, "academies", access.academyId, "financialExpenses"), (snap) => setExpenses(snap.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<Expense, "id">), amount: Number(item.data().amount || 0) }))));
     const offInvoices = onSnapshot(collection(db, "academies", access.academyId, "invoices"), (snap) => setInvoices(snap.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<Invoice, "id">), amount: Number(item.data().amount || 0) }))));
-    return () => { offCharges(); offExpenses(); offInvoices(); };
+    const offSales = onSnapshot(collection(db, "academies", access.academyId, "financialSales"), (snap) => setSales(snap.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<Sale, "id">), amount: Number(item.data().amount || 0) }))));
+    return () => { offCharges(); offExpenses(); offInvoices(); offSales(); };
   }, [access.academyId]);
 
   const inPeriod = (date: string) => date >= from && date <= to;
   const reportCharges = charges.filter((item) => inPeriod(item.dueDate));
+  const reportSales = sales.filter((item) => inPeriod(item.date.slice(0, 10)));
   const reportExpenses = expenses.filter((item) => inPeriod(item.dueDate));
-  const revenue = reportCharges.filter((item) => item.status === "paid").reduce((sum, item) => sum + item.amount, 0);
-  const expectedRevenue = reportCharges.reduce((sum, item) => sum + item.amount, 0);
+  const revenue = reportCharges.filter((item) => item.status === "paid").reduce((sum, item) => sum + item.amount, 0) + reportSales.reduce((sum, item) => sum + item.amount, 0);
+  const expectedRevenue = reportCharges.reduce((sum, item) => sum + item.amount, 0) + reportSales.reduce((sum, item) => sum + item.amount, 0);
   const paidExpenses = reportExpenses.filter((item) => item.status === "paid").reduce((sum, item) => sum + item.amount, 0);
   const debt = reportExpenses.filter((item) => item.status !== "paid").reduce((sum, item) => sum + item.amount, 0);
   const profit = revenue - paidExpenses;
