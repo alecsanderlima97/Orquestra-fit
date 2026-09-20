@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function member(academyId) {
+      return firestore.get(/databases/(default)/documents/academies/$(academyId)/members/$(request.auth.uid));
+    }
+
+    function isManager(academyId) {
+      return signedIn()
+        && member(academyId).data.active == true
+        && member(academyId).data.role == 'admin';
+    }
+
+    match /academies/{academyId}/finance/{allPaths=**} {
+      allow read, delete: if isManager(academyId);
+      allow create, update: if isManager(academyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf|image/(jpeg|png|webp)');
+    }
+  }
+}

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
-import { FinanceModule } from "@/components/finance/finance-module";
+import { FinanceModule } from "@/components/finance/finance-module-v2";
 import { AppGuide } from "@/components/assistant/app-guide";
 import { StockModule } from "@/components/stock/stock-module";
 import { auth, db, functions } from "@/lib/firebase/client";
