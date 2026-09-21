@@ -1244,10 +1244,11 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
   const [saving, setSaving] = useState(false);
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
+  const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">>>({});
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(0);
   const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
-  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource(exercise, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
+  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource({ ...exercise, ...currentMedia, name: exercise.name }, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` }; }) : workoutPlan;
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const progress = Math.round((completedSets.length / totalSets) * 100);
   useEffect(() => {
@@ -1263,6 +1264,13 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
     }
     return onSnapshot(doc(db, "academies", access.academyId, "students", studentId), (snapshot) => setProfile(snapshot.data()?.anatomyProfile));
   }, [access.academyId, access.userId]);
+  useEffect(() => {
+    if (!db) {
+      setExerciseMedia(Object.fromEntries(readLocalCollection<ExerciseRecord>(access.academyId, "exercises").map((exercise) => [exercise.id, { name: exercise.name, gifUrl: exercise.gifUrl, gifMaleUrl: exercise.gifMaleUrl, gifFemaleUrl: exercise.gifFemaleUrl }])));
+      return;
+    }
+    return onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => setExerciseMedia(Object.fromEntries(snapshot.docs.map((item) => { const data = item.data() as Omit<ExerciseRecord, "id">; return [item.id, { name: data.name ?? "Exercício", gifUrl: data.gifUrl, gifMaleUrl: data.gifMaleUrl, gifFemaleUrl: data.gifFemaleUrl }]; }))));
+  }, [access.academyId]);
   useEffect(() => {
     if (!restTimer) return;
     if (restTimer.remaining <= 0) {
