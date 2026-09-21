@@ -16,11 +16,25 @@ service firebase.storage {
         && member(academyId).data.role == 'admin';
     }
 
+    function canManageExerciseMedia(academyId) {
+      return signedIn()
+        && member(academyId).data.active == true
+        && (member(academyId).data.role == 'admin' || member(academyId).data.role == 'teacher');
+    }
+
     match /academies/{academyId}/finance/{allPaths=**} {
       allow read, delete: if isManager(academyId);
       allow create, update: if isManager(academyId)
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('application/pdf|image/(jpeg|png|webp)');
+    }
+
+    match /academies/{academyId}/exercise-media/{allPaths=**} {
+      allow read: if signedIn() && member(academyId).data.active == true;
+      allow delete: if canManageExerciseMedia(academyId);
+      allow create, update: if canManageExerciseMedia(academyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType == 'image/gif';
     }
   }
 }

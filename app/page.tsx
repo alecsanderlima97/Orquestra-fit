@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword, updateProfile } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -15,7 +16,7 @@ import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/work
 import { FinanceModule } from "@/components/finance/finance-module-v2";
 import { AppGuide } from "@/components/assistant/app-guide";
 import { StockModule } from "@/components/stock/stock-module";
-import { auth, db, functions } from "@/lib/firebase/client";
+import { auth, db, functions, storage } from "@/lib/firebase/client";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
@@ -316,6 +317,166 @@ function exerciseArtwork(name: string, group: string, bodyRegion?: BodyRegion) {
   if (["agachamento", "leg press", "afundo", "avanço", "cadeira", "mesa flexora", "terra", "stiff", "hip thrust", "glúteo", "panturrilha", "hack squat"].some((term) => normalized.includes(term)) || bodyRegion === "Membros inferiores") return "/exercise-art/squat-anatomy-v1.png";
   if (bodyRegion === "Tronco posterior") return "/anatomy-body-back.png";
   return "/anatomy-body-base.png";
+}
+
+function gifCatalogQuery(name: string, muscleGroup: string) {
+  const normalized = `${name} ${muscleGroup}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (normalized.includes("rosca martelo")) return "hammer curl";
+  if (normalized.includes("rosca scott")) return "preacher curl";
+  if (normalized.includes("rosca concentrada")) return "concentration curl";
+  if (normalized.includes("rosca alternada")) return "alternate biceps curl";
+  if (normalized.includes("rosca direta")) return "barbell curl";
+  if (normalized.includes("rosca inversa")) return "reverse curl";
+  if (normalized.includes("rosca") || normalized.includes("biceps")) return "curl";
+  if (normalized.includes("supino reto com barra")) return "barbell bench press";
+  if (normalized.includes("supino reto")) return "bench press";
+  if (normalized.includes("supino inclinado")) return normalized.includes("halter") ? "dumbbell incline bench press" : "incline bench press";
+  if (normalized.includes("supino declinado")) return "decline bench press";
+  if (normalized.includes("crucifixo na maquina")) return "pec deck fly";
+  if (normalized.includes("crucifixo inverso")) return "rear delt fly";
+  if (normalized.includes("crucifixo")) return "fly chest";
+  if (normalized.includes("face pull")) return "face pull";
+  if (normalized.includes("remada unilateral")) return "one arm row";
+  if (normalized.includes("remada baixa")) return "seated row";
+  if (normalized.includes("remada")) return "row";
+  if (normalized.includes("puxada")) return "pulldown";
+  if (normalized.includes("agachamento")) return "squat";
+  if (normalized.includes("leg press 45")) return "45 degrees leg press";
+  if (normalized.includes("leg press")) return "leg press";
+  if (normalized.includes("extensora")) return "leg extension";
+  if (normalized.includes("flexora")) return "leg curl";
+  if (normalized.includes("panturrilha")) return "calf raise";
+  if (normalized.includes("triceps")) return "triceps";
+  if (normalized.includes("ombro") || normalized.includes("elevacao") || normalized.includes("desenvolvimento")) return "shoulder";
+  if (normalized.includes("peito") || normalized.includes("peitoral")) return "chest";
+  if (normalized.includes("costas") || normalized.includes("dorsais")) return "back";
+  if (normalized.includes("quadriceps") || normalized.includes("perna")) return "thighs";
+  if (normalized.includes("quadril") || normalized.includes("gluteo")) return "hip";
+  if (normalized.includes("abdominal") || normalized.includes("core")) return "abs";
+  return muscleGroup;
+}
+
+function gifCatalogFilters(name: string, muscleGroup: string) {
+  const normalized = `${name} ${muscleGroup}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const equipment = normalized.includes("halter") || normalized.includes("arnold") ? "EXERCÍCIOS COM HALTERES"
+    : normalized.includes("barra") ? "EXERCÍCIOS COM BARRAS"
+    : normalized.includes("polia") || normalized.includes("crossover") || normalized.includes("face pull") || normalized.includes("woodchopper") ? "EXERCÍCIOS NO CABO  OU POLIA"
+    : normalized.includes("maquina") || normalized.includes("cadeira") || normalized.includes("leg press") || normalized.includes("hack") || normalized.includes("smith") || normalized.includes("graviton") ? "EXERCÍCIOS NA MAQUINA - HACK - BANCO"
+    : normalized.includes("kettlebell") ? "KETTLEBELL"
+    : normalized.includes("eliptico") || normalized.includes("esteira") || normalized.includes("bicicleta") || normalized.includes("remo ergometrico") || normalized.includes("escada") || normalized.includes("air bike") ? "CARDIO"
+    : "";
+  const muscle = normalized.includes("peito") || normalized.includes("peitoral") ? "PEITO"
+    : normalized.includes("costas") || normalized.includes("dorsais") ? "COSTAS"
+    : normalized.includes("ombro") || normalized.includes("elevacao") || normalized.includes("desenvolvimento") || normalized.includes("face pull") ? "OMBRO"
+    : normalized.includes("triceps") ? "TRICEPS"
+    : normalized.includes("biceps") ? "BICEPS"
+    : normalized.includes("antebraco") || normalized.includes("punho") ? "ANTEBRAÇO"
+    : normalized.includes("panturrilha") ? "PANTURRILHA"
+    : normalized.includes("abdominal") || normalized.includes("prancha") || normalized.includes("woodchopper") ? "ABDOMINAIS"
+    : normalized.includes("quadriceps") || normalized.includes("gluteo") || normalized.includes("posterior") || normalized.includes("agachamento") || normalized.includes("leg press") || normalized.includes("stiff") || normalized.includes("afundo") ? "PERNA"
+    : "";
+  return { equipment, muscle };
+}
+
+type VerifiedExerciseGif = { maleFile: string; femaleUrl?: string };
+
+// Esta lista contém somente movimentos revisados manualmente pelo nome, equipamento e grupo muscular.
+// Os demais permanecem sem vínculo automático para nunca exibir uma execução incorreta ao aluno.
+const verifiedExerciseGifs: Record<string, VerifiedExerciseGif> = {
+  "supino reto com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PEITO/Barbell-Bench-Press_Chest-FIX2__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1B5w3919f20qo0gDarihzlkLXQGxPvC2Z&export=download&confirm=t" },
+  "supino inclinado com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/PEITO/Dumbbell-Palms-In-Incline-Bench-Press_converted.gif" },
+  "crucifixo na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Lever-Pec-Deck-Fly_Chest__converted.gif" },
+  "remada curvada com barra": { maleFile: "EXERCÍCIOS COM BARRAS/COSTAS/Barbell-Bent-Over-Row_Back__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1K0h1jwWznAaU0dk0W3nh0L9lQsNOy98f&export=download&confirm=t" },
+  "pulldown com braços estendidos": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Straight-Arm-Pulldown_Back-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1NEK5GY2HinQBD-IPuuHBRMYqRXLQjjYO&export=download&confirm=t" },
+  "encolhimento com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/TRAPÉZIO/Dumbbell-Shrug_Back-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1uZvW_-5BhBMgDLC86BhxMUvLUDcL6SFt&export=download&confirm=t" },
+  "rosca direta com barra": { maleFile: "EXERCÍCIOS COM BARRAS/BICEPS/Barbell-Curl_Upper-Arms-FIX2__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1rl7woNEiGKv6tFmt01MR5VFjjKFB8e9N&export=download&confirm=t" },
+  "rosca martelo": { maleFile: "EXERCÍCIOS COM HALTERES/BICEPS/Dumbbell-Alternate-Hammer-Srtict-Curl_Upper-Arms__converted.gif" },
+  "rosca scott": { maleFile: "EXERCÍCIOS COM BARRAS/BICEPS/Barbell-Preacher-Curl_Upper-Arms_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1c3FTQIri8otvYqzoDZLgKbx9LYWiAgEN&export=download&confirm=t" },
+  "rosca concentrada": { maleFile: "EXERCÍCIOS COM HALTERES/BICEPS/Dumbbell-Concentration-Curl_Upper-Arms-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1XPrSOuVXvymdzsQxtLZ2oeesbIfRswNt&export=download&confirm=t" },
+  "rosca na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/BICEPS/Cable-Curl-(male)_Upper-Arms-FIX__converted.gif" },
+  "triceps na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/TRICEPS/Cable-Pushdown_Upper-Arms-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=13LYDVKuyYfcK9QRgQ81v-volkDohN6b_&export=download&confirm=t" },
+  "triceps testa": { maleFile: "EXERCÍCIOS COM BARRAS/TRICEPS/Barbell-Lying-Triceps-Extension-Skull-Crusher_Upper-Arms_converted.gif" },
+  "agachamento sumô": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-sumo-squat_Thighs_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1kRha3M7tDvdiHpgE6ZPB3mU2QHRlpBqa&export=download&confirm=t" },
+  "agachamento bulgaro": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Bulgarian-Split-Squat-with-Support-(male)_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1-GgjI3AlcYSkY6v59PvS-IgcWTUWjnqk&export=download&confirm=t" },
+  "stiff com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Stiff-Leg-Deadlift_Hips_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1nPGfstmqWEWOO0AjUdjZ-IsUh6TX-Aid&export=download&confirm=t" },
+  "hip thrust": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Hip-Thrust_Hips-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1qzWAHHXJj32jPXQQt03KFZQELrL-pTUh&export=download&confirm=t" },
+  "cadeira extensora": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Leg-Extension_Thighs_converted.gif" },
+  "leg press 45°": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Sled-45-degrees-Leg-Press_Hips-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1Yq6sh731TA9h-coZG2s-QxXlAjFT4i-I&export=download&confirm=t" },
+  "panturrilha sentada": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PANTURRILHA/Lever-Seated-Calf-Raise-(plate-loaded)_converted.gif" },
+  "desenvolvimento na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/OMBRO/Lever-Seated-Shoulder-Press_Shoulders-FIX__converted.gif" },
+  "elevacao lateral na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/OMBRO/Cable-Lateral-Raise_shoulder_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1CyC5l7_Yul5vg5C2fePAGZvoMmL73R8Y&export=download&confirm=t" },
+  "levantamento terra romeno": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Romanian-Deadlift_Hips-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1evvMOr_8_se0qGOKK2pcqnmh6XKw-TcM&export=download&confirm=t" },
+  "leg press horizontal": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Horizontal-Leg-Press_Thighs__converted.gif" },
+  "leg press vertical": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Vertical-Leg-Press-(male)_Thighs__converted.gif" },
+  "agachamento no smith": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Smith-Squat_Hips__converted.gif" },
+  "panturrilha no leg press": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PANTURRILHA/Sled-Calf-Press-On-Leg-Press_Calves-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1tPXzwX9JVQs_lI446QCE6jfJtCD_C0FB&export=download&confirm=t" },
+  "supino declinado com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PEITO/Barbell-Decline-Bench-Press_Chest-FIX__converted.gif" },
+  "pullover com halter": { maleFile: "EXERCÍCIOS COM HALTERES/PEITO/Dumbbell-Pullover_Chest_converted.gif" },
+  "supino reto na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Lever-Chest-Press_Chest-FIX__converted.gif" },
+  "supino inclinado na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Lever-Incline-Chest-Press_Chest-FIX2__converted.gif" },
+  "crucifixo na polia baixa": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/PEITO/Cable-Low-Fly_Chest-FIX2__converted.gif" },
+  "flexao inclinada": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Incline-Push-up-on-a-Smith-Bar-(male)_Chest__converted.gif" },
+  "remada articulada": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/COSTAS/Lever-Seated-Row_Back_converted.gif" },
+  "remada maquina com apoio": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/COSTAS/Lever-High-Row-(plate-loaded)_Back_converted.gif" },
+  "graviton barra assistida": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/COSTAS/Assisted-Pull-up_Back_converted.gif" },
+  "pullover na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Lever-Pullover-(plate-loaded)_Back__converted.gif" },
+  "elevacao lateral na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/OMBRO/Lever-Lateral-Raise_shoulder_converted.gif" },
+  "crucifixo inverso": { maleFile: "EXERCÍCIOS COM HALTERES/TRAPÉZIO/Dumbbell-Rear-Delt-Raise_Shoulders_converted.gif" },
+  "rosca biceps na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/BICEPS/Lever-Biceps-Curl_Upper-Arms__converted.gif" },
+  "rosca inversa com barra": { maleFile: "EXERCÍCIOS COM BARRAS/ANTEBRAÇO/Barbell-Reverse-Curl_Forearm_converted.gif" },
+  "extensao de punho": { maleFile: "EXERCÍCIOS COM BARRAS/ANTEBRAÇO/Barbell-Standing-Wrist-Reverse-Curl_Forearms__converted.gif" },
+  "flexao de punho": { maleFile: "EXERCÍCIOS COM BARRAS/ANTEBRAÇO/Barbell-Palms-Down-Wrist-Curl-Over-A-Bench_Forearms_converted.gif" },
+  "farmer walk": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Farmers-walk_Cardio-FIX__converted.gif" },
+  "triceps na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/TRICEPS/Lever-Triceps-Extension_Upper-Arms_converted.gif" },
+  "triceps corda": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/TRICEPS/Cable-Pushdown-(with-rope-attachment)_Upper-Arms-FIX__converted.gif" },
+  "mergulho no banco": { maleFile: "EXERCÍCIOS COM HALTERES/TRICEPS/Dumbbell-Bench-Dip_Upper-Arms__converted.gif" },
+  "extensao de quadril na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Hip-Extension-(VERSION-2)_Hips__converted.gif" },
+  "elevacao pelvica na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Hip-Thrust-(plate-loaded)-(male)_Hips__converted.gif" },
+  "flexora em pe unilateral": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/PERNA/Cable-Standing-Leg-Curl_Thighs__converted.gif" },
+  "bom dia com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Good-Morning_Thighs-FIX__converted.gif" },
+  "remada baixa": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Seated-Row_Back-FIX__converted.gif" },
+  "remada unilateral com halter": { maleFile: "EXERCÍCIOS COM HALTERES/COSTAS/Dumbbell-Bent-Over-Row_Back-FIX__converted.gif" },
+  "rosca de punho": { maleFile: "EXERCÍCIOS COM BARRAS/ANTEBRAÇO/Barbell-Wrist-Curl-(VERSION-2)_Forearms-FIX2__converted.gif" },
+  "mesa flexora": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Lying-Leg-Curl_Thighs-FIX__converted.gif" },
+  "panturrilha em pe": { maleFile: "EXERCÍCIOS COM HALTERES/PANTURRILHAS/Dumbbell-Standing-Calf-Raise_Calves-FIX__converted.gif" },
+  "remada cavalinho": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/COSTAS/Lever-Lying-T-bar-Row_Back_converted.gif" },
+  "chest press articulado": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Lever-Chest-Press_Chest-FIX__converted.gif" },
+  "crucifixo com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/PEITO/Hyght-Dumbbell-Fly_Chest__converted.gif" },
+  "rosca scott na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/BICEPS/Lever-Preacher-Curl_Upper-Arms-FIX__converted.gif" },
+  "rosca inclinada com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/BICEPS/Dumbbell-Incline-Curl_Upper-Arms-FIX__converted.gif" },
+  "panturrilha no smith": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PANTURRILHA/Smith-Calf-Raise-(version-2)_Calves-FIX__converted.gif" },
+  "abdominal no banco declinado": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Decline-Crunch_Waist_converted.gif" },
+  "woodchopper na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/ABDOMINAIS/Cable-High-to-Low-Woodchopper-(male)_Waist__converted.gif" },
+  "hiperextensao lombar": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Lever-Back-Extension_Waist_converted.gif" },
+  "remo ergometrico": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Rowing-(with-rowing-machine)_Cardio_converted.gif" },
+  "eliptico": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Elliptical-Static-Walk_Cardio_converted.gif" },
+  "puxada frontal": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Lat-Pulldown-Full-Range-Of-Motion_Back__converted.gif" },
+  "face pull": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Standing-Face-Pull_Shoulders__converted.gif" },
+  "elevacao frontal": { maleFile: "EXERCÍCIOS COM HALTERES/OMBRO/Dumbbell-One-Arm-Front-Raise_Shoulders__converted.gif" },
+  "desenvolvimento militar com barra": { maleFile: "EXERCÍCIOS COM BARRAS/OMBROS/Barbell-Standing-Military-Press-(without-rack)_Shoulders_converted.gif" },
+  "triceps coice": { maleFile: "EXERCÍCIOS COM HALTERES/TRICEPS/Dumbbell-Kickback_Upper-Arms_converted.gif" },
+  "hack squat": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Sled-Hack-Squat_Hips_converted.gif" },
+  "cadeira adutora": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Seated-Hip-Adduction_Thighs_converted.gif" },
+  "cadeira abdutora": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Seated-Hip-Abduction_Hips-FIX__converted.gif" },
+};
+
+function exerciseGifKey(name: string) {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
+}
+
+function packagedGifUrl(file: string) {
+  return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+}
+
+function verifiedExerciseGif(name: string, profile: "masculino" | "feminino" = "masculino") {
+  const gif = verifiedExerciseGifs[exerciseGifKey(name)];
+  if (!gif) return "";
+  return profile === "feminino" ? (gif.femaleUrl || packagedGifUrl(gif.maleFile)) : packagedGifUrl(gif.maleFile);
+}
+
+function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">, profile: "masculino" | "feminino" = "masculino") {
+  const saved = profile === "feminino" ? (exercise.gifFemaleUrl || exercise.gifUrl) : (exercise.gifMaleUrl || exercise.gifUrl);
+  return saved || verifiedExerciseGif(exercise.name, profile);
 }
 
 function machineCode(value: string) {
@@ -1076,9 +1237,6 @@ function MachineQrReader({ exercises, onClose, onSelect }: { exercises: SessionE
 function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
   const access = useAccess();
   const feedback = useFeedback();
-  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
-  const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
-  const progress = Math.round((completedSets.length / totalSets) * 100);
   const [seconds, setSeconds] = useState(0);
   const [machineReaderOpen, setMachineReaderOpen] = useState(false);
   const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>({});
@@ -1088,6 +1246,9 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(0);
   const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
+  const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => ({ name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource(exercise, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` })) : workoutPlan;
+  const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
+  const progress = Math.round((completedSets.length / totalSets) * 100);
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
     return () => window.clearInterval(timer);
@@ -1184,7 +1345,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
           const isComplete = completedCount === exercise.sets;
           const isResting = restTimer?.exerciseIndex === exerciseIndex;
           return <article className={`exercise-card ${isOpen ? "expanded" : "collapsed"} ${isComplete ? "completed" : ""}`} key={exercise.name}>
-            <header><span className="exercise-card-art" style={{ backgroundImage: `url("${exerciseArtwork(exercise.name, exercise.group, "bodyRegion" in exercise ? exercise.bodyRegion : undefined)}")` }} aria-hidden="true" /><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{"equipmentName" in exercise && exercise.equipmentName && <b className="exercise-equipment"><Dumbbell />{exercise.equipmentName}</b>}{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => exercise.videoUrl ? window.open(exercise.videoUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
+            <header><span className="exercise-card-art" style={{ backgroundImage: `url("${("gifUrl" in exercise && exercise.gifUrl) || exerciseArtwork(exercise.name, exercise.group, "bodyRegion" in exercise ? exercise.bodyRegion : undefined)}")` }} aria-hidden="true" /><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{"equipmentName" in exercise && exercise.equipmentName && <b className="exercise-equipment"><Dumbbell />{exercise.equipmentName}</b>}{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => (exercise.videoUrl || ("gifUrl" in exercise && exercise.gifUrl)) ? window.open(exercise.videoUrl || exercise.gifUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
             {isOpen ? <div className="exercise-card-body">
               {("instructions" in exercise && (exercise.instructions || exercise.anatomyRegion || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
               <button className="exercise-anatomy-trigger" type="button" onClick={() => setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest })}><PersonStanding /> Ver músculos e detalhes <ChevronRight /></button>
@@ -1443,8 +1604,8 @@ function paymentMethodLabel(method?: PaymentMethod) { return method === "cartao_
 type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
 type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
 type ExerciseType = "Força" | "Peso corporal" | "Alongamento" | "Cardio";
-type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
-type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type WorkoutTemplateRecord = { id: string; name: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
@@ -1750,6 +1911,13 @@ function BodyRegionIcon({ region }: { region: BodyRegion }) {
   </svg>;
 }
 
+function exercisePhaseGuide(phase: ExercisePhase) {
+  if (phase === "Preparação") return { label: "Aquecimento e mobilidade", detail: "Selecione de 1 a 3 exercícios antes da parte principal." };
+  if (phase === "Cardio") return { label: "Condicionamento cardiovascular", detail: "Escolha a modalidade e ajuste o volume conforme o objetivo do aluno." };
+  if (phase === "Finalização") return { label: "Desaceleração e recuperação", detail: "Use para alongamento leve ou exercícios de encerramento." };
+  return { label: "Força e musculação", detail: "Escolha primeiro a região do corpo, depois o grupo muscular e o movimento." };
+}
+
 function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggle, onParameterChange, onEdit, onRemove, accessRole }: { exercises: ExerciseRecord[]; selectedExercises: string[]; exerciseDetails: Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>; onToggle: (exercise: ExerciseRecord) => void; onParameterChange: (exerciseId: string, field: "sets" | "reps" | "load" | "rest", value: string) => void; onEdit: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void; accessRole: string }) {
   const [openPhases, setOpenPhases] = useState<ExercisePhase[]>([]);
   function togglePhase(currentPhase: ExercisePhase) { setOpenPhases((current) => current.includes(currentPhase) ? current.filter((item) => item !== currentPhase) : [...current, currentPhase]); }
@@ -1757,18 +1925,64 @@ function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggl
     const phaseExercises = exercises.filter((exercise) => (exercise.phase ?? "Treino principal") === currentPhase);
     if (!phaseExercises.length) return null;
     const isOpen = openPhases.includes(currentPhase);
-    return <section className={isOpen ? "exercise-phase-group open" : "exercise-phase-group"} key={currentPhase}><button className="collapse-header" type="button" onClick={() => togglePhase(currentPhase)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exercisePhaseIcon(currentPhase)}{currentPhase}</span><small>{phaseExercises.length} exercícios · {currentPhase === "Preparação" ? "Alongamento e mobilidade antes da ficha" : "Selecione os exercícios desta etapa"}</small></button>{isOpen && <div className="collapse-content">{exerciseRegionOrder.map((region) => {
+    const guide = exercisePhaseGuide(currentPhase);
+    return <section className={isOpen ? "exercise-phase-group open" : "exercise-phase-group"} key={currentPhase}><button className="collapse-header" type="button" onClick={() => togglePhase(currentPhase)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exercisePhaseIcon(currentPhase)}{currentPhase}</span><small>{phaseExercises.length} exercícios · {guide.label}</small></button>{isOpen && <div className="collapse-content"><div className="exercise-phase-guide"><strong>{guide.label}</strong><p>{guide.detail}</p><ol><li>Escolha a região do corpo.</li><li>Abra o grupo muscular.</li><li>Marque o exercício e ajuste séries, repetições, carga e descanso.</li></ol></div>{exerciseRegionOrder.map((region) => {
       const regionExercises = phaseExercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region);
       if (!regionExercises.length) return null;
-      return <div className="exercise-region-group" key={region}><h4>{exerciseRegionIcon(region)}{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="exercise-class-group" key={`${region}-${muscleGroup}`}><h5>{muscleGroup}</h5>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const selected = selectedExercises.includes(exercise.id); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><div className="exercise-choice-main"><label><input type="checkbox" checked={selected} onChange={() => onToggle(exercise)} /><span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}</small></span></label><div className="exercise-actions exercise-choice-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>{selected && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>Repetições<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>)}</div>;
+      return <div className="exercise-region-group" key={region}><h4>{exerciseRegionIcon(region)}{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="exercise-class-group" key={`${region}-${muscleGroup}`}><h5>{muscleGroup}</h5>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const selected = selectedExercises.includes(exercise.id); const preview = exerciseGifSource(exercise); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><div className="exercise-choice-main"><label>{preview && <HoverGifPreview className="exercise-choice-gif" src={preview} alt={`Demonstração de ${exercise.name}`} />}<input type="checkbox" checked={selected} onChange={() => onToggle(exercise)} /><span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{!preview && " · sem GIF vinculado"}</small></span></label><div className="exercise-actions exercise-choice-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>{selected && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>Repetições<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>)}</div>;
     })}</div>}</section>;
   })}</div>;
 }
 
-function ExerciseLibrary({ exercises, accessRole, onEdit, onRemove }: { exercises: ExerciseRecord[]; accessRole: string; onEdit: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void }) {
+function HoverGifPreview({ src, alt, className, placeholder = "GIF", focusable = true }: { src?: string; alt: string; className: string; placeholder?: string; focusable?: boolean }) {
+  const [active, setActive] = useState(false);
+  if (!src) return <span className={`${className} is-empty`}>{placeholder}</span>;
+  return <span className={className} tabIndex={focusable ? 0 : undefined} role="img" aria-label={alt} onMouseEnter={() => setActive(true)} onFocus={() => setActive(true)}>{active ? <img src={src} alt="" /> : <small>{placeholder}<b>Passe o mouse</b></small>}</span>;
+}
+
+function ExerciseLibrary({ exercises, accessRole, onEdit, onLinkGif, onRemove }: { exercises: ExerciseRecord[]; accessRole: string; onEdit: (exercise: ExerciseRecord) => void; onLinkGif: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void }) {
   const [openRegions, setOpenRegions] = useState<BodyRegion[]>([]);
   function toggleRegion(region: BodyRegion) { setOpenRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region]); }
-  return <div className="exercise-library">{exerciseRegionOrder.map((region) => { const regionExercises = exercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region); if (!regionExercises.length) return null; const isOpen = openRegions.includes(region); return <section className={isOpen ? "library-region-group open" : "library-region-group"} key={region}><button className="collapse-header" type="button" onClick={() => toggleRegion(region)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exerciseRegionIcon(region)}{region}</span><small>{regionExercises.length} exercícios</small></button>{isOpen && <div className="collapse-content">{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${region}-${muscleGroup}`}><div className="library-class-heading"><h4>{muscleGroup}</h4><small>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).length} exercícios</small></div>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => <div className="library-exercise-row" key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}</small></div><div className="exercise-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>)}</div>)}</div>}</section>; })}</div>;
+  return <div className="exercise-library">{exerciseRegionOrder.map((region) => {
+    const regionExercises = exercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region);
+    if (!regionExercises.length) return null;
+    const isOpen = openRegions.includes(region);
+    return <section className={isOpen ? "library-region-group open" : "library-region-group"} key={region}>
+      <button className="collapse-header" type="button" onClick={() => toggleRegion(region)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exerciseRegionIcon(region)}{region}</span><small>{regionExercises.length} exercícios</small></button>
+      {isOpen && <div className="collapse-content">{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${region}-${muscleGroup}`}>
+        <div className="library-class-heading"><h4>{muscleGroup}</h4><small>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).length} exercícios</small></div>
+        {regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const maleGif = exerciseGifSource(exercise); const femaleGif = exerciseGifSource(exercise, "feminino"); const hasSavedGif = Boolean(exercise.gifMaleUrl || exercise.gifUrl || exercise.gifFemaleUrl); return <div className="library-exercise-row" key={exercise.id}>
+          <HoverGifPreview className="library-exercise-gif" src={maleGif} alt={`Demonstração de ${exercise.name}`} />
+          <div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{maleGif && femaleGif ? " · GIF masculino e feminino" : maleGif ? " · GIF masculino" : femaleGif ? " · GIF feminino" : " · sem GIF"}{!hasSavedGif && maleGif ? " · catálogo revisado" : ""}</small></div>
+          <div className="exercise-actions"><button type="button" onClick={() => onLinkGif(exercise)}>{maleGif || femaleGif ? "Ajustar GIF" : "Vincular GIF"}</button><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div>
+        </div>; })}
+      </div>)}</div>}
+    </section>;
+  })}</div>;
+}
+
+type GifCatalogItem = { id: string; name: string; file: string; url: string; equipment: string; muscle: string };
+
+function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle, profile, onClose, onSelect }: { open: boolean; initialQuery: string; initialEquipment: string; initialMuscle: string; profile: "masculino" | "feminino"; onClose: () => void; onSelect: (item: GifCatalogItem) => Promise<void> }) {
+  const [items, setItems] = useState<GifCatalogItem[]>([]);
+  const [equipment, setEquipment] = useState("");
+  const [muscle, setMuscle] = useState("");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open || items.length) return;
+    setLoading(true);
+    fetch(profile === "feminino" ? "/gif-catalog-feminine.json" : "/gif-catalog.json").then((response) => response.ok ? response.json() : []).then((data: GifCatalogItem[]) => setItems(Array.isArray(data) ? data : [])).catch(() => setItems([])).finally(() => setLoading(false));
+  }, [items.length, open, profile]);
+  useEffect(() => { setItems([]); }, [profile]);
+  useEffect(() => { if (open) { setQuery(initialQuery); setEquipment(initialEquipment); setMuscle(initialMuscle); } }, [initialEquipment, initialMuscle, initialQuery, open]);
+  if (!open) return null;
+  const normalized = query.trim().toLocaleLowerCase("pt-BR");
+  const equipmentFolders = Array.from(new Set(items.map((item) => item.equipment))).sort();
+  const muscleFolders = Array.from(new Set(items.filter((item) => !equipment || item.equipment === equipment).map((item) => item.muscle))).sort();
+  const filtered = items.filter((item) => (!equipment || item.equipment === equipment) && (!muscle || item.muscle === muscle) && (!normalized || `${item.name} ${item.equipment} ${item.muscle}`.toLocaleLowerCase("pt-BR").includes(normalized))).slice(0, 48);
+  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · {profile === "feminino" ? "FEMININO" : "MASCULINO"}</span><h3>Escolher demonstração</h3><p>Navegue como nas pastas do pacote: equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando a biblioteca {profile === "feminino" ? "feminina" : "masculina"}…</p> : <><p className="panel-helper">Filtro preparado por movimento, equipamento e grupo muscular. Escolha apenas a execução idêntica ao exercício.</p><div className="gif-folder-browser"><div><small>1 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>2 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca opcional: shoulder, bench press, squat..." />{!equipment && <p className="panel-helper">Escolha primeiro a pasta de equipamento para ver os grupos disponíveis.</p>}<div className="gif-catalog-grid">{filtered.map((item) => <button type="button" key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><HoverGifPreview className="gif-catalog-preview" src={item.url} alt={`Prévia de ${item.name}`} placeholder="Ver movimento" focusable={false} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{item.equipment} · {item.muscle}</small></span></button>)}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
 }
 
 function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTemplate, onEditWorkout, onRemoveWorkout }: { templates: WorkoutTemplateRecord[]; workouts: WorkoutRecord[]; onEditTemplate: (template: WorkoutTemplateRecord) => void; onRemoveTemplate: (template: WorkoutTemplateRecord) => void; onEditWorkout: (workout: WorkoutRecord) => void; onRemoveWorkout: (workout: WorkoutRecord) => void }) {
@@ -1792,6 +2006,10 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [anatomyRegion, setAnatomyRegion] = useState("");
   const [instructions, setInstructions] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [gifFile, setGifFile] = useState<File | null>(null);
+  const [gifProfile, setGifProfile] = useState<"masculino" | "feminino">("masculino");
+  const [uploadingGif, setUploadingGif] = useState(false);
+  const [gifCatalogOpen, setGifCatalogOpen] = useState(false);
   const [bodyRegion, setBodyRegion] = useState<BodyRegion>("Membros superiores");
   const [phase, setPhase] = useState<ExercisePhase>("Treino principal");
   const [exerciseType, setExerciseType] = useState<ExerciseType>("Força");
@@ -1821,7 +2039,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; teacherId?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
       setExerciseSnapshotReady(true);
     });
     const unsubscribeMachines = onSnapshot(query(collection(db, "academies", access.academyId, "stockItems"), where("kind", "==", "machine")), (snapshot) => setStockMachines(snapshot.docs.map((item) => { const data = item.data() as { name?: string; machineCode?: string }; return { id: item.id, name: data.name ?? "Máquina", machineCode: data.machineCode }; })));
@@ -1846,12 +2064,41 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function editExercise(exercise: ExerciseRecord) {
-    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setExerciseEquipment(exercise.equipmentName ?? equipmentForExercise(exercise.name)); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
-    scrollToContent(".training-form-panel");
+    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setExerciseEquipment(exercise.equipmentName ?? equipmentForExercise(exercise.name)); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setGifFile(null); setGifProfile("masculino"); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
+    window.requestAnimationFrame(() => Array.from(document.querySelectorAll<HTMLElement>("article.training-form-panel")).find((panel) => panel.textContent?.includes("BIBLIOTECA DE EXERCÍCIOS"))?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  function linkExerciseGif(exercise: ExerciseRecord) {
+    editExercise(exercise);
+    window.requestAnimationFrame(() => setGifCatalogOpen(true));
   }
 
   function clearExerciseForm() {
-    setEditingExerciseId(null); setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
+    setEditingExerciseId(null); setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setGifFile(null); setGifProfile("masculino"); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
+  }
+
+  async function uploadExerciseGif(exerciseId: string) {
+    if (!gifFile) return null;
+    if (!storage) throw new Error("Firebase Storage não configurado.");
+    if (gifFile.type !== "image/gif") throw new Error("Selecione um arquivo GIF.");
+    if (gifFile.size > 10 * 1024 * 1024) throw new Error("O GIF deve ter no máximo 10 MB.");
+    const safeName = gifFile.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+    const path = `academies/${access.academyId}/exercise-media/${exerciseId}/${Date.now()}-${safeName}`;
+    const target = storageRef(storage, path);
+    await uploadBytes(target, gifFile, { contentType: "image/gif", cacheControl: "public,max-age=31536000,immutable" });
+    const url = await getDownloadURL(target);
+    return gifProfile === "feminino" ? { gifFemaleUrl: url, gifFemalePath: path } : { gifUrl: url, gifPath: path, gifMaleUrl: url, gifMalePath: path };
+  }
+
+  async function chooseGifFromCatalog(item: GifCatalogItem) {
+    try {
+      const response = await fetch(item.url);
+      if (!response.ok) throw new Error("Não foi possível abrir este GIF local.");
+      const file = new File([await response.blob()], item.file.split("/").pop() || "demonstracao.gif", { type: "image/gif" });
+      setGifFile(file);
+      setGifCatalogOpen(false);
+      onFeedback("GIF selecionado. Salve as alterações para vinculá-lo ao exercício.");
+    } catch { onFeedback("Não foi possível selecionar o GIF da biblioteca."); }
   }
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
@@ -1890,15 +2137,19 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const selectedMachine = stockMachines.find((machine) => machine.name === exerciseEquipment);
     const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), equipmentName, machineCode: selectedMachine?.machineCode || machineCode(equipmentName), bodyRegion, phase, exerciseType, updatedBy: access.userId, updatedAt: serverTimestamp() };
     try {
+      setUploadingGif(Boolean(gifFile));
       if (editingExerciseId) {
-        await updateDoc(doc(db, "academies", access.academyId, "exercises", editingExerciseId), data);
+        const media = await uploadExerciseGif(editingExerciseId);
+        await updateDoc(doc(db, "academies", access.academyId, "exercises", editingExerciseId), media ? { ...data, ...media } : data);
         onFeedback("Exercício atualizado.");
       } else {
-        await addDoc(collection(db, "academies", access.academyId, "exercises"), { ...data, createdBy: access.userId, createdAt: serverTimestamp() });
+        const created = await addDoc(collection(db, "academies", access.academyId, "exercises"), { ...data, createdBy: access.userId, createdAt: serverTimestamp() });
+        const media = await uploadExerciseGif(created.id);
+        if (media) await updateDoc(created, media);
         onFeedback("Exercício cadastrado.");
       }
       clearExerciseForm();
-    } catch { onFeedback("Não foi possível salvar o exercício."); }
+    } catch (error) { onFeedback(error instanceof Error ? error.message : "Não foi possível salvar o exercício."); } finally { setUploadingGif(false); }
   }
 
   async function removeExercise(exercise: ExerciseRecord) {
@@ -1977,7 +2228,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (!student) { onFeedback("Aluno não encontrado."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
       const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
@@ -2012,7 +2263,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (preparationCount < 1 || preparationCount > 3) { onFeedback("Inclua de 1 a 3 exercícios de preparação no modelo."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
       const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
@@ -2087,14 +2338,19 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     catch { onFeedback("Não foi possível excluir o treino."); }
   }
 
+  const linkedGifCount = exercises.filter((exercise) => Boolean(exerciseGifSource(exercise))).length;
+  const pendingGifCount = Math.max(0, exercises.length - linkedGifCount);
+
   return <div className="workspace-content module-view">
     <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Monte uma ficha por etapas, salve modelos e publique para um aluno quando estiver pronta.</p></div></section>
     <section className="workspace-panel training-machine-quickselect"><label>Máquina do exercício<select value={exerciseEquipment} onChange={(event) => setExerciseEquipment(event.target.value)}><option value="">Sem máquina · peso livre/corporal</option>{stockMachines.map((machine) => <option key={machine.id} value={machine.name}>{machine.name}</option>)}</select><small>As opções vêm do Estoque e o QR Code da máquina fica vinculado ao exercício.</small></label></section>
     <section className="training-layout training-layout-redesigned">
-      <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} accessRole={access.role} /><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} /><div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form></article>
-      <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
+      <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} accessRole={access.role} /><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} /><div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form></article>
+      <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">{linkedGifCount} movimentos com GIF disponível · {pendingGifCount} aguardando revisão manual. Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O aluno verá automaticamente a versão correspondente ao seu perfil anatômico.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => setGifFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria {gifProfile} no sistema</button>{gifFile && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : `Selecionado para ${gifProfile}: ${gifFile.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
     </section>
     <PublishedWorkouts templates={templates} workouts={workouts} onEditTemplate={beginTemplateEdit} onRemoveTemplate={(template) => void removeTemplate(template)} onEditWorkout={beginWorkoutEdit} onRemoveWorkout={(workout) => void removeWorkout(workout)} />
+    {editingExerciseId && <button className="gif-catalog-launcher" type="button" onClick={() => setGifCatalogOpen(true)}>Escolher GIF do catálogo</button>}
+    <GifCatalogPicker open={gifCatalogOpen} initialQuery={gifCatalogQuery(exerciseName, muscleGroup)} initialEquipment={gifCatalogFilters(exerciseName, muscleGroup).equipment} initialMuscle={gifCatalogFilters(exerciseName, muscleGroup).muscle} profile={gifProfile} onClose={() => setGifCatalogOpen(false)} onSelect={chooseGifFromCatalog} />
   </div>;
 
   return (
