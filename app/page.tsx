@@ -465,6 +465,7 @@ function exerciseGifKey(name: string) {
 }
 
 function packagedGifUrl(file: string) {
+  if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) return "";
   return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
 }
 
@@ -2009,6 +2010,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [gifFile, setGifFile] = useState<File | null>(null);
   const [gifProfile, setGifProfile] = useState<"masculino" | "feminino">("masculino");
   const [uploadingGif, setUploadingGif] = useState(false);
+  const [syncingVerifiedGifs, setSyncingVerifiedGifs] = useState(false);
   const [gifCatalogOpen, setGifCatalogOpen] = useState(false);
   const [bodyRegion, setBodyRegion] = useState<BodyRegion>("Membros superiores");
   const [phase, setPhase] = useState<ExercisePhase>("Treino principal");
@@ -2099,6 +2101,34 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setGifCatalogOpen(false);
       onFeedback("GIF selecionado. Salve as alterações para vinculá-lo ao exercício.");
     } catch { onFeedback("Não foi possível selecionar o GIF da biblioteca."); }
+  }
+
+  async function syncVerifiedGifLibrary() {
+    if (!db || !storage || access.role !== "admin") { onFeedback("Entre como gestão no ambiente local para enviar a biblioteca revisada."); return; }
+    const pending = exercises.filter((exercise) => Boolean(verifiedExerciseGifs[exerciseGifKey(exercise.name)]) && !exercise.gifMaleUrl && !exercise.gifUrl);
+    if (!pending.length) { onFeedback("Todos os GIFs revisados já foram enviados para a biblioteca da academia."); return; }
+    if (!window.confirm(`Enviar ${pending.length} GIFs revisados ao Firebase Storage? Isso os disponibiliza também na Vercel e no celular.`)) return;
+    setSyncingVerifiedGifs(true);
+    let completed = 0;
+    let failed = 0;
+    for (const exercise of pending) {
+      try {
+        const source = verifiedExerciseGif(exercise.name);
+        const response = await fetch(source);
+        if (!response.ok) throw new Error("Arquivo local indisponível");
+        const file = new File([await response.blob()], source.split("/").pop() || "demonstracao.gif", { type: "image/gif" });
+        if (file.size > 10 * 1024 * 1024) throw new Error("Arquivo acima do limite");
+        const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+        const path = `academies/${access.academyId}/exercise-media/${exercise.id}/verified-${Date.now()}-${safeName}`;
+        const target = storageRef(storage, path);
+        await uploadBytes(target, file, { contentType: "image/gif", cacheControl: "public,max-age=31536000,immutable" });
+        const url = await getDownloadURL(target);
+        await updateDoc(doc(db, "academies", access.academyId, "exercises", exercise.id), { gifUrl: url, gifPath: path, gifMaleUrl: url, gifMalePath: path, updatedAt: serverTimestamp(), updatedBy: access.userId });
+        completed += 1;
+      } catch { failed += 1; }
+    }
+    setSyncingVerifiedGifs(false);
+    onFeedback(failed ? `${completed} GIFs enviados; ${failed} precisam de revisão.` : `${completed} GIFs revisados enviados para a academia.`);
   }
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
@@ -2344,6 +2374,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   return <div className="workspace-content module-view">
     <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Monte uma ficha por etapas, salve modelos e publique para um aluno quando estiver pronta.</p></div></section>
     <section className="workspace-panel training-machine-quickselect"><label>Máquina do exercício<select value={exerciseEquipment} onChange={(event) => setExerciseEquipment(event.target.value)}><option value="">Sem máquina · peso livre/corporal</option>{stockMachines.map((machine) => <option key={machine.id} value={machine.name}>{machine.name}</option>)}</select><small>As opções vêm do Estoque e o QR Code da máquina fica vinculado ao exercício.</small></label></section>
+    {access.role === "admin" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração.</small></div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Enviar GIFs revisados ao Firebase"}</button></section>}
     <section className="training-layout training-layout-redesigned">
       <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} accessRole={access.role} /><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} /><div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form></article>
       <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">{linkedGifCount} movimentos com GIF disponível · {pendingGifCount} aguardando revisão manual. Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O aluno verá automaticamente a versão correspondente ao seu perfil anatômico.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => setGifFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria {gifProfile} no sistema</button>{gifFile && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : `Selecionado para ${gifProfile}: ${gifFile.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
