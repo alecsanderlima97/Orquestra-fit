@@ -39,6 +39,15 @@ type StockItem = {
   purchasePrice?: number;
   salePrice?: number;
   barcode?: string;
+  brand?: string;
+  model?: string;
+  serialNumber?: string;
+  location?: string;
+  equipmentStatus?: "novo" | "bom" | "atencao" | "interditado" | "manutencao";
+  purchaseDate?: string;
+  warrantyUntil?: string;
+  maintenanceDue?: string;
+  maintenanceProvider?: string;
 };
 type StockMovement = {
   id: string;
@@ -92,6 +101,15 @@ export function StockModule({
   const [supplier, setSupplier] = useState("");
   const [barcode, setBarcode] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [serialNumber, setSerialNumber] = useState("");
+  const [location, setLocation] = useState("");
+  const [equipmentStatus, setEquipmentStatus] = useState<NonNullable<StockItem["equipmentStatus"]>>("bom");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [warrantyUntil, setWarrantyUntil] = useState("");
+  const [maintenanceDue, setMaintenanceDue] = useState("");
+  const [maintenanceProvider, setMaintenanceProvider] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [selected, setSelected] = useState<StockItem | null>(null);
   const [movementType, setMovementType] = useState<MovementType>("entrada");
@@ -232,6 +250,19 @@ export function StockModule({
       photoUrl: photoUrl || undefined,
       ...(kind === "machine"
         ? {
+            brand: brand.trim() || undefined,
+            model: model.trim() || undefined,
+            serialNumber: serialNumber.trim() || undefined,
+            location: location.trim() || undefined,
+            equipmentStatus,
+            purchaseDate: purchaseDate || undefined,
+            warrantyUntil: warrantyUntil || undefined,
+            maintenanceDue: maintenanceDue || undefined,
+            maintenanceProvider: maintenanceProvider.trim() || undefined,
+          }
+        : {}),
+      ...(kind === "machine"
+        ? {
             machineCode:
               items.find((current) => current.id === editingId)?.machineCode ||
               `ORQ-MACHINE-${Date.now()}`,
@@ -266,6 +297,7 @@ export function StockModule({
     setSupplier("");
     setBarcode("");
     setPhotoUrl("");
+    setBrand(""); setModel(""); setSerialNumber(""); setLocation(""); setEquipmentStatus("bom"); setPurchaseDate(""); setWarrantyUntil(""); setMaintenanceDue(""); setMaintenanceProvider("");
     onFeedback(
       editingId
         ? "Item atualizado."
@@ -292,6 +324,7 @@ export function StockModule({
     setSupplier(item.supplier || "");
     setBarcode(item.barcode || "");
     setPhotoUrl(item.photoUrl || "");
+    setBrand(item.brand || ""); setModel(item.model || ""); setSerialNumber(item.serialNumber || ""); setLocation(item.location || ""); setEquipmentStatus(item.equipmentStatus || "bom"); setPurchaseDate(item.purchaseDate || ""); setWarrantyUntil(item.warrantyUntil || ""); setMaintenanceDue(item.maintenanceDue || ""); setMaintenanceProvider(item.maintenanceProvider || "");
   }
   function openMovement(item: StockItem, type: MovementType) {
     setSelected(item);
@@ -642,6 +675,19 @@ export function StockModule({
               placeholder="0,00"
             />
           </label>
+          {kind === "machine" && (
+            <div className="machine-asset-fields">
+              <label>Marca<input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Ex.: Life Fitness" /></label>
+              <label>Modelo<input value={model} onChange={(event) => setModel(event.target.value)} placeholder="Ex.: 9500HR" /></label>
+              <label>Número de série<input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value.toUpperCase())} /></label>
+              <label>Localização<input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Ex.: Sala de musculação" /></label>
+              <label>Status<select value={equipmentStatus} onChange={(event) => setEquipmentStatus(event.target.value as NonNullable<StockItem["equipmentStatus"]>)}><option value="novo">Novo</option><option value="bom">Em uso · bom estado</option><option value="atencao">Atenção</option><option value="manutencao">Em manutenção</option><option value="interditado">Interditado</option></select></label>
+              <label>Data da compra<input type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} /></label>
+              <label>Garantia até<input type="date" value={warrantyUntil} onChange={(event) => setWarrantyUntil(event.target.value)} /></label>
+              <label>Próxima manutenção<input type="date" value={maintenanceDue} onChange={(event) => setMaintenanceDue(event.target.value)} /></label>
+              <label>Técnico / empresa<input value={maintenanceProvider} onChange={(event) => setMaintenanceProvider(event.target.value)} /></label>
+            </div>
+          )}
           {kind === "product" && (
             <>
               <label>
@@ -703,6 +749,7 @@ export function StockModule({
                   setSupplier("");
                   setBarcode("");
                   setPhotoUrl("");
+                  setBrand(""); setModel(""); setSerialNumber(""); setLocation(""); setEquipmentStatus("bom"); setPurchaseDate(""); setWarrantyUntil(""); setMaintenanceDue(""); setMaintenanceProvider("");
                 }}
               >
                 Cancelar
@@ -772,6 +819,14 @@ export function StockModule({
                     {item.salePrice ? ` · Venda: ${money(item.salePrice)}` : ""}
                   </small>
                 ) : null}
+                {item.kind === "machine" && (
+                  <small>
+                    {[item.brand, item.model].filter(Boolean).join(" · ") || "Patrimônio"}
+                    {item.location ? ` · ${item.location}` : ""}
+                    {item.equipmentStatus ? ` · ${item.equipmentStatus}` : ""}
+                    {item.maintenanceDue ? ` · manutenção ${item.maintenanceDue.split("-").reverse().join("/")}` : ""}
+                  </small>
+                )}
               </div>
               <div className="stock-item-actions">
                 <button type="button" onClick={() => editItem(item)}>

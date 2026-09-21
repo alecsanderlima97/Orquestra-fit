@@ -206,20 +206,15 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .class-card-actions .secondary-action { margin: 0; padding: 9px 10px; border: 1px solid var(--line); background: transparent; color: var(--steel-300); font-size: 11px; font-weight: 700; }
 .class-card-actions button:disabled { opacity: .7; cursor: default; }
 .plans-next-step { margin-top: 14px; }
-.billing-layout { display: grid; grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); gap: 14px; margin-top: 18px; }
-.billing-form-stack { display: grid; gap: 14px; align-content: start; }
-.billing-visibility { display: flex; flex-wrap: wrap; gap: 7px; margin: 14px 0; }
-.billing-visibility button { min-height: 36px; padding: 0 11px; display: flex; align-items: center; gap: 6px; border: 1px solid #303638; border-radius: 5px; background: #0d1113; color: var(--steel-400); font-size: 10px; font-weight: 750; }
-.billing-visibility button.active { border-color: rgba(213,157,89,.4); color: var(--bronze-300); background: rgba(93,57,27,.18); }
-.billing-visibility svg { width: 14px; height: 14px; }
-.billing-layout.hide-plan .billing-form-stack > article:nth-child(1), .billing-layout.hide-charge .billing-form-stack > article:nth-child(2), .billing-layout.hide-summary > .billing-overview { display: none; }
-.billing-overview { overflow: hidden; }
+.billing-layout { display: grid; grid-template-columns: minmax(310px, .78fr) minmax(440px, 1.22fr); align-items: start; gap: 18px; margin-top: 18px; }
+.billing-form-stack { display: grid; gap: 18px; align-content: start; }
+.billing-overview { min-height: 100%; overflow: hidden; }
 .billing-overview > header, .charges-panel > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; padding: 22px; border-bottom: 1px solid var(--line); }
 .billing-overview header span, .charges-panel header span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
 .billing-overview h3, .charges-panel h3 { margin: 6px 0 0; color: var(--paper); font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
 .billing-overview header > small { color: var(--steel-500); font-size: 10px; text-align: right; }
-.billing-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
-.billing-summary-grid > div { display: grid; gap: 7px; background: #111315; padding: 20px 16px; }
+.billing-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
+.billing-summary-grid > div { display: grid; min-height: 112px; align-content: center; gap: 7px; background: #111315; padding: 22px 20px; }
 .billing-summary-grid small { color: var(--steel-500); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .billing-summary-grid strong { color: var(--paper); font-family: Georgia, serif; font-size: 18px; font-weight: 500; }
 .billing-summary-grid .received strong { color: #b7d59c; }
@@ -227,7 +222,7 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .billing-progress { height: 7px; margin: 20px 20px 8px; overflow: hidden; background: #3c302d; }
 .billing-progress span { display: block; height: 100%; background: var(--bronze-400); }
 .billing-progress-label { display: flex; justify-content: space-between; gap: 12px; padding: 0 20px 20px; color: var(--steel-500); font-size: 10px; }
-.charges-panel { margin-top: 14px; overflow: hidden; }
+.charges-panel { margin-top: 18px; overflow: hidden; }
 .charge-filters { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .charge-filters button { border: 1px solid var(--line); background: transparent; color: var(--steel-500); padding: 7px 9px; font-size: 10px; }
 .charge-filters button.active { border-color: var(--bronze-500); color: var(--bronze-300); background: #1a1611; }
@@ -332,6 +327,11 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .exercise-picker label span, .exercise-picker label small { display: block; }
 .exercise-picker label small { margin-top: 3px; color: var(--steel-500); font-size: 10px; }
 .exercise-choice { display: grid; gap: 8px; border-bottom: 1px solid var(--line); padding: 7px 0; }
+.exercise-choice-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.exercise-choice-main > label { flex: 1 1 auto; min-width: 0; }
+.exercise-choice-actions { flex: 0 0 auto; opacity: .78; }
+.exercise-choice-actions button { padding: 5px 8px; }
+.exercise-choice-actions button:hover { opacity: 1; }
 .exercise-parameters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding-left: 24px; }
 .exercise-parameters label { display: grid; gap: 4px; color: var(--steel-500); font-size: 9px; }
 .exercise-parameters input { width: 100%; border: 1px solid var(--line); background: #0b0d0e; color: var(--paper); padding: 7px; font-size: 11px; }
@@ -392,12 +392,10 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .exercise-library > .library-region-group { display: block; border-bottom: 1px solid var(--line); padding: 10px 0; }
 .exercise-library > .library-region-group > .collapse-content { display: block; }
 .exercise-library .library-exercise-row > div:first-child { min-width: 0; }
-.library-class-toggle { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 0; border: 0; border-bottom: 1px solid #292d2e; background: transparent; color: var(--bronze-300); text-align: left; cursor: pointer; }
-.library-class-toggle:hover { color: var(--paper); }
-.library-class-toggle > svg { width: 14px; transition: transform .2s ease; }
-.library-class-toggle > h4 { flex: 1; margin: 0; }
-.library-class-toggle > small { color: var(--steel-500); font-size: 9px; }
-.library-class-toggle > svg.rotated { transform: rotate(180deg); }
+.library-class-group { padding: 10px 0 2px; }
+.library-class-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 0 0 7px; border-bottom: 1px solid #292d2e; }
+.library-class-heading > h4 { margin: 0; color: var(--bronze-300); font-size: 12px; }
+.library-class-heading > small { color: var(--steel-500); font-size: 9px; white-space: nowrap; }
 .exercise-actions { display: flex; align-items: center; gap: 6px; }
 .exercise-actions button { border: 1px solid var(--line); background: transparent; color: var(--bronze-300); padding: 5px 7px; font-size: 9px; font-weight: 800; cursor: pointer; }
 .exercise-actions button:last-child { color: #e39a8e; }
@@ -1885,6 +1883,8 @@ button:not(:disabled):active { transform: translateY(1px) scale(.995); }
 .stock-form label { display: grid; gap: 6px; color: var(--steel-400); font-size: 9px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
 .stock-form input, .stock-form textarea { min-height: 40px; border: 1px solid #3e4243; background: #090c0d; color: var(--paper); padding: 10px 11px; font: inherit; resize: vertical; }
 .stock-form textarea { min-height: 62px; }
+.machine-asset-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; border: 1px solid #5a432e; background: linear-gradient(110deg, rgba(85,48,22,.3), #101415); }
+.machine-asset-fields label { margin: 0; }
 .stock-new-category { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
 .stock-new-category button, .stock-list > header select { border: 1px solid #765333; background: #17130f; color: var(--bronze-300); padding: 0 11px; font-weight: 800; cursor: pointer; }
 .stock-list > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -2083,6 +2083,7 @@ button:not(:disabled):active { transform: translateY(1px) scale(.995); }
   .report-lines { grid-template-columns: 1fr; }
   .app-guide-panel { width: calc(100vw - 26px); }
   .stock-summary { grid-template-columns: 1fr; }
+  .machine-asset-fields { grid-template-columns: 1fr; }
   .finance-form-grid, .finance-attachments { grid-template-columns: 1fr; }
   .finance-notes { grid-column: auto; }
   .finance-account-filters { grid-template-columns: 1fr; }
