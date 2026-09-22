@@ -3118,7 +3118,8 @@ function AppearancePanel({ theme, onThemeChange, onClose }: { theme: Theme; onTh
 
 function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void; onFeedback: (message: string) => void }) {
   const access = useAccess();
-  const [roleToAdd, setRoleToAdd] = useState<"teacher" | "student" | null>(null);
+  const [roleToAdd, setRoleToAdd] = useState<"admin" | "teacher" | "student" | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("damadeferroct2026@gmail.com");
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const roles = [
@@ -3126,9 +3127,20 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
     { id: "teacher", label: "Professor", tone: "teacher", description: "Acompanha alunos vinculados e monta ou publica treinos.", access: "Professor + alunos" },
     { id: "student", label: "Aluno", tone: "student", description: "Acessa apenas seus treinos, evolução, agenda e perfil.", access: "Área do aluno" },
   ];
+  function chooseInviteRole(role: "admin" | "teacher" | "student") {
+    setRoleToAdd(role);
+    setGeneratedCode(null);
+    if (role !== "admin") setInviteEmail("");
+    else setInviteEmail((current) => current || "damadeferroct2026@gmail.com");
+  }
 
   async function generateAccessCode() {
     if (!roleToAdd) return;
+    const normalizedEmail = inviteEmail.trim().toLowerCase();
+    if (roleToAdd === "admin" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      onFeedback("Informe o Gmail da proprietária para criar o convite de gestão.");
+      return;
+    }
     setGenerating(true);
     const random = Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36).toUpperCase()).join("").slice(0, 8);
     const code = `DF-${random}`;
@@ -3137,6 +3149,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
         await setDoc(doc(db, "accessCodes", code), {
           academyId: access.academyId,
           role: roleToAdd,
+          invitedEmail: normalizedEmail || null,
           active: true,
           createdBy: access.userId,
           createdAt: serverTimestamp(),
@@ -3158,9 +3171,9 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
         <section className="settings-section">
           <div className="settings-section-heading"><div><span>CONTROLE DE ACESSO</span><h3>Equipe e permissões</h3></div><small>Quem pode acessar cada área</small></div>
           <div className="permission-roles">
-          {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => role.id === "admin" ? onFeedback("O dono da academia já possui acesso administrativo.") : setRoleToAdd(role.id as "teacher" | "student")}><Plus size={16} /> Adicionar</button></article>)}
+          {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => chooseInviteRole(role.id as "admin" | "teacher" | "student")}><Plus size={16} /> Adicionar</button></article>)}
           </div>
-          {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>Convite de {roleToAdd === "teacher" ? "professor" : "aluno"}</strong><p>Gere um código e envie para a pessoa criar um login e senha ou entrar com a conta Google.</p></div><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
+          {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>Convite de {roleToAdd === "admin" ? "gestor" : roleToAdd === "teacher" ? "professor" : "aluno"}</strong><p>O convite fica vinculado ao Gmail informado. A pessoa deverá entrar com essa conta Google para ativá-lo.</p></div><label className="invite-email-field">Gmail autorizado<input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="nome@gmail.com" required={roleToAdd === "admin"} /></label><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
         </section>
         <section className="settings-section appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>

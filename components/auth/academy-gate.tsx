@@ -178,6 +178,11 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [createMode, setCreateMode] = useState(false);
+
+  if (createMode) {
+    return <CreateAcademy user={user} onCreated={(nextProfile) => onActivated(nextProfile, { role: "admin", active: true })} />;
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -195,7 +200,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         return;
       }
 
-        const invitation = codeSnapshot.data() as {
+      const invitation = codeSnapshot.data() as {
         academyId: string;
         role: "admin" | "teacher" | "student";
         invitedName?: string;
@@ -209,8 +214,17 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         cref?: string | null;
         specialty?: string | null;
       };
+      const invitedEmail = invitation.invitedEmail?.trim().toLowerCase();
+      const signedInEmail = user.email?.trim().toLowerCase();
+      if (invitedEmail && invitedEmail !== signedInEmail) {
+        setStatus(`Este convite foi reservado para ${invitation.invitedEmail}. Entre com esse Gmail para continuar.`);
+        return;
+      }
       const memberRef = doc(firestore, "academies", invitation.academyId, "members", user.uid);
       const userRef = doc(firestore, "users", user.uid);
+      const existingUserSnapshot = await getDoc(userRef);
+      const existingUser = existingUserSnapshot.exists() ? existingUserSnapshot.data() as { academyIds?: string[] } : {};
+      const academyIds = Array.from(new Set([...(existingUser.academyIds ?? []), invitation.academyId]));
       const batch = writeBatch(firestore);
       const now = serverTimestamp();
 
@@ -261,10 +275,10 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         email: user.email?.endsWith("@accounts.orquestra-fit.local") ? null : user.email ?? null,
         ...(user.email?.endsWith("@accounts.orquestra-fit.local") ? { username: user.displayName ?? null } : {}),
         activeAcademyId: invitation.academyId,
-        academyIds: [invitation.academyId],
+        academyIds,
         activationCodeId: normalizedCode,
         createdAt: now,
-        ...(invitation.role === "admin" ? { accountType: "academy_admin" as const } : {}),
+        ...(invitation.role === "admin" && !isDeveloperAccount(user) ? { accountType: "academy_admin" as const } : {}),
       };
       batch.set(userRef, userData, { merge: true });
       await batch.commit();
@@ -293,6 +307,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           <button type="submit" disabled={submitting}>{submitting ? "Ativando..." : "Ativar acesso"}</button>
         </form>
         <p className="onboarding-note"><CheckCircle2 size={16} /> Este código só pode ser usado uma vez.</p>
+        <button className="auth-link" type="button" onClick={() => setCreateMode(true)}>Sou responsável por uma academia e quero criar o ambiente</button>
         <button className="auth-link" type="button" onClick={() => void leaveAccount()}>Voltar para entrada</button>
       </section>
     </main>

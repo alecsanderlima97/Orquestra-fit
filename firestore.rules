@@ -36,7 +36,9 @@ service cloud.firestore {
       return signedIn() &&
         get(/databases/$(database)/documents/accessCodes/$(codeId)).data.active == true &&
         get(/databases/$(database)/documents/accessCodes/$(codeId)).data.academyId == academyId &&
-        get(/databases/$(database)/documents/accessCodes/$(codeId)).data.role == role;
+        get(/databases/$(database)/documents/accessCodes/$(codeId)).data.role == role &&
+        (get(/databases/$(database)/documents/accessCodes/$(codeId)).data.get('invitedEmail', null) == null ||
+          get(/databases/$(database)/documents/accessCodes/$(codeId)).data.get('invitedEmail', null) == request.auth.token.email);
     }
 
     match /accessCodes/{codeId} {
