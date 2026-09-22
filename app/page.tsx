@@ -1943,14 +1943,20 @@ function gifLibraryStoragePath(file: string) {
 }
 
 function CatalogGifPreview({ item }: { item: GifCatalogItem }) {
-  const [source, setSource] = useState(item.url);
+  const localPreview = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname) ? item.url : "";
+  const [source, setSource] = useState(localPreview);
+  const [loading, setLoading] = useState(!localPreview);
   useEffect(() => {
     let active = true;
-    setSource(item.url);
-    if (storage) getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))).then((url) => { if (active) setSource(url); }).catch(() => undefined);
+    const local = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname) ? item.url : "";
+    setSource(local);
+    setLoading(!local);
+    if (storage) getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))).then((url) => { if (active) { setSource(url); setLoading(false); } }).catch(() => { if (active) { setSource(local); setLoading(false); } });
+    else setLoading(false);
     return () => { active = false; };
   }, [item.file, item.url]);
-  return <HoverGifPreview className="gif-catalog-preview" src={source} alt={`Prévia de ${item.name}`} placeholder="Ver movimento" focusable={false} />;
+  if (!source) return <span className="gif-catalog-preview is-empty"><small>{loading ? "Carregando GIF…" : "Importe este GIF uma vez"}<b>{loading ? "Firebase Storage" : "Central do desenvolvedor"}</b></small></span>;
+  return <span className="gif-catalog-preview" role="img" aria-label={`Prévia de ${item.name}`}><img src={source} alt="" loading="lazy" onError={() => setSource("")} /></span>;
 }
 
 function ExerciseLibrary({ exercises, accessRole, onEdit, onLinkGif, onRemove }: { exercises: ExerciseRecord[]; accessRole: string; onEdit: (exercise: ExerciseRecord) => void; onLinkGif: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void }) {
@@ -3203,6 +3209,62 @@ function AppearancePanel({ theme, onThemeChange, onClose }: { theme: Theme; onTh
   return <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="appearance-title"><section className="permissions-panel appearance-only-panel"><header><div><span>CONFIGURAÇÕES</span><h2 id="appearance-title">Aparência</h2><p>Escolha o tema visual do seu ambiente.</p></div><button aria-label="Fechar aparência" onClick={onClose}><X /></button></header><section className="settings-section appearance-section"><div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Tema do ambiente</h3></div><small>Preferência deste ambiente</small></div><ThemeSwitcher theme={theme} onChange={onThemeChange} /></section></section></div>;
 }
 
+const academyWeekdays = [
+  ["monday", "Segunda"], ["tuesday", "Terça"], ["wednesday", "Quarta"], ["thursday", "Quinta"],
+  ["friday", "Sexta"], ["saturday", "Sábado"], ["sunday", "Domingo"],
+] as const;
+
+function AcademyHoursSettings({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [days, setDays] = useState<string[]>(academyWeekdays.map(([value]) => value));
+  const [openingTime, setOpeningTime] = useState("06:00");
+  const [closingTime, setClosingTime] = useState("22:00");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db) {
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { openingDays?: string[]; openingTime?: string; closingTime?: string } | null;
+        if (saved) { setDays(saved.openingDays?.length ? saved.openingDays : academyWeekdays.map(([value]) => value)); setOpeningTime(saved.openingTime || "06:00"); setClosingTime(saved.closingTime || "22:00"); }
+      } catch { /* usa o padrão */ }
+      return;
+    }
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => {
+      const data = snapshot.data() as { openingDays?: unknown; openingTime?: string; closingTime?: string } | undefined;
+      const savedDays = Array.isArray(data?.openingDays) ? data.openingDays.filter((item): item is string => typeof item === "string") : [];
+      setDays(savedDays.length ? savedDays : academyWeekdays.map(([value]) => value));
+      setOpeningTime(data?.openingTime || "06:00");
+      setClosingTime(data?.closingTime || "22:00");
+    }, () => onFeedback("Não foi possível carregar o funcionamento da academia."));
+  }, [access.academyId, onFeedback]);
+
+  function toggleDay(day: string) {
+    setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day]);
+  }
+
+  async function save() {
+    if (!days.length) { onFeedback("Selecione ao menos um dia de funcionamento."); return; }
+    setSaving(true);
+    const settings = { openingDays: academyWeekdays.map(([value]) => value).filter((value) => days.includes(value)), openingTime, closingTime };
+    try {
+      if (!db) {
+        window.localStorage.setItem(`orquestra-fit:${access.academyId}:academy-settings`, JSON.stringify(settings));
+        window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
+      } else await setDoc(doc(db, "academies", access.academyId), { ...settings, updatedAt: serverTimestamp(), updatedBy: access.userId }, { merge: true });
+      onFeedback("Funcionamento da academia atualizado.");
+    } catch { onFeedback("Não foi possível salvar o funcionamento agora."); }
+    finally { setSaving(false); }
+  }
+
+  return <section className="settings-section academy-hours-section">
+    <div className="settings-section-heading"><div><span>FUNCIONAMENTO</span><h3>Dias e horários da academia</h3></div><small>{days.length === 7 ? "Todos os dias" : `${days.length} dia(s) selecionado(s)`}</small></div>
+    <p className="academy-hours-helper">Marque os dias em que a academia recebe alunos. Sábado e domingo já ficam disponíveis no padrão.</p>
+    <div className="academy-hours-days">{academyWeekdays.map(([value, label]) => <button type="button" key={value} className={days.includes(value) ? "active" : ""} aria-pressed={days.includes(value)} onClick={() => toggleDay(value)}>{label}</button>)}</div>
+    <div className="academy-hours-times"><label>Abertura<input type="time" value={openingTime} onChange={(event) => setOpeningTime(event.target.value)} /></label><label>Fechamento<input type="time" value={closingTime} onChange={(event) => setClosingTime(event.target.value)} /></label></div>
+    <button className="detail-save" type="button" onClick={() => void save()} disabled={saving}>{saving ? "Salvando..." : "Salvar funcionamento"}</button>
+  </section>;
+}
+
 function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void; onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [roleToAdd, setRoleToAdd] = useState<"admin" | "teacher" | "student" | null>(null);
@@ -3303,6 +3365,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />
         </section>
+        {access.accountType !== "developer" && <AcademyHoursSettings onFeedback={onFeedback} />}
         <section className="settings-section settings-announcement-section">
           <ManagerAnnouncementComposer />
         </section>
