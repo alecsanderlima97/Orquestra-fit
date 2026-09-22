@@ -1975,6 +1975,7 @@ function ExerciseLibrary({ exercises, accessRole, onEdit, onLinkGif, onRemove }:
 }
 
 type GifCatalogItem = { id: string; name: string; file: string; url: string; equipment: string; muscle: string };
+type SelectedCatalogGif = { url: string; path: string; profile: "masculino" | "feminino" };
 
 function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle, profile, onClose, onSelect }: { open: boolean; initialQuery: string; initialEquipment: string; initialMuscle: string; profile: "masculino" | "feminino"; onClose: () => void; onSelect: (item: GifCatalogItem) => Promise<void> }) {
   const [items, setItems] = useState<GifCatalogItem[]>([]);
@@ -2069,6 +2070,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [instructions, setInstructions] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [gifFile, setGifFile] = useState<File | null>(null);
+  const [selectedCatalogGif, setSelectedCatalogGif] = useState<SelectedCatalogGif | null>(null);
   const [gifProfile, setGifProfile] = useState<"masculino" | "feminino">("masculino");
   const [uploadingGif, setUploadingGif] = useState(false);
   const [syncingVerifiedGifs, setSyncingVerifiedGifs] = useState(false);
@@ -2129,7 +2131,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function editExercise(exercise: ExerciseRecord) {
-    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setExerciseEquipment(exercise.equipmentName ?? equipmentForExercise(exercise.name)); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setGifFile(null); setGifProfile("masculino"); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
+    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setExerciseEquipment(exercise.equipmentName ?? equipmentForExercise(exercise.name)); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setGifFile(null); setSelectedCatalogGif(null); setGifProfile("masculino"); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
     window.requestAnimationFrame(() => Array.from(document.querySelectorAll<HTMLElement>("article.training-form-panel")).find((panel) => panel.textContent?.includes("BIBLIOTECA DE EXERCÍCIOS"))?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
@@ -2139,7 +2141,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function clearExerciseForm() {
-    setEditingExerciseId(null); setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setGifFile(null); setGifProfile("masculino"); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
+    setEditingExerciseId(null); setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setGifFile(null); setSelectedCatalogGif(null); setGifProfile("masculino"); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
   }
 
   async function fileAsBase64(file: File) {
@@ -2151,6 +2153,11 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   async function uploadExerciseGif(exerciseId: string) {
+    if (selectedCatalogGif?.profile === gifProfile) {
+      return gifProfile === "feminino"
+        ? { gifFemaleUrl: selectedCatalogGif.url, gifFemalePath: selectedCatalogGif.path }
+        : { gifUrl: selectedCatalogGif.url, gifPath: selectedCatalogGif.path, gifMaleUrl: selectedCatalogGif.url, gifMalePath: selectedCatalogGif.path };
+    }
     if (!gifFile) return null;
     if (!functions) throw new Error("O serviço seguro de mídia não está configurado.");
     if (gifFile.type !== "image/gif") throw new Error("Selecione um arquivo GIF.");
@@ -2163,13 +2170,23 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   async function chooseGifFromCatalog(item: GifCatalogItem) {
     try {
       let sourceUrl = item.url;
+      let globalPath = "";
       if (storage) {
-        try { sourceUrl = await getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))); } catch { /* usa a fonte do catálogo enquanto a biblioteca não foi importada */ }
+        globalPath = gifLibraryStoragePath(item.file);
+        try { sourceUrl = await getDownloadURL(storageRef(storage, globalPath)); } catch { globalPath = ""; /* usa a fonte do catálogo enquanto a biblioteca não foi importada */ }
       }
       const response = await fetch(sourceUrl);
       if (!response.ok) throw new Error("Não foi possível abrir este GIF.");
+      if (globalPath) {
+        setGifFile(null);
+        setSelectedCatalogGif({ url: sourceUrl, path: globalPath, profile: gifProfile });
+        setGifCatalogOpen(false);
+        onFeedback("GIF global selecionado. Salve o exercício para vincular sem novo envio.");
+        return;
+      }
       const file = new File([await response.blob()], item.file.split("/").pop() || "demonstracao.gif", { type: "image/gif" });
       setGifFile(file);
+      setSelectedCatalogGif(null);
       setGifCatalogOpen(false);
       onFeedback("GIF selecionado. Salve as alterações para vinculá-lo ao exercício.");
     } catch { onFeedback("Não foi possível selecionar o GIF da biblioteca."); }
@@ -2466,7 +2483,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     {access.accountType === "developer" && <GifLibraryImporter onFeedback={onFeedback} />}
     <section className="training-layout training-layout-redesigned">
       <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} accessRole={access.role} /><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} /><div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form></article>
-      <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">{linkedGifCount} movimentos com GIF disponível · {pendingGifCount} aguardando revisão manual. Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O aluno verá automaticamente a versão correspondente ao seu perfil anatômico.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => setGifFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria {gifProfile} no sistema</button>{gifFile && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : `Selecionado para ${gifProfile}: ${gifFile.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
+      <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">{linkedGifCount} movimentos com GIF disponível · {pendingGifCount} aguardando revisão manual. Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); setSelectedCatalogGif(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O aluno verá automaticamente a versão correspondente ao seu perfil anatômico.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => { setGifFile(event.target.files?.[0] ?? null); setSelectedCatalogGif(null); }} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria {gifProfile} no sistema</button>{(gifFile || selectedCatalogGif) && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : selectedCatalogGif ? `GIF global selecionado para ${gifProfile}.` : `Selecionado para ${gifProfile}: ${gifFile?.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
     </section>
     <PublishedWorkouts templates={templates} workouts={workouts} onEditTemplate={beginTemplateEdit} onRemoveTemplate={(template) => void removeTemplate(template)} onEditWorkout={beginWorkoutEdit} onRemoveWorkout={(workout) => void removeWorkout(workout)} />
     {editingExerciseId && <button className="gif-catalog-launcher" type="button" onClick={() => setGifCatalogOpen(true)}>Escolher GIF do catálogo</button>}

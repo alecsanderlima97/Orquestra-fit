@@ -394,6 +394,19 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .gif-catalog-grid span { display: grid; gap: 4px; padding: 8px; }
 .gif-catalog-grid strong { font-size: 10px; line-height: 1.3; }
 .gif-catalog-grid small { color: var(--steel-500); font-size: 8px; line-height: 1.25; }
+.gif-library-importer { margin: 14px 0; padding: 0 18px 16px; }
+.gif-library-importer > header { padding: 16px 0 12px; border-bottom: 1px solid var(--line); }
+.gif-library-importer > header span { color: var(--bronze-300); font-size: 10px; font-weight: 850; letter-spacing: .13em; }
+.gif-library-importer > header h3 { margin: 5px 0; color: var(--paper); font-family: Georgia, serif; font-size: 20px; font-weight: 500; }
+.gif-library-importer > header p { margin: 0; color: var(--steel-500); font-size: 11px; line-height: 1.5; }
+.gif-library-import-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; padding-top: 14px; }
+.gif-library-import-actions label { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.gif-library-import-actions label input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.gif-library-progress { display: grid; gap: 8px; margin-top: 13px; }
+.gif-library-progress > div:first-child { display: flex; justify-content: space-between; gap: 10px; color: var(--steel-500); font-size: 10px; }
+.gif-library-progress strong { color: var(--paper); }
+.gif-library-progress-track { height: 5px; overflow: hidden; border-radius: 99px; background: #272b2b; }
+.gif-library-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--bronze-500), var(--bronze-300)); transition: width .2s ease; }
 @media (max-width: 700px) { .gif-catalog-launcher { right: 14px; bottom: 138px; } .gif-catalog-modal { padding: 10px; } .gif-catalog-panel { padding: 14px; } .gif-folder-browser { grid-template-columns: 1fr; } .gif-catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .training-layout-redesigned .training-form-panel h3 { font-size: 27px; line-height: 1.1; }
 .training-layout-redesigned .student-detail-form label { font-size: 12px; }
