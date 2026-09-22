@@ -1,0 +1,33 @@
+/* Student home: preserve the academy palette, soften surfaces and touch targets. */
+.student-app .home-view { padding-top: 26px; }
+.student-app .home-view .welcome-row { gap: 16px; margin-bottom: 24px; }
+.student-app .home-view .welcome-row h1 { font-family: inherit; font-size: clamp(25px, 6vw, 30px); letter-spacing: -.7px; line-height: 1.2; }
+.student-app .home-view .today-workout { border-radius: 24px; padding: 26px 22px; border-color: #c2925433; box-shadow: 0 12px 32px #0002; }
+.student-app .home-view .workout-copy { width: 100%; position: relative; z-index: 2; }
+.student-app .home-view .workout-copy h2 { max-width: 90%; font-family: inherit; font-size: 30px; line-height: 1.15; letter-spacing: -.7px; overflow-wrap: anywhere; }
+.student-app .home-view .workout-copy p { max-width: 90%; line-height: 1.6; }
+.student-app .home-view .workout-copy button { border-radius: 14px; min-height: 50px; width: 100%; margin-top: 22px; }
+.student-app .home-view .workout-art { opacity: .28; pointer-events: none; }
+.student-app .home-view .steel-number { display: none; }
+.student-app .home-view .status-grid { gap: 12px; margin-top: 16px; margin-bottom: 28px; }
+.student-app .home-view .status-grid article { border-radius: 18px; min-height: 124px; padding: 16px; }
+.student-app .home-view .status-icon { border-radius: 10px; }
+.student-app .home-view .status-grid p { line-height: 1.5; color: var(--steel-500); }
+.student-app .home-view .section-heading h2 { font-family: inherit; font-size: 20px; letter-spacing: -.4px; }
+.student-app .home-view .section-heading button { min-height: 44px; border-radius: 12px; padding: 8px 12px; }
+.student-app .home-view .weekly-card { border-radius: 20px; padding: 20px; }
+.student-app .home-view .academy-note,
+.student-app .home-view .student-message-inbox { border-radius: 18px; padding: 20px 16px; margin-top: 16px; gap: 12px; }
+.student-app .home-view .academy-note p,
+.student-app .home-view .student-message-inbox p { line-height: 1.6; font-size: 13px; overflow-wrap: anywhere; }
+.student-app .home-view .note-mark { border-radius: 12px; }
+.student-app .home-view button:focus-visible,
+.student-app .home-view [role="button"]:focus-visible { outline: 2px solid var(--bronze-400); outline-offset: 4px; }
+.student-app .home-view button:disabled { opacity: .55; cursor: not-allowed; }
+.anatomy-screen .muscle-legend > div,
+.anatomy-screen .anatomy-metrics > div { border-radius: 16px; }
+.anatomy-screen .anatomy-controls button { width: 44px; height: 44px; border-radius: 12px; }
+.anatomy-screen .anatomy-controls button:disabled { opacity: .35; }
+.anatomy-screen .anatomy-controls { font-size: 11px; gap: 8px; }
+.anatomy-screen .anatomy-view-presets { border-radius: 14px; }
+.anatomy-screen .anatomy-view-presets button { border-radius: 10px; min-height: 44px; }

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
+import { WorkoutSessionView } from "@/components/workouts/workout-session-view";
 import { FinanceModule } from "@/components/finance/finance-module-v2";
 import { AppGuide } from "@/components/assistant/app-guide";
 import { StockModule } from "@/components/stock/stock-module";
@@ -547,7 +548,7 @@ export default function Home() {
         className={role === "aluno" ? "v3-page" : "v3-page desktop-mode"}
         data-theme={theme === "prata" ? "ferro" : "forja"}
       >
-        {canSwitchRole && (
+        {canSwitchRole && !sessionOpen && (
           <RoleSwitcher role={demoRole} onChange={(nextRole) => { setDemoRole(nextRole); setSessionOpen(false); setMenuOpen(false); }} />
         )}
         {role === "aluno" && (
@@ -1244,12 +1245,11 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
   const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">>>({});
-  const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(0);
+  const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(null);
   const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
   const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource({ ...exercise, ...currentMedia, name: exercise.name }, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` }; }) : workoutPlan;
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
-  const progress = Math.round((completedSets.length / totalSets) * 100);
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
     return () => window.clearInterval(timer);
@@ -1281,7 +1281,6 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
     return () => window.clearTimeout(timer);
   }, [restTimer, feedback]);
   const elapsed = useMemo(() => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`, [seconds]);
-  const restLabel = (secondsToFormat: number) => `${String(Math.floor(secondsToFormat / 60)).padStart(2, "0")}:${String(secondsToFormat % 60).padStart(2, "0")}`;
   function startRest(exerciseIndex: number) {
     const configuredSeconds = Math.max(1, Number(String(exercises[exerciseIndex].rest).replace(/[^0-9]/g, "")) || 60);
     setRestTimer({ exerciseIndex, total: configuredSeconds, remaining: configuredSeconds });
@@ -1293,7 +1292,7 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
     onToggleSet(id);
     if (!done) {
       startRest(exerciseIndex);
-      if (completedBefore + 1 === exercises[exerciseIndex].sets) window.setTimeout(() => setOpenExerciseIndex(null), 220);
+      if (completedBefore + 1 === exercises[exerciseIndex].sets) setOpenExerciseIndex((current) => current === exerciseIndex ? null : current);
     }
   }
 
@@ -1335,45 +1334,34 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
     }
   }
 
-  return (
-    <div className="session-view">
-      <header className="session-top">
-        <button aria-label="Voltar" onClick={onBack}><ArrowLeft /></button>
-        <div><small>TREINO EM ANDAMENTO</small><strong>{elapsed}</strong></div><span>{progress}%</span>
-      </header>
-      <section className="session-title">
-        <div><span>{workout ? "TREINO PUBLICADO" : "FORÇA A"}</span><h1>{workout?.name ?? "Pernas e estabilidade"}</h1><p>{completedSets.length} de {totalSets} séries concluídas</p></div>
-        <div className="progress-ring" style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}><strong>{progress}%</strong></div>
-      </section>
-      <button className="machine-reader-trigger" type="button" onClick={() => setMachineReaderOpen(true)}><QrCode /><span><strong>Ler QR da máquina</strong><small>Veja os exercícios disponíveis nesta estação</small></span><ChevronRight /></button>
-      <div className="session-exercises">
-        {exercises.map((exercise, exerciseIndex) => {
-          const isOpen = openExerciseIndex === exerciseIndex;
-          const completedCount = Array.from({ length: exercise.sets }).filter((_, setIndex) => completedSets.includes(`${exerciseIndex}-${setIndex}`)).length;
-          const isComplete = completedCount === exercise.sets;
-          const isResting = restTimer?.exerciseIndex === exerciseIndex;
-          return <article className={`exercise-card ${isOpen ? "expanded" : "collapsed"} ${isComplete ? "completed" : ""}`} key={exercise.name}>
-            <header><span className="exercise-card-art" style={{ backgroundImage: `url("${("gifUrl" in exercise && exercise.gifUrl) || exerciseArtwork(exercise.name, exercise.group, "bodyRegion" in exercise ? exercise.bodyRegion : undefined)}")` }} aria-hidden="true" /><button className="exercise-card-title" type="button" aria-expanded={isOpen} onClick={() => setOpenExerciseIndex(isOpen ? null : exerciseIndex)}><span>0{exerciseIndex + 1}</span><div><small>{exercise.group}</small><h2>{exercise.name}</h2>{"equipmentName" in exercise && exercise.equipmentName && <b className="exercise-equipment"><Dumbbell />{exercise.equipmentName}</b>}{!isOpen && <em>{isComplete ? "Exercício concluído" : `${completedCount}/${exercise.sets} séries concluídas`}</em>}</div><ChevronDown /></button><button className="exercise-video-button" type="button" aria-label="Ver demonstração" onClick={() => (exercise.videoUrl || ("gifUrl" in exercise && exercise.gifUrl)) ? window.open(exercise.videoUrl || exercise.gifUrl, "_blank", "noopener,noreferrer") : feedback("Este exercício ainda não possui vídeo de demonstração.")}><Play size={17} fill="currentColor" /></button></header>
-            {isOpen ? <div className="exercise-card-body">
-              {"gifUrl" in exercise && exercise.gifUrl && <div className="exercise-demo"><img src={exercise.gifUrl} alt={`Demonstração de ${exercise.name}`} loading="lazy" /><span>Demonstrativo do movimento</span></div>}
-              {("instructions" in exercise && (exercise.instructions || exercise.anatomyRegion || exercise.videoUrl)) && <div className="exercise-guidance"><strong>{exercise.anatomyRegion || exercise.group}</strong>{exercise.instructions && <p><b>Como executar:</b> {exercise.instructions}</p>}{exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer">Assistir demonstração</a>}</div>}
-              <button className="exercise-anatomy-trigger" type="button" onClick={() => setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest })}><PersonStanding /> Ver músculos e detalhes <ChevronRight /></button>
-              <div className="set-labels"><span>Série</span><span>Carga</span><span>Repetições</span><span>Feito</span></div>
-              {Array.from({ length: exercise.sets }).map((_, setIndex) => {
-                const id = `${exerciseIndex}-${setIndex}`;
-                const done = completedSets.includes(id);
-                return <div className={done ? "set-row done" : "set-row"} key={id}><strong>{setIndex + 1}</strong><label><input value={setValues[id]?.load ?? exercise.load} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: event.target.value, reps: current[id]?.reps ?? exercise.reps } }))} inputMode="numeric" aria-label="Carga" /><span>kg</span></label><label><input value={setValues[id]?.reps ?? exercise.reps} onChange={(event) => setSetValues((current) => ({ ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: event.target.value } }))} inputMode="numeric" aria-label="Repetições" /><span>rep</span></label><button aria-label={`Concluir série ${setIndex + 1}`} onClick={() => toggleSet(exerciseIndex, setIndex)}>{done && <Check size={18} />}</button></div>;
-              })}
-              <footer><button className={isResting ? "rest-button running" : "rest-button"} type="button" onClick={() => isResting ? setRestTimer(null) : startRest(exerciseIndex)}><Clock3 size={16} /><span>{isResting ? `Descansando · ${restLabel(restTimer.remaining)}` : `Iniciar descanso · ${exercise.rest}`}</span><strong>{isResting ? "Parar" : "Iniciar"}</strong></button></footer>
-            </div> : <button className="exercise-card-start" type="button" onClick={() => setOpenExerciseIndex(exerciseIndex)}>{isComplete ? <><Check /> Concluído</> : <><Play fill="currentColor" /> Iniciar exercício</>}<ChevronRight /></button>}
-          </article>;
-        })}
-      </div>
-      <button className="finish-workout" disabled={completedSets.length < totalSets || saving} onClick={finishWorkout}><Trophy size={20} /> {saving ? "Salvando treino..." : "Concluir treino"}</button>
-      {anatomyExercise && <ExerciseAnatomyView exercise={anatomyExercise} onClose={closeAnatomy} />}
-      {machineReaderOpen && <MachineQrReader exercises={exercises as SessionExercise[]} onClose={() => setMachineReaderOpen(false)} onSelect={(index) => { setOpenExerciseIndex(index); setMachineReaderOpen(false); window.setTimeout(() => document.querySelectorAll(".exercise-card")[index]?.scrollIntoView({ behavior: "smooth", block: "center" }), 80); }} />}
-    </div>
-  );
+  return <>
+    <WorkoutSessionView
+      name={workout?.name ?? "Pernas e estabilidade"}
+      elapsed={elapsed}
+      exercises={exercises}
+      completedSets={completedSets}
+      openIndex={openExerciseIndex}
+      setValues={setValues}
+      restTimer={restTimer}
+      saving={saving}
+      onBack={onBack}
+      onOpen={setOpenExerciseIndex}
+      onToggleSet={toggleSet}
+      onValueChange={(id, field, value, exercise) => setSetValues((current) => ({
+        ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: current[id]?.reps ?? exercise.reps, [field]: value },
+      }))}
+      onRest={startRest}
+      onStopRest={() => setRestTimer(null)}
+      onAnatomy={(index) => {
+        const exercise = exercises[index];
+        setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest });
+      }}
+      onScan={() => setMachineReaderOpen(true)}
+      onFinish={() => void finishWorkout()}
+    />
+    {anatomyExercise && <ExerciseAnatomyView exercise={anatomyExercise} onClose={closeAnatomy} />}
+    {machineReaderOpen && <MachineQrReader exercises={exercises as SessionExercise[]} onClose={() => setMachineReaderOpen(false)} onSelect={(index) => { setOpenExerciseIndex(index); setMachineReaderOpen(false); window.setTimeout(() => document.querySelectorAll(".workout-exercise")[index]?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }} />}
+  </>;
 }
 
 const workspaceNav = [

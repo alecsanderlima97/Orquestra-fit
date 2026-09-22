@@ -65,19 +65,69 @@ function AnatomyFigure({ primary, secondary, profile, view }: { primary: Set<Mus
 export function ExerciseAnatomyView({ exercise, onClose }: { exercise: ExerciseAnatomyData; onClose: () => void }) {
   const primaryZones = muscleZones(exercise.primaryMuscle); const secondaryZones = muscleZones(exercise.secondaryMuscles ?? "");
   const profile = exercise.anatomyProfile === "feminino" ? "feminino" : "masculino";
-  const [view, setView] = useState<AnatomyView>("front"); const [zoom, setZoom] = useState(1); const dragStart = useRef<number | null>(null);
+  const [view, setView] = useState<AnatomyView>("front"); const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => { document.body.style.overflow = overflow; previous?.focus(); };
+  }, []);
+  const gesture = useRef({ x: 0, y: 0, distance: 0, zoom: 1, panX: 0, panY: 0, pinched: false });
   useEffect(() => { const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", closeOnEscape); return () => window.removeEventListener("keydown", closeOnEscape); }, [onClose]);
-  const changeZoom = (amount: number) => setZoom((current) => Math.min(1.5, Math.max(.9, Number((current + amount).toFixed(2)))));
-  const chooseView = (next: AnatomyView) => { setView(next); setZoom(1); };
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => { dragStart.current = event.clientX; event.currentTarget.setPointerCapture(event.pointerId); };
-  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => { if (dragStart.current === null) return; const distance = event.clientX - dragStart.current; dragStart.current = null; if (Math.abs(distance) < 42) return; const current = VIEW_ORDER.indexOf(view); chooseView(VIEW_ORDER[(current + (distance < 0 ? 1 : VIEW_ORDER.length - 1)) % VIEW_ORDER.length]); };
-  return <div className="anatomy-screen" role="dialog" aria-modal="true" aria-labelledby="anatomy-title">
+  const resetZoom = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+  const changeZoom = (amount: number) => { setZoom((current) => Math.min(3, Math.max(1, current + amount))); setPan({ x: 0, y: 0 }); };
+  const chooseView = (next: AnatomyView) => { setView(next); resetZoom(); };
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const points = [...pointers.current.values()];
+    gesture.current = { x: event.clientX, y: event.clientY, zoom, panX: pan.x, panY: pan.y,
+      distance: points.length === 2 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0,
+      pinched: points.length > 1 };
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointers.current.has(event.pointerId)) return;
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const points = [...pointers.current.values()];
+    const start = gesture.current;
+    if (points.length === 2 && start.distance > 0) {
+      setZoom(Math.min(3, Math.max(1, start.zoom * Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) / start.distance)));
+      setPan({ x: 0, y: 0 });
+    } else if (points.length === 1 && zoom > 1 && !start.pinched) {
+      const limitX = event.currentTarget.clientWidth * (zoom - 1) / 2;
+      const limitY = event.currentTarget.clientHeight * (zoom - 1) / 2;
+      setPan({ x: Math.max(-limitX, Math.min(limitX, start.panX + event.clientX - start.x)), y: Math.max(-limitY, Math.min(limitY, start.panY + event.clientY - start.y)) });
+    }
+  };
+  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointers.current.has(event.pointerId)) return;
+    const start = gesture.current;
+    pointers.current.delete(event.pointerId);
+    const distance = event.clientX - start.x;
+    if (!start.pinched && zoom === 1 && Math.abs(distance) > 42 && Math.abs(distance) > Math.abs(event.clientY - start.y)) {
+      const current = VIEW_ORDER.indexOf(view);
+      chooseView(VIEW_ORDER[(current + (distance < 0 ? 1 : VIEW_ORDER.length - 1)) % VIEW_ORDER.length]);
+    }
+  };
+  return <div ref={dialog} className="anatomy-screen" role="dialog" aria-modal="true" aria-labelledby="anatomy-title" onKeyDown={(event) => {
+    if (event.key !== "Tab") return;
+    const buttons = dialog.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+    if (!buttons?.length) return;
+    const first = buttons[0], last = buttons[buttons.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }}>
     <header><button type="button" aria-label="Voltar ao treino" onClick={onClose}><ArrowLeft /></button><h2 id="anatomy-title">{exercise.name}</h2><span /></header>
     <main>
       <div className="anatomy-realistic-viewer">
-        <div className="anatomy-realistic-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => { dragStart.current = null; }} onWheel={(event: ReactWheelEvent<HTMLDivElement>) => { event.preventDefault(); changeZoom(event.deltaY < 0 ? .08 : -.08); }}><div className="anatomy-realistic-zoom" style={{ transform: `scale(${zoom})` }}><AnatomyFigure primary={primaryZones} secondary={secondaryZones} profile={profile} view={view} /></div></div>
+        <div className="anatomy-realistic-stage" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => pointers.current.clear()} onLostPointerCapture={(event) => pointers.current.delete(event.pointerId)} onWheel={(event: ReactWheelEvent<HTMLDivElement>) => { changeZoom(event.deltaY < 0 ? .08 : -.08); }}><div className="anatomy-realistic-zoom" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}><AnatomyFigure primary={primaryZones} secondary={secondaryZones} profile={profile} view={view} /></div></div>
         <div className="anatomy-view-presets" role="group" aria-label="Posição do corpo anatômico">{VIEW_ORDER.map((item) => <button type="button" key={item} className={view === item ? "active" : ""} onClick={() => chooseView(item)}>{VIEW_LABEL[item]}</button>)}</div>
-        <div className="anatomy-controls"><span>Deslize para mudar a posição · perfil {profile}</span><div><button type="button" aria-label="Diminuir zoom" onClick={() => changeZoom(-.1)}><ZoomOut /></button><button type="button" aria-label="Restaurar zoom" onClick={() => setZoom(1)}><RotateCcw /></button><button type="button" aria-label="Aumentar zoom" onClick={() => changeZoom(.1)}><ZoomIn /></button></div></div>
+        <div className="anatomy-controls"><span>Pinça para ampliar · {Math.round(zoom * 100)}%<br />{zoom > 1 ? "Arraste para explorar" : "Deslize para trocar a vista"}</span><div><button type="button" aria-label="Diminuir zoom" disabled={zoom <= 1} onClick={() => changeZoom(-.25)}><ZoomOut /></button><button type="button" aria-label="Restaurar zoom" onClick={resetZoom}><RotateCcw /></button><button type="button" aria-label="Aumentar zoom" disabled={zoom >= 3} onClick={() => changeZoom(.25)}><ZoomIn /></button></div></div>
       </div>
       <section className="muscle-legend"><div><i className="primary" /><span>Músculo principal</span><strong>{exercise.primaryMuscle || "Grupo principal"}</strong></div><div><i className="secondary" /><span>Auxiliares</span><strong>{exercise.secondaryMuscles || "Não informados"}</strong></div></section>
       <section className="anatomy-metrics"><div><Dumbbell /><strong>{exercise.sets}</strong><span>séries</span></div><div><RefreshCw /><strong>{exercise.reps}</strong><span>repetições</span></div><div><Timer /><strong>{exercise.rest.replace(/\s*s$/i, "")} s</strong><span>descanso</span></div></section>
