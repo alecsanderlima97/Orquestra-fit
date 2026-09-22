@@ -2034,8 +2034,44 @@ function GifLibraryImporter({ onFeedback }: { onFeedback: (message: string) => v
   const access = useAccess();
   const [files, setFiles] = useState<File[]>([]);
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<{ total: number; done: number; skipped: number; failed: number; current: string } | null>(null);
+  type GifImportProgress = { total: number; done: number; skipped: number; failed: number; current: string; status: "running" | "completed" | "interrupted" };
+  const progressStorageKey = "orquestra-fit:gif-import-progress";
+  const [progress, setProgress] = useState<GifImportProgress | null>(null);
   const [notice, setNotice] = useState("");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(progressStorageKey);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as GifImportProgress;
+      if (!parsed?.total) return;
+      setProgress(parsed);
+      const completed = parsed.done + parsed.skipped;
+      setNotice(parsed.status === "completed"
+        ? `Última importação: ${parsed.done} enviados, ${parsed.skipped} já existentes e ${parsed.failed} falharam.`
+        : `Importação interrompida em ${completed} de ${parsed.total}. Selecione a pasta novamente para continuar; os arquivos já enviados serão pulados.`);
+    } catch {
+      // O progresso é apenas uma ajuda visual; nunca deve impedir a tela de abrir.
+    }
+  }, []);
+  useEffect(() => {
+    if (!running) return;
+    function warnBeforeReload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+      try {
+        const saved = window.localStorage.getItem(progressStorageKey);
+        if (saved) window.localStorage.setItem(progressStorageKey, JSON.stringify({ ...JSON.parse(saved), status: "interrupted" }));
+      } catch {
+        // Ignore storage failures while preserving the upload flow.
+      }
+    }
+    window.addEventListener("beforeunload", warnBeforeReload);
+    return () => window.removeEventListener("beforeunload", warnBeforeReload);
+  }, [running]);
+  function saveProgress(next: GifImportProgress) {
+    setProgress(next);
+    try { window.localStorage.setItem(progressStorageKey, JSON.stringify(next)); } catch { /* ignore quota/private mode errors */ }
+  }
   function selectFolder(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? []).filter((file) => file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif"));
     event.target.value = "";
@@ -2047,9 +2083,32 @@ function GifLibraryImporter({ onFeedback }: { onFeedback: (message: string) => v
   }
   function relativeLibraryPath(file: File) {
     const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-    const parts = relative.replace(/\\/g, "/").split("/");
-    const rootIndex = parts.findIndex((part) => part === "FEMININO" || part.startsWith("EXERCÍCIOS ") || part === "KETTLEBELL" || part === "SUPERBAND");
+    const parts = relative.replace(/\\/g, "/").split("/").filter(Boolean);
+    const profileIndex = parts.findIndex((part) => part.toLocaleUpperCase("pt-BR") === "MASCULINO" || part.toLocaleUpperCase("pt-BR") === "FEMININO");
+    if (profileIndex >= 0) {
+      const profile = parts[profileIndex].toLocaleUpperCase("pt-BR");
+      const profileParts = parts.slice(profileIndex + 1);
+      // A pasta-mãe pode conter MASCULINO/FEMININO -> ACADEMIA -> equipamento.
+      // O catálogo publicado usa FEMININO como prefixo e, para o masculino,
+      // usa o caminho da academia diretamente.
+      if (profileParts[0]?.toLocaleUpperCase("pt-BR") === "ACADEMIA") profileParts.shift();
+      return profile === "FEMININO" ? [profile, ...profileParts].join("/") : profileParts.join("/");
+    }
+    const rootIndex = parts.findIndex((part) => part.startsWith("EXERCÍCIOS ") || part === "KETTLEBELL" || part === "SUPERBAND" || part === "CARDIO");
     return parts.slice(rootIndex >= 0 ? rootIndex : Math.max(parts.length - 1, 0)).join("/");
+  }
+  function libraryPathCandidates(file: File, normalizedPath: string) {
+    const raw = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, "/").replace(/^\/+/, "");
+    const candidates = new Set<string>([normalizedPath, raw]);
+    if (normalizedPath.startsWith("FEMININO/")) {
+      const withoutProfile = normalizedPath.slice("FEMININO/".length);
+      candidates.add(`FEMININO/ACADEMIA/${withoutProfile}`);
+      candidates.add(withoutProfile);
+    } else {
+      candidates.add(`ACADEMIA/${normalizedPath}`);
+      candidates.add(`MASCULINO/ACADEMIA/${normalizedPath}`);
+    }
+    return Array.from(candidates).filter(Boolean);
   }
   async function importLibrary() {
     if (!storage || access.accountType !== "developer") { onFeedback("A importação da biblioteca é exclusiva da conta desenvolvedora."); return; }
@@ -2057,31 +2116,48 @@ function GifLibraryImporter({ onFeedback }: { onFeedback: (message: string) => v
     setRunning(true);
     setNotice(`Iniciando envio de ${files.length} GIFs. Arquivos já importados serão pulados.`);
     let done = 0; let skipped = 0; let failed = 0;
-    setProgress({ total: files.length, done, skipped, failed, current: files[0]?.name ?? "" });
+    const knownPaths = new Set<string>();
+    saveProgress({ total: files.length, done, skipped, failed, current: files[0]?.name ?? "", status: "running" });
     for (const file of files) {
       const relativePath = relativeLibraryPath(file);
+      const candidates = libraryPathCandidates(file, relativePath);
       const target = storageRef(storage, gifLibraryStoragePath(relativePath));
-      setProgress({ total: files.length, done, skipped, failed, current: relativePath });
+      saveProgress({ total: files.length, done, skipped, failed, current: `Verificando duplicidade · ${relativePath}`, status: "running" });
       try {
-        try { await getDownloadURL(target); skipped += 1; }
-        catch {
+        const handledPath = candidates.find((candidate) => knownPaths.has(candidate));
+        if (handledPath) {
+          skipped += 1;
+        } else {
+          let existingPath = "";
+          for (const candidate of candidates) {
+            try { await getDownloadURL(storageRef(storage, gifLibraryStoragePath(candidate))); existingPath = candidate; break; }
+            catch (error) {
+              if ((error as { code?: string })?.code === "storage/unauthorized") throw error;
+            }
+          }
+          if (existingPath) {
+            skipped += 1;
+          } else {
           if (file.size > 25 * 1024 * 1024) throw new Error("acima de 25 MB");
           await uploadBytes(target, file, { contentType: "image/gif", customMetadata: { source: "orquestra-fit-library", originalPath: relativePath } });
           done += 1;
+          }
         }
+        candidates.forEach((candidate) => knownPaths.add(candidate));
       } catch (error) {
         failed += 1;
         onFeedback(`${file.name}: ${error instanceof Error ? error.message : "falha no envio"}.`);
       }
-      setProgress({ total: files.length, done, skipped, failed, current: relativePath });
+      saveProgress({ total: files.length, done, skipped, failed, current: relativePath, status: "running" });
     }
     setRunning(false);
     const message = `Biblioteca concluída: ${done} enviados, ${skipped} já existentes e ${failed} falharam.`;
+    saveProgress({ total: files.length, done, skipped, failed, current: "Concluído", status: "completed" });
     setNotice(message);
     onFeedback(message);
   }
   if (access.accountType !== "developer") return null;
-  return <section className="workspace-panel gif-library-importer"><header><div><span>BIBLIOTECA GLOBAL</span><h3>Importação única dos GIFs</h3><p>O pacote fica no Firebase Storage e poderá ser usado por todas as academias. A gestora não precisará repetir esse envio.</p></div></header><div className="gif-library-import-actions"><label className="detail-secondary">Escolher pasta ou arquivos GIF<input type="file" accept="image/gif,.gif" multiple {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={selectFolder} disabled={running} /></label><button className="detail-save" type="button" onClick={() => void importLibrary()} disabled={running}>{running ? "Importando biblioteca..." : files.length ? "Importar uma vez" : "Selecionar GIFs primeiro"}</button></div>{notice && <small className="gif-library-notice" role="status">{notice}</small>}{files.length > 0 && <small className="panel-helper">{files.length} GIFs selecionados. Os arquivos já enviados serão ignorados.</small>}{progress && <div className="gif-library-progress"><div><strong>{progress.done + progress.skipped} de {progress.total}</strong><span>{progress.failed} falhas · {progress.current}</span></div><div className="gif-library-progress-track"><i style={{ width: `${Math.round(((progress.done + progress.skipped) / Math.max(progress.total, 1)) * 100)}%` }} /></div></div>}</section>;
+  return <section className="workspace-panel gif-library-importer"><header><div><span>BIBLIOTECA GLOBAL</span><h3>Importação única dos GIFs</h3><p>O pacote fica no Firebase Storage e poderá ser usado por todas as academias. A gestora não precisará repetir esse envio.</p></div></header><div className="gif-library-import-actions"><label className="detail-secondary">Escolher pasta ou arquivos GIF<input type="file" accept="image/gif,.gif" multiple {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={selectFolder} disabled={running} /></label><button className="detail-save" type="button" onClick={() => void importLibrary()} disabled={running}>{running ? "Importando biblioteca..." : files.length ? "Importar uma vez" : "Selecionar GIFs primeiro"}</button></div>{notice && <small className="gif-library-notice" role="status">{notice}</small>}{files.length > 0 && <small className="panel-helper">{files.length} GIFs selecionados. Os arquivos já enviados serão ignorados.</small>}{progress && <div className="gif-library-progress"><div><strong>{progress.done + progress.skipped} de {progress.total}</strong><span>{progress.status === "running" ? `${progress.failed} falhas · ${progress.current}` : progress.status === "completed" ? `${progress.done} enviados · ${progress.skipped} já existentes · ${progress.failed} falhas` : `interrompido · ${progress.failed} falhas`}</span></div><div className="gif-library-progress-track"><i style={{ width: `${Math.round(((progress.done + progress.skipped) / Math.max(progress.total, 1)) * 100)}%` }} /></div></div>}</section>;
 }
 
 function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {
