@@ -28,6 +28,18 @@ service firebase.storage {
           && (member(academyId).data.role == 'admin' || member(academyId).data.role == 'teacher'));
     }
 
+    function isPlatformDeveloper() {
+      return signedIn()
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.accountType == 'developer';
+    }
+
+    match /gif-library/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if isPlatformDeveloper()
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType == 'image/gif';
+    }
+
     match /academies/{academyId}/finance/{allPaths=**} {
       allow read, delete: if isManager(academyId);
       allow create, update: if isManager(academyId)

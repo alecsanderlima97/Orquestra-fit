@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword, updateProfile } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
@@ -16,7 +17,7 @@ import { WorkoutSessionView } from "@/components/workouts/workout-session-view";
 import { FinanceModule } from "@/components/finance/finance-module-v2";
 import { AppGuide } from "@/components/assistant/app-guide";
 import { StockModule } from "@/components/stock/stock-module";
-import { auth, db, functions } from "@/lib/firebase/client";
+import { auth, db, functions, storage } from "@/lib/firebase/client";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
@@ -1937,6 +1938,21 @@ function HoverGifPreview({ src, alt, className, placeholder = "GIF", focusable =
   return <span className={className} tabIndex={focusable ? 0 : undefined} role="img" aria-label={alt} onMouseEnter={() => setActive(true)} onFocus={() => setActive(true)}>{active ? <img src={src} alt="" /> : <small>{placeholder}<b>Passe o mouse</b></small>}</span>;
 }
 
+function gifLibraryStoragePath(file: string) {
+  return `gif-library/${file.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+}
+
+function CatalogGifPreview({ item }: { item: GifCatalogItem }) {
+  const [source, setSource] = useState(item.url);
+  useEffect(() => {
+    let active = true;
+    setSource(item.url);
+    if (storage) getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))).then((url) => { if (active) setSource(url); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [item.file, item.url]);
+  return <HoverGifPreview className="gif-catalog-preview" src={source} alt={`Prévia de ${item.name}`} placeholder="Ver movimento" focusable={false} />;
+}
+
 function ExerciseLibrary({ exercises, accessRole, onEdit, onLinkGif, onRemove }: { exercises: ExerciseRecord[]; accessRole: string; onEdit: (exercise: ExerciseRecord) => void; onLinkGif: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void }) {
   const [openRegions, setOpenRegions] = useState<BodyRegion[]>([]);
   function toggleRegion(region: BodyRegion) { setOpenRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region]); }
@@ -1979,12 +1995,61 @@ function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle,
   const equipmentFolders = Array.from(new Set(items.map((item) => item.equipment))).sort();
   const muscleFolders = Array.from(new Set(items.filter((item) => !equipment || item.equipment === equipment).map((item) => item.muscle))).sort();
   const filtered = items.filter((item) => (!equipment || item.equipment === equipment) && (!muscle || item.muscle === muscle) && (!normalized || `${item.name} ${item.equipment} ${item.muscle}`.toLocaleLowerCase("pt-BR").includes(normalized))).slice(0, 48);
-  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · {profile === "feminino" ? "FEMININO" : "MASCULINO"}</span><h3>Escolher demonstração</h3><p>Navegue como nas pastas do pacote: equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando a biblioteca {profile === "feminino" ? "feminina" : "masculina"}…</p> : <><p className="panel-helper">Filtro preparado por movimento, equipamento e grupo muscular. Escolha apenas a execução idêntica ao exercício.</p><div className="gif-folder-browser"><div><small>1 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>2 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca opcional: shoulder, bench press, squat..." />{!equipment && <p className="panel-helper">Escolha primeiro a pasta de equipamento para ver os grupos disponíveis.</p>}<div className="gif-catalog-grid">{filtered.map((item) => <button type="button" key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><HoverGifPreview className="gif-catalog-preview" src={item.url} alt={`Prévia de ${item.name}`} placeholder="Ver movimento" focusable={false} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{item.equipment} · {item.muscle}</small></span></button>)}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
+  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · {profile === "feminino" ? "FEMININO" : "MASCULINO"}</span><h3>Escolher demonstração</h3><p>Navegue como nas pastas do pacote: equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando a biblioteca {profile === "feminino" ? "feminina" : "masculina"}…</p> : <><p className="panel-helper">Filtro preparado por movimento, equipamento e grupo muscular. Escolha apenas a execução idêntica ao exercício.</p><div className="gif-folder-browser"><div><small>1 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>2 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca opcional: shoulder, bench press, squat..." />{!equipment && <p className="panel-helper">Escolha primeiro a pasta de equipamento para ver os grupos disponíveis.</p>}<div className="gif-catalog-grid">{filtered.map((item) => <button type="button" key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><CatalogGifPreview item={item} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{item.equipment} · {item.muscle}</small></span></button>)}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
 }
 
 function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTemplate, onEditWorkout, onRemoveWorkout }: { templates: WorkoutTemplateRecord[]; workouts: WorkoutRecord[]; onEditTemplate: (template: WorkoutTemplateRecord) => void; onRemoveTemplate: (template: WorkoutTemplateRecord) => void; onEditWorkout: (workout: WorkoutRecord) => void; onRemoveWorkout: (workout: WorkoutRecord) => void }) {
   const empty = templates.length === 0 && workouts.length === 0;
   return <section className="workspace-panel published-workouts"><header><div><span>MODELOS E TREINOS PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{empty ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha para reutilizar depois.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Modelo</em><button type="button" onClick={() => onEditTemplate(template)}>Editar</button><button type="button" onClick={() => onRemoveTemplate(template)}>Excluir</button></div></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Publicado</em><button type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={13} /> Imprimir</button><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>)}</div>}</section>;
+}
+
+function GifLibraryImporter({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [files, setFiles] = useState<File[]>([]);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ total: number; done: number; skipped: number; failed: number; current: string } | null>(null);
+  function selectFolder(event: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []).filter((file) => file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif"));
+    event.target.value = "";
+    setFiles(selected);
+    setProgress(null);
+    onFeedback(selected.length ? `${selected.length} GIFs selecionados. A importação será feita uma única vez.` : "Nenhum GIF foi encontrado nessa pasta.");
+  }
+  function relativeLibraryPath(file: File) {
+    const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+    const parts = relative.replace(/\\/g, "/").split("/");
+    const rootIndex = parts.findIndex((part) => part === "FEMININO" || part.startsWith("EXERCÍCIOS ") || part === "KETTLEBELL" || part === "SUPERBAND");
+    return parts.slice(rootIndex >= 0 ? rootIndex : Math.max(parts.length - 1, 0)).join("/");
+  }
+  async function importLibrary() {
+    if (!storage || access.accountType !== "developer") { onFeedback("A importação da biblioteca é exclusiva da conta desenvolvedora."); return; }
+    if (!files.length) { onFeedback("Selecione a pasta com os GIFs primeiro."); return; }
+    if (!window.confirm(`Importar ${files.length} GIFs para o Firebase Storage? Arquivos já importados serão pulados.`)) return;
+    setRunning(true);
+    let done = 0; let skipped = 0; let failed = 0;
+    setProgress({ total: files.length, done, skipped, failed, current: files[0]?.name ?? "" });
+    for (const file of files) {
+      const relativePath = relativeLibraryPath(file);
+      const target = storageRef(storage, gifLibraryStoragePath(relativePath));
+      setProgress({ total: files.length, done, skipped, failed, current: relativePath });
+      try {
+        try { await getDownloadURL(target); skipped += 1; }
+        catch {
+          if (file.size > 25 * 1024 * 1024) throw new Error("acima de 25 MB");
+          await uploadBytes(target, file, { contentType: "image/gif", customMetadata: { source: "orquestra-fit-library", originalPath: relativePath } });
+          done += 1;
+        }
+      } catch (error) {
+        failed += 1;
+        onFeedback(`${file.name}: ${error instanceof Error ? error.message : "falha no envio"}.`);
+      }
+      setProgress({ total: files.length, done, skipped, failed, current: relativePath });
+    }
+    setRunning(false);
+    onFeedback(`Biblioteca concluída: ${done} enviados, ${skipped} já existentes e ${failed} falharam.`);
+  }
+  if (access.accountType !== "developer") return null;
+  return <section className="workspace-panel gif-library-importer"><header><div><span>BIBLIOTECA GLOBAL</span><h3>Importação única dos GIFs</h3><p>O pacote fica no Firebase Storage e poderá ser usado por todas as academias. A gestora não precisará repetir esse envio.</p></div></header><div className="gif-library-import-actions"><label className="detail-secondary">Escolher pasta de GIFs<input type="file" accept="image/gif,.gif" multiple {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={selectFolder} disabled={running} /></label><button className="detail-save" type="button" onClick={() => void importLibrary()} disabled={running || !files.length}>{running ? "Importando biblioteca..." : "Importar uma vez"}</button></div>{files.length > 0 && <small className="panel-helper">{files.length} GIFs selecionados. Os arquivos já enviados serão ignorados.</small>}{progress && <div className="gif-library-progress"><div><strong>{progress.done + progress.skipped} de {progress.total}</strong><span>{progress.failed} falhas · {progress.current}</span></div><div className="gif-library-progress-track"><i style={{ width: `${Math.round(((progress.done + progress.skipped) / Math.max(progress.total, 1)) * 100)}%` }} /></div></div>}</section>;
 }
 
 function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {
@@ -2097,8 +2162,12 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function chooseGifFromCatalog(item: GifCatalogItem) {
     try {
-      const response = await fetch(item.url);
-      if (!response.ok) throw new Error("Não foi possível abrir este GIF local.");
+      let sourceUrl = item.url;
+      if (storage) {
+        try { sourceUrl = await getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))); } catch { /* usa a fonte do catálogo enquanto a biblioteca não foi importada */ }
+      }
+      const response = await fetch(sourceUrl);
+      if (!response.ok) throw new Error("Não foi possível abrir este GIF.");
       const file = new File([await response.blob()], item.file.split("/").pop() || "demonstracao.gif", { type: "image/gif" });
       setGifFile(file);
       setGifCatalogOpen(false);
@@ -2393,7 +2462,8 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   return <div className="workspace-content module-view">
     <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Monte uma ficha por etapas, salve modelos e publique para um aluno quando estiver pronta.</p></div></section>
     <section className="workspace-panel training-machine-quickselect"><label>Máquina do exercício<select value={exerciseEquipment} onChange={(event) => setExerciseEquipment(event.target.value)}><option value="">Sem máquina · peso livre/corporal</option>{stockMachines.map((machine) => <option key={machine.id} value={machine.name}>{machine.name}</option>)}</select><small>As opções vêm do Estoque e o QR Code da máquina fica vinculado ao exercício.</small></label></section>
-    {access.role === "admin" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Enviar GIFs revisados ao Firebase"}</button></section>}
+    {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
+    {access.accountType === "developer" && <GifLibraryImporter onFeedback={onFeedback} />}
     <section className="training-layout training-layout-redesigned">
       <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} accessRole={access.role} /><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} /><div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form></article>
       <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">{linkedGifCount} movimentos com GIF disponível · {pendingGifCount} aguardando revisão manual. Cadastre ou edite a base usada nas fichas.</p></div></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O aluno verá automaticamente a versão correspondente ao seu perfil anatômico.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => setGifFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria {gifProfile} no sistema</button>{gifFile && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : `Selecionado para ${gifProfile}: ${gifFile.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
@@ -3175,6 +3245,16 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           ...(roleToAdd === "admin" ? { academyName: academyName.trim() } : {}),
           active: true, createdBy: access.userId, createdAt: serverTimestamp(),
         });
+        await addDoc(collection(db, "auditLogs"), {
+          academyId,
+          userId: access.userId,
+          userName: access.user.displayName ?? access.user.email ?? "Desenvolvedor",
+          userEmail: access.user.email ?? null,
+          role: "developer",
+          action: roleToAdd === "admin" ? "academy_provisioned" : "invite_created",
+          label: roleToAdd === "admin" ? "Nova academia provisionada" : `Convite de ${roleToAdd === "teacher" ? "professor" : "aluno"} criado`,
+          createdAt: serverTimestamp(),
+        });
       }
       setGeneratedCode(code);
       onFeedback(db ? "Código de convite gerado." : "Código gerado no modo local de demonstração.");
@@ -3196,6 +3276,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           </div>
           {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>{roleToAdd === "admin" ? "Liberar nova academia" : `Convite de ${roleToAdd === "teacher" ? "professor" : "aluno"}`}</strong><p>{roleToAdd === "admin" ? "Crie um ambiente isolado para a academia e entregue a gestão à proprietária." : "O convite fica vinculado ao Gmail informado. A pessoa deverá entrar com essa conta Google para ativá-lo."}</p></div>{roleToAdd === "admin" && <label className="invite-email-field">Nome da academia<input value={academyName} onChange={(event) => setAcademyName(event.target.value)} required /></label>}<label className="invite-email-field">Gmail autorizado<input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="nome@gmail.com" required={roleToAdd === "admin"} /></label><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : roleToAdd === "admin" ? "Criar academia e código" : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
         </section>
+        {access.accountType === "developer" && <DeveloperConsolePanel onFeedback={onFeedback} />}
         <section className="settings-section appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />
@@ -3207,6 +3288,157 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
       </section>
     </div>
   );
+}
+
+type DeveloperAcademy = {
+  id: string;
+  name: string;
+  ownerEmail?: string | null;
+  plan?: string | null;
+  status?: string | null;
+  billingStatus?: string | null;
+  billingDueDate?: string | null;
+  monthlyAmount?: number | null;
+  createdAt?: unknown;
+};
+
+type DeveloperMember = {
+  id: string;
+  displayName?: string | null;
+  email?: string | null;
+  role?: string | null;
+  active?: boolean;
+  lastAccessAt?: unknown;
+  lastSeenAt?: unknown;
+};
+
+type DeveloperAudit = {
+  id: string;
+  userName?: string | null;
+  userEmail?: string | null;
+  role?: string | null;
+  action?: string | null;
+  label?: string | null;
+  createdAt?: unknown;
+};
+
+function firestoreDate(value: unknown) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof value === "object" && value && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function") {
+    const date = (value as { toDate: () => Date }).toDate();
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
+function dateTimeLabel(value: unknown) {
+  const date = firestoreDate(value);
+  return date ? date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "Ainda não registrado";
+}
+
+function academyStatusLabel(status?: string | null) {
+  return status === "past_due" ? "Em atraso" : status === "suspended" ? "Suspensa" : "Ativa";
+}
+
+function memberRoleLabel(role?: string | null) {
+  return role === "admin" ? "Gestor" : role === "teacher" ? "Professor" : "Aluno";
+}
+
+function DeveloperConsolePanel({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [academies, setAcademies] = useState<DeveloperAcademy[]>([]);
+  const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
+  const [selectedId, setSelectedId] = useState("");
+  const [members, setMembers] = useState<DeveloperMember[]>([]);
+  const [audit, setAudit] = useState<DeveloperAudit[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [plan, setPlan] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [status, setStatus] = useState<"active" | "past_due" | "suspended">("active");
+  const [amount, setAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const firestore = db;
+    if (!firestore || access.accountType !== "developer") return;
+    return onSnapshot(collection(firestore, "academies"), (snapshot) => {
+      const next = snapshot.docs.map((item) => {
+        const data = item.data();
+        return { id: item.id, name: data.name ?? "Academia sem nome", ownerEmail: data.ownerEmail ?? null, plan: data.plan ?? "basic", status: data.status ?? "active", billingStatus: data.billingStatus ?? data.status ?? "active", billingDueDate: data.billingDueDate ?? null, monthlyAmount: Number(data.monthlyAmount ?? 0), createdAt: data.createdAt };
+      }).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+      setAcademies(next);
+      setSelectedId((current) => current && next.some((item) => item.id === current) ? current : next[0]?.id ?? "");
+    }, () => onFeedback("Não foi possível carregar as academias da Central."));
+  }, [access.accountType, onFeedback]);
+
+  useEffect(() => {
+    const firestore = db;
+    if (!firestore || access.accountType !== "developer" || !academies.length) return;
+    const unsubscribers = academies.map((academy) => onSnapshot(collection(firestore, "academies", academy.id, "members"), (snapshot) => {
+      setMemberCounts((current) => ({ ...current, [academy.id]: snapshot.size }));
+    }, () => undefined));
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [access.accountType, academies]);
+
+  useEffect(() => {
+    const firestore = db;
+    if (!firestore || access.accountType !== "developer" || !selectedId) return;
+    const selected = academies.find((academy) => academy.id === selectedId);
+    setPlan(selected?.plan ?? "basic");
+    setDueDate(selected?.billingDueDate ?? "");
+    setStatus(selected?.billingStatus === "past_due" || selected?.billingStatus === "suspended" ? selected.billingStatus : "active");
+    setAmount(selected?.monthlyAmount ? String(selected.monthlyAmount).replace(".", ",") : "");
+    setEditing(false);
+    const unsubscribeMembers = onSnapshot(collection(firestore, "academies", selectedId, "members"), (snapshot) => {
+      setMembers(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<DeveloperMember, "id">) })).sort((a, b) => (a.displayName ?? a.email ?? "").localeCompare(b.displayName ?? b.email ?? "", "pt-BR")));
+    }, () => onFeedback("Não foi possível carregar os acessos desta academia."));
+    const auditQuery = query(collection(firestore, "auditLogs"), where("academyId", "==", selectedId));
+    const unsubscribeAudit = onSnapshot(auditQuery, (snapshot) => {
+      setAudit(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<DeveloperAudit, "id">) })).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)).slice(0, 40));
+    }, () => onFeedback("Não foi possível carregar a auditoria desta academia."));
+    return () => { unsubscribeMembers(); unsubscribeAudit(); };
+  }, [access.accountType, academies, onFeedback, selectedId]);
+
+  async function saveAcademy() {
+    const firestore = db;
+    if (!firestore || !selectedId) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(firestore, "academies", selectedId), { plan: plan.trim() || "basic", billingDueDate: dueDate || null, billingStatus: status, status: status === "suspended" ? "suspended" : "active", monthlyAmount: parseCurrency(amount), updatedAt: serverTimestamp(), updatedBy: access.userId });
+      await addDoc(collection(firestore, "auditLogs"), { academyId: selectedId, userId: access.userId, userName: access.user.displayName ?? access.user.email ?? "Desenvolvedor", userEmail: access.user.email ?? null, role: "developer", action: "academy_billing_update", label: "Controle da academia atualizado", createdAt: serverTimestamp() });
+      setEditing(false);
+      onFeedback("Controle da academia atualizado.");
+    } catch {
+      onFeedback("Não foi possível atualizar o controle da academia.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (access.accountType !== "developer") return null;
+  const selected = academies.find((academy) => academy.id === selectedId);
+  const onlineLimit = Date.now() - 5 * 60 * 1000;
+  const onlineMembers = members.filter((member) => { const date = firestoreDate(member.lastSeenAt); return date ? date.getTime() >= onlineLimit : false; });
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const accessesToday = members.filter((member) => { const date = firestoreDate(member.lastAccessAt); return date ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(date) === todayKey : false; }).length;
+  return <section className="settings-section developer-console-section">
+    <div className="settings-section-heading"><div><span>OPERAÇÃO SAAS</span><h3>Auditoria e academias</h3></div><small>Controle central da plataforma</small></div>
+    <div className="developer-kpi-grid"><article><small>ACADEMIAS</small><strong>{academies.length}</strong><span>ambientes cadastrados</span></article><article><small>USUÁRIOS ATIVOS</small><strong>{members.filter((member) => member.active !== false).length}</strong><span>na academia selecionada</span></article><article><small>ONLINE AGORA</small><strong>{onlineMembers.length}</strong><span>últimos 5 minutos</span></article><article><small>ACESSOS HOJE</small><strong>{accessesToday}</strong><span>último registro</span></article></div>
+    <div className="developer-academy-layout">
+      <div className="developer-academy-list"><div className="developer-subheading"><strong>Academias</strong><span>{academies.length} cadastrada(s)</span></div>{academies.length === 0 ? <p className="panel-helper">Nenhuma academia provisionada ainda.</p> : academies.map((academy) => <button type="button" key={academy.id} className={selectedId === academy.id ? "developer-academy-row active" : "developer-academy-row"} onClick={() => setSelectedId(academy.id)}><span><strong>{academy.name}</strong><small>{academy.ownerEmail || "Gmail não informado"}</small></span><em className={academyStatusLabel(academy.billingStatus) === "Ativa" ? "online" : "warning"}>{academyStatusLabel(academy.billingStatus)}</em><b>{memberCounts[academy.id] ?? 0}</b></button>)}</div>
+      {selected && <div className="developer-academy-detail"><header><div><span>ACADEMIA SELECIONADA</span><h4>{selected.name}</h4><p>{selected.ownerEmail || "Gmail da proprietária não informado"}</p></div><button type="button" className="detail-secondary" onClick={() => setEditing((current) => !current)}>{editing ? "Cancelar" : "Editar controle"}</button></header>
+        <div className="developer-academy-meta"><div><small>ENTRADA</small><strong>{dateTimeLabel(selected.createdAt)}</strong></div><div><small>PLANO</small><strong>{selected.plan || "basic"}</strong></div><div><small>VENCIMENTO</small><strong>{selected.billingDueDate ? formatDate(selected.billingDueDate) : "Não definido"}</strong></div><div><small>STATUS</small><strong>{academyStatusLabel(selected.billingStatus)}</strong></div></div>
+        {editing && <div className="developer-billing-form"><label>Plano<input value={plan} onChange={(event) => setPlan(event.target.value)} /></label><label>Mensalidade<input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="R$ 0,00" /></label><label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label><label>Status<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="active">Ativa</option><option value="past_due">Em atraso</option><option value="suspended">Suspensa</option></select></label><button type="button" className="detail-save" onClick={() => void saveAcademy()} disabled={saving}>{saving ? "Salvando..." : "Salvar controle"}</button></div>}
+        <div className="developer-members-heading"><div><span>ACESSO GERAL</span><strong>{members.length} pessoas vinculadas</strong></div><small>{onlineMembers.length} online agora</small></div><div className="developer-member-list">{members.length === 0 ? <p className="panel-helper">Nenhum usuário vinculado ainda.</p> : members.map((member) => { const online = onlineMembers.some((item) => item.id === member.id); return <div className="developer-member-row" key={member.id}><span className={online ? "presence-dot online" : "presence-dot"} /><div><strong>{member.displayName || member.email || "Usuário sem nome"}</strong><small>{member.email || "Sem Gmail"} · {memberRoleLabel(member.role)}</small></div><em>{online ? "Online" : "Offline"}</em><small>{dateTimeLabel(member.lastAccessAt)}</small></div>; })}</div>
+        <div className="developer-members-heading"><div><span>AUDITORIA</span><strong>Últimos acessos e eventos</strong></div><small>{audit.length} registros</small></div><div className="developer-audit-list">{audit.length === 0 ? <p className="panel-helper">Nenhum evento registrado ainda.</p> : audit.map((item) => <div className="developer-audit-row" key={item.id}><Activity size={15} /><div><strong>{item.label || item.action || "Evento"}</strong><small>{item.userName || item.userEmail || "Usuário"} · {memberRoleLabel(item.role)}</small></div><time>{dateTimeLabel(item.createdAt)}</time></div>)}</div>
+      </div>}
+    </div>
+  </section>;
 }
 
 function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {

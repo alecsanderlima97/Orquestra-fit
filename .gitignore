@@ -44,8 +44,8 @@ next-env.d.ts
 
 # Catálogo e arquivos de demonstração locais (não enviar os 3,9 GB ao Git)
 /public/exercise-gifs/
-/public/gif-catalog.json
 /public/exercise-gifs-feminine/
-/public/gif-catalog-feminine.json
+!/public/gif-catalog.json
+!/public/gif-catalog-feminine.json
 
 .vercel

@@ -2,5 +2,3 @@
 # Os GIFs escolhidos para produção são enviados ao Firebase Storage pelo aplicativo.
 public/exercise-gifs
 public/exercise-gifs/**
-public/gif-catalog.json
-public/gif-catalog-feminine.json

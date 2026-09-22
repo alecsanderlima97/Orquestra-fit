@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { signOut, type User } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
-import { collection, doc, getDoc, getDocFromServer, serverTimestamp, writeBatch } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocFromServer, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
 import { auth, db, functions } from "@/lib/firebase/client";
 import { AccessProvider, AccessRole } from "./access-context";
@@ -117,9 +117,51 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
         accountType: profile.accountType,
       }}
     >
+      <PresenceHeartbeat user={user} academyId={profile.activeAcademyId} role={member.role} />
       {children}
     </AccessProvider>
   );
+}
+
+function PresenceHeartbeat({ user, academyId, role }: { user: User; academyId: string; role: AccessRole }) {
+  useEffect(() => {
+    if (!db) return;
+    const firestore = db;
+    let auditWritten = false;
+    const touch = async () => {
+      const now = serverTimestamp();
+      await Promise.all([
+        setDoc(doc(firestore, "users", user.uid), {
+          lastAccessAt: now,
+          lastSeenAt: now,
+          activeAcademyId: academyId,
+          lastRole: role,
+        }, { merge: true }),
+        setDoc(doc(firestore, "academies", academyId, "members", user.uid), {
+          lastAccessAt: now,
+          lastSeenAt: now,
+          lastRole: role,
+        }, { merge: true }),
+      ]);
+      if (!auditWritten) {
+        auditWritten = true;
+        await addDoc(collection(firestore, "auditLogs"), {
+          academyId,
+          userId: user.uid,
+          userName: user.displayName ?? user.email ?? "Usuário",
+          userEmail: user.email ?? null,
+          role,
+          action: "login",
+          label: "Acesso ao sistema",
+          createdAt: serverTimestamp(),
+        });
+      }
+    };
+    void touch().catch(() => undefined);
+    const intervalId = window.setInterval(() => { void touch().catch(() => undefined); }, 90_000);
+    return () => window.clearInterval(intervalId);
+  }, [academyId, role, user]);
+  return null;
 }
 
 function RequiredPasswordChange({ user, academyId }: { user: User; academyId: string }) {

@@ -61,14 +61,14 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && request.auth.uid == userId;
+      allow read: if isDeveloper() || (signedIn() && request.auth.uid == userId);
       allow create: if signedIn() && request.auth.uid == userId &&
         ((request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
           (request.resource.data.activationCodeId is string && request.resource.data.activeAcademyId is string &&
             validInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
               get(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
       allow update: if signedIn() && request.auth.uid == userId &&
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoUrl']) &&
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoUrl', 'lastAccessAt', 'lastSeenAt', 'lastRole', 'activeAcademyId']) &&
           (!request.resource.data.keys().hasAny(['photoUrl']) ||
             (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() < 200000)) ||
           (request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
@@ -80,12 +80,12 @@ service cloud.firestore {
 
     match /academies/{academyId} {
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
-      allow read: if belongsToAcademy(academyId);
-      allow update, delete: if isAdmin(academyId);
+      allow read: if isDeveloper() || belongsToAcademy(academyId);
+      allow update, delete: if isDeveloper() || isAdmin(academyId);
     }
 
     match /academies/{academyId}/members/{memberId} {
-      allow read: if signedIn() && (memberId == request.auth.uid || isAdmin(academyId));
+      allow read: if isDeveloper() || (signedIn() && (memberId == request.auth.uid || isAdmin(academyId)));
       allow create: if signedIn() && (
         (memberId == request.auth.uid &&
           request.resource.data.role == 'admin' &&
@@ -95,9 +95,10 @@ service cloud.firestore {
         (request.resource.data.userId == request.auth.uid &&
           validInvitation(request.resource.data.activationCodeId, academyId, request.resource.data.role))
       );
-      allow update: if isAdmin(academyId) ||
+      allow update: if isDeveloper() || isAdmin(academyId) ||
         (memberId == request.auth.uid && request.resource.data.role == 'admin' &&
-          request.resource.data.active == true && isOnboardingOwner(academyId));
+          request.resource.data.active == true && isOnboardingOwner(academyId)) ||
+        (memberId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAccessAt', 'lastSeenAt', 'lastRole']));
       allow delete: if isAdmin(academyId);
     }
 
@@ -211,8 +212,15 @@ service cloud.firestore {
     }
 
     match /academies/{academyId}/{document=**} {
-      allow read: if isAdmin(academyId);
-      allow write: if isAdmin(academyId);
+      allow read: if isDeveloper() || isAdmin(academyId);
+      allow write: if isDeveloper() || isAdmin(academyId);
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isDeveloper();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid &&
+        belongsToAcademy(request.resource.data.academyId);
+      allow update, delete: if false;
     }
   }
 }
