@@ -178,11 +178,6 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [createMode, setCreateMode] = useState(false);
-
-  if (createMode) {
-    return <CreateAcademy user={user} onCreated={(nextProfile) => onActivated(nextProfile, { role: "admin", active: true })} />;
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -307,7 +302,6 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           <button type="submit" disabled={submitting}>{submitting ? "Ativando..." : "Ativar acesso"}</button>
         </form>
         <p className="onboarding-note"><CheckCircle2 size={16} /> Este código só pode ser usado uma vez.</p>
-        <button className="auth-link" type="button" onClick={() => setCreateMode(true)}>Sou responsável por uma academia e quero criar o ambiente</button>
         <button className="auth-link" type="button" onClick={() => void leaveAccount()}>Voltar para entrada</button>
       </section>
     </main>

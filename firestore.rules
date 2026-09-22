@@ -25,6 +25,10 @@ service cloud.firestore {
       return belongsToAcademy(academyId) && membership(academyId).data.role == 'student';
     }
 
+    function isDeveloper() {
+      return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountType == 'developer';
+    }
+
     function isOnboardingOwner(academyId) {
       return signedIn() &&
         getAfter(/databases/$(database)/documents/academies/$(academyId)).data.ownerId == request.auth.uid &&
@@ -45,7 +49,9 @@ service cloud.firestore {
       allow read: if signedIn() && resource.data.active == true;
       allow create: if signedIn() && isAdmin(request.resource.data.academyId) &&
         request.resource.data.active == true &&
-        request.resource.data.role in ['admin', 'teacher', 'student'];
+        request.resource.data.role in ['admin', 'teacher', 'student'] &&
+        (request.resource.data.role != 'admin' || isDeveloper()) &&
+        (request.resource.data.role != 'admin' || request.resource.data.invitedEmail is string);
       allow update: if signedIn() && resource.data.active == true &&
         request.resource.data.active == false &&
         request.resource.data.claimedBy == request.auth.uid &&
