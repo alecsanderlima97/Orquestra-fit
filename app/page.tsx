@@ -295,6 +295,16 @@ const starterExercises = [
   ,["Hiperextensão lombar", "Lombar", "Glúteos, posteriores", "Região lombar"]
   ,["Sled push", "Cardio", "Pernas, ombros", "Condicionamento cardiovascular"]
   ,["Air bike", "Cardio", "Pernas, braços", "Condicionamento cardiovascular"]
+  ,["Afundo com halteres", "Quadríceps", "Glúteos, posteriores", "Coxas e glúteos"]
+  ,["Levantamento terra com barra", "Posteriores", "Glúteos, lombar", "Posteriores da coxa e lombar"]
+  ,["Levantamento terra sumô com barra", "Glúteos", "Adutores, quadríceps, posteriores", "Glúteos e coxas"]
+  ,["Agachamento frontal com barra", "Quadríceps", "Glúteos, core", "Parte frontal da coxa"]
+  ,["Agachamento goblet com halter", "Quadríceps", "Glúteos, core", "Coxas e glúteos"]
+  ,["Step-up com halteres", "Quadríceps", "Glúteos, posteriores", "Coxas e glúteos"]
+  ,["Puxada unilateral na polia", "Costas", "Bíceps", "Dorsais"]
+  ,["Remada alta com barra", "Trapézio", "Ombros, bíceps", "Trapézio e ombros"]
+  ,["Supino fechado com barra", "Tríceps", "Peito, ombros", "Parte posterior do braço"]
+  ,["Tríceps acima da cabeça na polia", "Tríceps", "Ombros", "Parte posterior do braço"]
 ] as const;
 
 function starterClassification(name: string, muscleGroup: string): { bodyRegion: BodyRegion; phase: ExercisePhase; exerciseType: ExerciseType } {
@@ -388,7 +398,7 @@ const verifiedExerciseGifs: Record<string, VerifiedExerciseGif> = {
   "supino inclinado com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/PEITO/Dumbbell-Palms-In-Incline-Bench-Press_converted.gif" },
   "crucifixo na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Lever-Pec-Deck-Fly_Chest__converted.gif" },
   "remada curvada com barra": { maleFile: "EXERCÍCIOS COM BARRAS/COSTAS/Barbell-Bent-Over-Row_Back__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1K0h1jwWznAaU0dk0W3nh0L9lQsNOy98f&export=download&confirm=t" },
-  "pulldown com braços estendidos": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Straight-Arm-Pulldown_Back-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1NEK5GY2HinQBD-IPuuHBRMYqRXLQjjYO&export=download&confirm=t" },
+  "pulldown com bracos estendidos": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Straight-Arm-Pulldown_Back-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1NEK5GY2HinQBD-IPuuHBRMYqRXLQjjYO&export=download&confirm=t" },
   "encolhimento com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/TRAPÉZIO/Dumbbell-Shrug_Back-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1uZvW_-5BhBMgDLC86BhxMUvLUDcL6SFt&export=download&confirm=t" },
   "rosca direta com barra": { maleFile: "EXERCÍCIOS COM BARRAS/BICEPS/Barbell-Curl_Upper-Arms-FIX2__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1rl7woNEiGKv6tFmt01MR5VFjjKFB8e9N&export=download&confirm=t" },
   "rosca martelo": { maleFile: "EXERCÍCIOS COM HALTERES/BICEPS/Dumbbell-Alternate-Hammer-Srtict-Curl_Upper-Arms__converted.gif" },
@@ -397,7 +407,7 @@ const verifiedExerciseGifs: Record<string, VerifiedExerciseGif> = {
   "rosca na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/BICEPS/Cable-Curl-(male)_Upper-Arms-FIX__converted.gif" },
   "triceps na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/TRICEPS/Cable-Pushdown_Upper-Arms-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=13LYDVKuyYfcK9QRgQ81v-volkDohN6b_&export=download&confirm=t" },
   "triceps testa": { maleFile: "EXERCÍCIOS COM BARRAS/TRICEPS/Barbell-Lying-Triceps-Extension-Skull-Crusher_Upper-Arms_converted.gif" },
-  "agachamento sumô": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-sumo-squat_Thighs_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1kRha3M7tDvdiHpgE6ZPB3mU2QHRlpBqa&export=download&confirm=t" },
+  "agachamento sumo": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-sumo-squat_Thighs_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1kRha3M7tDvdiHpgE6ZPB3mU2QHRlpBqa&export=download&confirm=t" },
   "agachamento bulgaro": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Bulgarian-Split-Squat-with-Support-(male)_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1-GgjI3AlcYSkY6v59PvS-IgcWTUWjnqk&export=download&confirm=t" },
   "stiff com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Stiff-Leg-Deadlift_Hips_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1nPGfstmqWEWOO0AjUdjZ-IsUh6TX-Aid&export=download&confirm=t" },
   "hip thrust": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Hip-Thrust_Hips-FIX__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1qzWAHHXJj32jPXQQt03KFZQELrL-pTUh&export=download&confirm=t" },
@@ -468,12 +478,34 @@ const verifiedExerciseGifs: Record<string, VerifiedExerciseGif> = {
   "crossover na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/PEITO/Cable-Standing-Crossover-(male)_Chest__converted.gif" },
   "puxada neutra na maquina": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Neutral-Grip-Lat-Pulldown-(male)_Back__converted.gif" },
   "puxada supinada": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Underhand-Pulldown_Back_converted.gif" },
-  "remada alta na polia": { maleFile: "EXERCÍCIOS COM BARRAS/OMBROS/Barbell-Upright-Row_shoulder_converted.gif" },
+  "remada alta na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/TRAPÉZIO/Cable-Upright-Row_shoulder_converted.gif" },
   "desenvolvimento arnold": { maleFile: "EXERCÍCIOS COM HALTERES/PEITO/Dumbbell-Seated-Reverse-Arnold-Press-(male)_Should_converted.gif" },
   "cadeira flexora": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Seated-Leg-Curl_Thighs-FIX__converted.gif" },
   "gluteo na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/PERNA/Cable-Donkey-Kickback-(male)_Hips__converted.gif" },
   "abdominal na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/ABDOMINAIS/Cable-Kneeling-Crunch_Waist-FIX2__converted.gif" },
   "abdominal supra": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Decline-Crunch_Waist_converted.gif" },
+  "abdominal na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Lever-Seated-Crunch_Waist_converted.gif" },
+  "barra fixa": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/COSTAS/Pull-up_Back-FIX2__converted.gif" },
+  "mergulho nas paralelas": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/TRICEPS/Chest-Dip_Chest_converted.gif" },
+  "abdominal infra": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Decline-Bent-Leg-Reverse-Crunch_Waist_converted.gif" },
+  "elevacao de pernas": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Hanging-Straight-Leg-Raise_Hips-FIX__converted.gif" },
+  "alongamento de dorsais": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/COSTAS/Hangback-Bar-Stretch_Stretching__converted.gif" },
+  "crucifixo na polia alta": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/PEITO/Cable-Kneeling-High-to-Low-Fly-(male)_Chest__converted.gif" },
+  "crucifixo inverso na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/COSTAS/Lever-Seated-Reverse-Fly_Shoulders-FIX__converted.gif" },
+  "rotacao externa na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-Standing-Shoulder-External-Rotation_Back-FIX_converted.gif" },
+  "triceps unilateral na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/TRICEPS/Cable-One-Arm-Tricep-Pushdown_Upper-Arms__converted.gif" },
+  "passada no smith": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Smith-Rear-Lunge-(version-2)-(male)_Thighs__converted.gif" },
+  "coice na maquina": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Lever-Standing-Rear-Kick_Hips_converted.gif" },
+  "afundo com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Lunge_Hips-FIX2__converted.gif" },
+  "levantamento terra com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Deadlift_Hips-FIX_converted.gif" },
+  "levantamento terra sumo com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Sumo-Deadlift_Hips-FIX__converted.gif" },
+  "agachamento frontal com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Front-Squat_Hips-FIX__converted.gif" },
+  "agachamento goblet com halter": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Goblet-Squat_Thighs-FIX__converted.gif" },
+  "step-up com halteres": { maleFile: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Step-up_Hips__converted.gif" },
+  "puxada unilateral na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-One-Arm-Pulldown_Back__converted.gif" },
+  "remada alta com barra": { maleFile: "EXERCÍCIOS COM BARRAS/OMBROS/Barbell-Upright-Row_shoulder_converted.gif" },
+  "supino fechado com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PEITO/Barbell-Close-Grip-Bench-Press_Upper-Arms-FIX__converted.gif" },
+  "triceps acima da cabeca na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/TRICEPS/Cable-Overhead-Triceps-Extension-(rope-attachment)_Upper-Arms-FIX__converted.gif" },
 };
 
 function exerciseGifKey(name: string) {
