@@ -30,7 +30,10 @@ service firebase.storage {
 
     function isPlatformDeveloper() {
       return signedIn()
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.accountType == 'developer';
+        && (
+          firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.accountType == 'developer' ||
+          request.auth.token.email == 'orquestracs@gmail.com'
+        );
     }
 
     match /gif-library/{allPaths=**} {
