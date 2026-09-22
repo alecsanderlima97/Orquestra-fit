@@ -129,7 +129,7 @@ service cloud.firestore {
     }
 
     match /academies/{academyId}/exercises/{exerciseId} {
-      allow read: if isAdmin(academyId) || isTeacher(academyId);
+      allow read: if isAdmin(academyId) || isTeacher(academyId) || isStudent(academyId);
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId);
     }

@@ -10,6 +10,11 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/academies/$(academyId)/members/$(request.auth.uid));
     }
 
+    function academyOwner(academyId) {
+      return signedIn()
+        && firestore.get(/databases/(default)/documents/academies/$(academyId)).data.ownerId == request.auth.uid;
+    }
+
     function isManager(academyId) {
       return signedIn()
         && member(academyId).data.active == true
@@ -17,9 +22,10 @@ service firebase.storage {
     }
 
     function canManageExerciseMedia(academyId) {
-      return signedIn()
-        && member(academyId).data.active == true
-        && (member(academyId).data.role == 'admin' || member(academyId).data.role == 'teacher');
+      return academyOwner(academyId) ||
+        (signedIn()
+          && member(academyId).data.active == true
+          && (member(academyId).data.role == 'admin' || member(academyId).data.role == 'teacher'));
     }
 
     match /academies/{academyId}/finance/{allPaths=**} {
