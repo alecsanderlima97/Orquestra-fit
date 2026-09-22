@@ -3210,6 +3210,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
   const [academyName, setAcademyName] = useState("Dama de Ferro Academia");
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [developerConsoleOpen, setDeveloperConsoleOpen] = useState(false);
   const roles = [
     ...(access.accountType === "developer" ? [{ id: "admin", label: "Dono / administrador", tone: "admin", description: "Crie um ambiente isolado e libere a gestão para o dono da academia.", access: "Nova academia" }] : []),
     { id: "teacher", label: "Professor", tone: "teacher", description: "Acompanha alunos vinculados e monta ou publica treinos.", access: "Professor + alunos" },
@@ -3293,7 +3294,11 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           </div>
           {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>{roleToAdd === "admin" ? "Liberar nova academia" : `Convite de ${roleToAdd === "teacher" ? "professor" : "aluno"}`}</strong><p>{roleToAdd === "admin" ? "Crie um ambiente isolado para a academia e entregue a gestão à proprietária." : "O convite fica vinculado ao Gmail informado. A pessoa deverá entrar com essa conta Google para ativá-lo."}</p></div>{roleToAdd === "admin" && <label className="invite-email-field">Nome da academia<input value={academyName} onChange={(event) => setAcademyName(event.target.value)} required /></label>}<label className="invite-email-field">Gmail autorizado<input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="nome@gmail.com" required={roleToAdd === "admin"} /></label><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : roleToAdd === "admin" ? "Criar academia e código" : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
         </section>
-        {access.accountType === "developer" && <DeveloperConsolePanel onFeedback={onFeedback} />}
+        {access.accountType === "developer" && <section className="settings-section developer-console-launch">
+          <div className="settings-section-heading"><div><span>OPERAÇÃO SAAS</span><h3>Auditoria e academias</h3></div><small>Central exclusiva do desenvolvedor</small></div>
+          <p>Abra a central em uma tela própria para acompanhar academias reais, mensalidades, acessos e auditoria sem apertar as configurações.</p>
+          <button className="detail-save" type="button" onClick={() => setDeveloperConsoleOpen(true)}>Abrir Central do Desenvolvedor</button>
+        </section>}
         <section className="settings-section appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />
@@ -3303,6 +3308,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
         </section>
         <div className="permissions-note"><ShieldCheck size={18} /><span>O acesso é protegido pelo Firebase. Usuários sem vínculo ativo com esta academia não conseguem abrir os dados.</span></div>
       </section>
+      {access.accountType === "developer" && developerConsoleOpen && <DeveloperConsolePanel fullScreen onClose={() => setDeveloperConsoleOpen(false)} onFeedback={onFeedback} />}
     </div>
   );
 }
@@ -3366,7 +3372,7 @@ function memberRoleLabel(role?: string | null) {
   return role === "admin" ? "Gestor" : role === "teacher" ? "Professor" : "Aluno";
 }
 
-function DeveloperConsolePanel({ onFeedback }: { onFeedback: (message: string) => void }) {
+function DeveloperConsolePanel({ onFeedback, fullScreen = false, onClose }: { onFeedback: (message: string) => void; fullScreen?: boolean; onClose?: () => void }) {
   const access = useAccess();
   const [academies, setAcademies] = useState<DeveloperAcademy[]>([]);
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
@@ -3384,7 +3390,11 @@ function DeveloperConsolePanel({ onFeedback }: { onFeedback: (message: string) =
     const firestore = db;
     if (!firestore || access.accountType !== "developer") return;
     return onSnapshot(collection(firestore, "academies"), (snapshot) => {
-      const next = snapshot.docs.map((item) => {
+      const next = snapshot.docs.filter((item) => {
+        const data = item.data();
+        const name = String(data.name ?? "");
+        return data.accountType !== "developer" && data.environment !== "test" && data.demoData !== true && !/ambiente de testes|orquestra\.cs/i.test(name);
+      }).map((item) => {
         const data = item.data();
         return { id: item.id, name: data.name ?? "Academia sem nome", ownerEmail: data.ownerEmail ?? null, plan: data.plan ?? "basic", status: data.status ?? "active", billingStatus: data.billingStatus ?? data.status ?? "active", billingDueDate: data.billingDueDate ?? null, monthlyAmount: Number(data.monthlyAmount ?? 0), createdAt: data.createdAt };
       }).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
@@ -3443,7 +3453,7 @@ function DeveloperConsolePanel({ onFeedback }: { onFeedback: (message: string) =
   const onlineMembers = members.filter((member) => { const date = firestoreDate(member.lastSeenAt); return date ? date.getTime() >= onlineLimit : false; });
   const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
   const accessesToday = members.filter((member) => { const date = firestoreDate(member.lastAccessAt); return date ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(date) === todayKey : false; }).length;
-  return <section className="settings-section developer-console-section">
+  const panel = <section className="settings-section developer-console-section">
     <div className="settings-section-heading"><div><span>OPERAÇÃO SAAS</span><h3>Auditoria e academias</h3></div><small>Controle central da plataforma</small></div>
     <div className="developer-kpi-grid"><article><small>ACADEMIAS</small><strong>{academies.length}</strong><span>ambientes cadastrados</span></article><article><small>USUÁRIOS ATIVOS</small><strong>{members.filter((member) => member.active !== false).length}</strong><span>na academia selecionada</span></article><article><small>ONLINE AGORA</small><strong>{onlineMembers.length}</strong><span>últimos 5 minutos</span></article><article><small>ACESSOS HOJE</small><strong>{accessesToday}</strong><span>último registro</span></article></div>
     <div className="developer-academy-layout">
@@ -3456,6 +3466,14 @@ function DeveloperConsolePanel({ onFeedback }: { onFeedback: (message: string) =
       </div>}
     </div>
   </section>;
+  if (fullScreen) return <div className="developer-console-screen" role="dialog" aria-modal="true" aria-label="Central do desenvolvedor">
+    <header className="developer-console-screen-header">
+      <div><span>CENTRAL DE DESENVOLVIMENTO</span><h2>Auditoria e academias</h2><p>Acompanhe apenas academias comerciais provisionadas pela Orquestra.cs.</p></div>
+      <button type="button" aria-label="Fechar Central do Desenvolvedor" onClick={onClose}><X /></button>
+    </header>
+    {panel}
+  </div>;
+  return panel;
 }
 
 function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {

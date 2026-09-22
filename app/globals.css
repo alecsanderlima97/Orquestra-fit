@@ -487,6 +487,15 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .settings-section-heading h3 { margin: 5px 0 0; color: #f4f1ea; font-family: Georgia, serif; font-size: 21px; font-weight: 500; }
 .settings-section-heading small { color: var(--steel-500); font-size: 11px; }
 .developer-console-section { overflow: hidden; }
+.developer-console-launch p { margin: 0 0 12px; color: var(--steel-500); font-size: 12px; line-height: 1.5; }
+.developer-console-launch button { width: 100%; }
+.developer-console-screen { position: fixed; inset: 0; z-index: 60; overflow: auto; background: #0b0d0e; padding: 28px clamp(18px, 4vw, 64px) 46px; }
+.developer-console-screen-header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; max-width: 1500px; margin: 0 auto; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.developer-console-screen-header span { color: var(--bronze-300); font-size: 10px; font-weight: 850; letter-spacing: .14em; }
+.developer-console-screen-header h2 { margin: 6px 0 4px; color: var(--paper); font-family: Georgia, serif; font-size: 32px; font-weight: 500; }
+.developer-console-screen-header p { margin: 0; color: var(--steel-500); font-size: 13px; }
+.developer-console-screen-header > button { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--line); background: transparent; color: var(--paper); cursor: pointer; }
+.developer-console-screen > .developer-console-section { max-width: 1500px; margin: 0 auto; padding-top: 24px; }
 .developer-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
 .developer-kpi-grid article { min-width: 0; border: 1px solid var(--line); background: #0c0f10; padding: 13px; }
 .developer-kpi-grid small, .developer-subheading span, .developer-academy-detail header span, .developer-academy-meta small, .developer-members-heading span { display: block; color: var(--bronze-300); font-size: 9px; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
@@ -536,6 +545,7 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 @media (max-width: 640px) { .permissions-panel { padding: 20px; } .permission-role { grid-template-columns: 38px 1fr; } .permission-role > button { grid-column: 2; justify-self: start; } }
 @media (max-width: 720px) { .developer-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .developer-academy-layout { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .developer-academy-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); } .developer-member-row { grid-template-columns: 8px minmax(0, 1fr) auto; } .developer-member-row > small { grid-column: 2 / -1; max-width: none; text-align: left; } .developer-billing-form { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .developer-console-screen { padding: 20px 14px 32px; } .developer-console-screen-header h2 { font-size: 26px; } .developer-console-screen-header p { font-size: 12px; } }
 
 .v3-page {
   position: relative; min-height: 100vh;
