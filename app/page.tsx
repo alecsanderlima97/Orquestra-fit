@@ -2201,6 +2201,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [templates, setTemplates] = useState<WorkoutTemplateRecord[]>([]);
   const [exerciseSnapshotReady, setExerciseSnapshotReady] = useState(false);
   const [librarySyncAttempted, setLibrarySyncAttempted] = useState(false);
+  const autoLinkedExerciseIds = useRef(new Set<string>());
   const [exerciseName, setExerciseName] = useState("");
   const [exerciseEquipment, setExerciseEquipment] = useState("");
   const [muscleGroup, setMuscleGroup] = useState("");
@@ -2480,6 +2481,51 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     setLibrarySyncAttempted(true);
     void seedStarterExercises();
   }, [access.role, exerciseSnapshotReady, librarySyncAttempted]);
+
+  useEffect(() => {
+    if (!db || !storage || !exerciseSnapshotReady || !["admin", "teacher"].includes(access.role)) return;
+    const firestore = db;
+    const firebaseStorage = storage;
+    const pending = exercises.filter((exercise) => {
+      const verified = verifiedExerciseGifs[exerciseGifKey(exercise.name)];
+      return Boolean(verified) && !exercise.gifMaleUrl && !exercise.gifUrl && !autoLinkedExerciseIds.current.has(exercise.id);
+    });
+    if (!pending.length) return;
+    pending.forEach((exercise) => autoLinkedExerciseIds.current.add(exercise.id));
+    void (async () => {
+      const resolved = await Promise.all(pending.map(async (exercise) => {
+        const verified = verifiedExerciseGifs[exerciseGifKey(exercise.name)];
+        if (!verified) return null;
+        try {
+          const path = gifLibraryStoragePath(verified.maleFile);
+          const url = await getDownloadURL(storageRef(firebaseStorage, path));
+          return { exercise, path, url };
+        } catch {
+          return null;
+        }
+      }));
+      const available = resolved.filter((item): item is NonNullable<typeof item> => Boolean(item));
+      if (!available.length) return;
+      const batch = writeBatch(firestore);
+      available.forEach(({ exercise, path, url }) => {
+        batch.set(doc(firestore, "academies", access.academyId, "exercises", exercise.id), {
+          gifUrl: url,
+          gifPath: path,
+          gifMaleUrl: url,
+          gifMalePath: path,
+          gifLinkedFrom: "global-library",
+          updatedAt: serverTimestamp(),
+          updatedBy: access.userId,
+        }, { merge: true });
+      });
+      try {
+        await batch.commit();
+        onFeedback(`${available.length} GIFs revisados foram vinculados automaticamente.`);
+      } catch {
+        available.forEach(({ exercise }) => autoLinkedExerciseIds.current.delete(exercise.id));
+      }
+    })();
+  }, [access.academyId, access.role, access.userId, exerciseSnapshotReady, exercises, onFeedback]);
 
   function toggleExercise(exercise: ExerciseRecord) {
     const selected = selectedExercises.includes(exercise.id);
