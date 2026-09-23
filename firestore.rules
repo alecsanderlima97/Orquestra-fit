@@ -151,7 +151,8 @@ service cloud.firestore {
     }
 
     match /academies/{academyId}/workoutTemplates/{templateId} {
-      allow read: if isAdmin(academyId) || isTeacher(academyId);
+      allow read: if isAdmin(academyId) || isTeacher(academyId) ||
+        (isStudent(academyId) && resource.data.audience == "Geral");
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId) || isTeacher(academyId);
     }

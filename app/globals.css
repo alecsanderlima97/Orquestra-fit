@@ -650,6 +650,31 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .published-list .published-item-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .published-list .published-item-actions button { border: 1px solid var(--line); background: transparent; color: var(--bronze-300); padding: 6px 8px; font-size: 10px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
 .published-list .published-item-actions button:last-child { color: #e39a8e; }
+.published-template-group { margin: 10px 0 16px; overflow: hidden; border: 1px solid rgba(205, 150, 82, .24); border-radius: 12px; background: rgba(8, 11, 12, .42); }
+.published-template-group > header { display: flex; align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid var(--line); background: linear-gradient(105deg, rgba(58, 38, 23, .34), rgba(17, 19, 20, .2)); }
+.published-template-group > header span { display: block; color: var(--bronze-300); font-size: 9px; font-weight: 850; letter-spacing: .14em; }
+.published-template-group > header strong { display: block; margin-top: 4px; color: var(--paper); font-size: 12px; }
+.published-template-group > header small { display: block; margin-top: 4px; color: var(--steel-500); font-size: 10px; }
+.published-template-group.personalized { border-color: rgba(126, 162, 139, .3); }
+.published-template-group.personalized > header { background: linear-gradient(105deg, rgba(38, 67, 54, .3), rgba(17, 19, 20, .2)); }
+.published-template-group.published-student-workouts { border-color: rgba(93, 118, 145, .3); }
+.published-template-group > .published-template-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 0 14px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.published-template-group > .published-template-row:last-child { border-bottom: 0; }
+.published-template-row > div:first-child { min-width: 0; }
+.published-template-row strong, .published-template-row small { display: block; }
+.published-template-row strong { overflow-wrap: anywhere; }
+.published-template-row small { overflow-wrap: anywhere; }
+.published-list .template-badge { border-color: #4b5b45; color: #b7d59c; }
+.published-list .template-badge.personalized { border-color: #587364; color: #b8ddc2; }
+@media (max-width: 640px) {
+  .published-list { padding: 4px 14px 16px; }
+  .published-template-group { margin: 9px 0 14px; border-radius: 11px; }
+  .published-template-group > header { padding: 12px; }
+  .published-template-group > .published-template-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0 12px; padding: 14px 0; }
+  .published-list .published-item-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 6px; align-items: stretch; }
+  .published-list .published-item-actions em { grid-column: 1 / -1; justify-self: start; }
+  .published-list .published-item-actions button { min-height: 34px; justify-content: center; padding: 7px 6px; font-size: 9px; }
+}
 @media (max-width: 900px) { .billing-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .plans-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .training-layout { grid-template-columns: 1fr; } }
