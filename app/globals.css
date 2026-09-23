@@ -664,6 +664,20 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .published-template-row strong, .published-template-row small { display: block; }
 .published-template-row strong { overflow-wrap: anywhere; }
 .published-template-row small { overflow-wrap: anywhere; }
+.published-template-copy { min-width: 0; }
+.published-template-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.template-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 4px 7px; border: 1px solid rgba(205, 150, 82, .32); border-radius: 999px; color: var(--steel-300); background: rgba(255,255,255,.025); font-size: 9px; font-weight: 800; line-height: 1; }
+.template-chip svg { flex: 0 0 auto; color: var(--bronze-300); }
+.template-chip-level { border-color: rgba(225, 184, 91, .48); color: #f2cf88; background: rgba(108, 75, 28, .22); }
+.template-chip-level svg { color: #f1c95d; }
+.template-chip-day { border-color: rgba(104, 149, 184, .38); color: #b9d4e7; background: rgba(38, 76, 102, .18); }
+.template-chip-day svg { color: #8fc9ef; }
+.template-chip-focus { border-color: rgba(179, 126, 77, .34); color: #e7c59d; }
+.template-chip-audience { border-color: rgba(94, 132, 91, .46); color: #b7d59c; background: rgba(53, 88, 48, .18); }
+.template-chip-audience.personalized { border-color: rgba(126, 162, 139, .5); color: #b8ddc2; background: rgba(38, 67, 54, .24); }
+.template-chip-count { border-color: rgba(129, 132, 136, .32); color: var(--steel-400); }
+.published-template-target { display: inline-flex !important; align-items: center; gap: 4px; margin-top: 7px; color: var(--steel-500) !important; font-size: 10px !important; }
+.published-template-target svg { color: #b8ddc2; }
 .published-list .template-badge { border-color: #4b5b45; color: #b7d59c; }
 .published-list .template-badge.personalized { border-color: #587364; color: #b8ddc2; }
 .published-list-toolbar { display: flex; align-items: end; gap: 9px; flex-wrap: wrap; padding: 14px 22px 4px; }
@@ -690,6 +704,8 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
   .published-list .published-item-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 6px; align-items: stretch; }
   .published-list .published-item-actions em { grid-column: 1 / -1; justify-self: start; }
   .published-list .published-item-actions button { min-height: 34px; justify-content: center; padding: 7px 6px; font-size: 9px; }
+  .published-template-meta { gap: 5px; }
+  .template-chip { min-height: 23px; padding: 4px 6px; font-size: 8px; }
   .published-list-toolbar { align-items: stretch; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px 14px 4px; }
   .published-list-toolbar label { min-width: 0; }
   .published-list-toolbar button { grid-column: 1 / -1; width: 100%; margin-left: 0; justify-content: center; }
