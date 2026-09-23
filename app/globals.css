@@ -735,6 +735,8 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .published-template-row strong { overflow-wrap: anywhere; }
 .published-template-row small { overflow-wrap: anywhere; }
 .published-template-copy { min-width: 0; }
+.published-template-slash { color: var(--bronze-400); margin: 0 3px; }
+.published-template-name { color: var(--steel-400) !important; font-size: 10px !important; font-weight: 600; }
 .published-template-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .template-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 4px 7px; border: 1px solid rgba(205, 150, 82, .32); border-radius: 999px; color: var(--steel-300); background: rgba(255,255,255,.025); font-size: 9px; font-weight: 800; line-height: 1; }
 .template-chip svg { flex: 0 0 auto; color: var(--bronze-300); }
@@ -1079,6 +1081,9 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .student-workout-toolbar label { display: grid; gap: 4px; color: var(--steel-400); font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .student-workout-toolbar select { min-width: 150px; padding: 8px 10px; border: 1px solid var(--line); background: #0d1012; color: #f4efe8; font-size: 11px; }
 .published-add-template { border-color: rgba(225, 184, 61, .5) !important; color: #f1cb66 !important; }
+.published-add-template.is-added,
+.published-add-template.is-added:hover,
+.published-add-template.is-added:disabled { border-color: rgba(101, 178, 119, .65) !important; color: #b9e8bd !important; background: rgba(52, 107, 67, .24) !important; cursor: default; opacity: 1; }
 .workout-card-progress small { color: var(--steel-500); font-size: 9px; font-weight: 600; letter-spacing: 0; text-align: right; }
 
 .evolution-hero { border: 1px solid #4b3a29; background: linear-gradient(145deg, #191611, #111315); padding: 24px; }
