@@ -49,6 +49,11 @@ function displayWorkoutName(name: string) {
   return withoutWeekday.join(" · ") || name.trim();
 }
 
+function displayWorkoutCardName(name: string) {
+  const cleaned = displayWorkoutName(name);
+  return cleaned.replace(/^(fundação|evolução|performance|elite)\s*[·•|:-]\s*/i, "").trim() || cleaned;
+}
+
 function profileStorageKey(userId: string) {
   return `orquestra-fit:profile:${userId}`;
 }
@@ -1057,7 +1062,7 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
         <div className="workout-copy">
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
           <small className="today-workout-program">{workout?.level ? `Programa ${workout.level}` : "Seu programa atual"}</small>
-          <h2>{loading ? "Carregando seu treino" : workout ? displayWorkoutName(workout.name) : "Nenhum treino publicado"}</h2>
+          <h2>{loading ? "Carregando seu treino" : workout ? displayWorkoutCardName(workout.name) : "Nenhum treino publicado"}</h2>
           <p>{loading ? "Buscando suas fichas disponíveis." : workout ? (workout.focusLabel || "Treino liberado pelo professor para o seu momento.") : "Seu professor ainda não liberou um treino."}</p>
           <div className="workout-meta">
             <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Aguardando"}</span>
@@ -1244,7 +1249,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const previousLevel = index > 0 ? visibleWorkouts[index - 1].level ?? "Fundação" : null;
             const isCurrentProgram = level === currentProgram;
             return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`}>
-            <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
+            <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutCardName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             {!isLocked && <details className="workout-card-menu"><summary aria-label="Mais ações"><MoreHorizontal size={18} /></summary><div><button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={15} /> Imprimir ficha</button></div></details>}
           </article></div>;
