@@ -668,7 +668,7 @@ export default function Home() {
             <>
               <StudentHeader onMenu={() => setMenuOpen(true)} />
               <div className="student-scroll">
-                {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => setActiveTab("evolucao")} />}
+                {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => setActiveTab("evolucao")} onViewWorkouts={() => setActiveTab("treinos")} />}
                 {activeTab === "treinos" && <WorkoutLibrary activeWorkoutId={activeWorkout?.id ?? activeWorkoutId} onStart={startStudentWorkout} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
@@ -753,7 +753,7 @@ function normalizePublishedWorkout(id: string, data: Omit<WorkoutRecord, "id">):
 }
 
 function normalizeTemplateForStudent(template: WorkoutTemplateRecord, studentId: string, studentName: string): WorkoutRecord {
-  return { id: `general-template-${template.id}`, name: template.name, studentId, studentName, exerciseIds: template.exerciseIds ?? [], exerciseDetails: template.exerciseDetails ?? [], status: "published" };
+  return { id: `general-template-${template.id}`, name: template.name, studentId, studentName, recommendedDay: template.scheduleDay, level: template.level, audience: template.audience, exerciseIds: template.exerciseIds ?? [], exerciseDetails: template.exerciseDetails ?? [], status: "published" };
 }
 
 function useStudentPublishedWorkouts(enabled = true) {
@@ -767,7 +767,7 @@ function useStudentPublishedWorkouts(enabled = true) {
       const syncLocalWorkouts = () => {
         const studentId = localStudentId(access.academyId, access.userId);
         const studentName = accountName(access.user.displayName, access.user.email);
-        const assigned = readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === studentId && item.status === "published");
+        const assigned = readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => (item.studentId === studentId || item.studentRecordId === studentId || item.studentUserId === access.userId) && item.status === "published");
         const availableTemplates = readLocalCollection<WorkoutTemplateRecord>(access.academyId, "workoutTemplates").filter((item) => (item.audience ?? "Geral") === "Geral" || (item.audience === "Personalizado" && item.targetStudentId === studentId)).map((item) => normalizeTemplateForStudent(item, studentId, studentName));
         setWorkouts([...assigned, ...availableTemplates]);
         setLoading(false);
@@ -778,12 +778,17 @@ function useStudentPublishedWorkouts(enabled = true) {
     }
     setLoading(true);
     const workoutsQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
+    const workoutsByUserQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentUserId", "==", access.userId));
     const generalTemplatesQuery = query(collection(db, "academies", access.academyId, "workoutTemplates"), where("audience", "==", "Geral"));
     const personalizedTemplatesQuery = query(collection(db, "academies", access.academyId, "workoutTemplates"), where("targetStudentId", "==", access.userId));
     let assignedWorkouts: WorkoutRecord[] = [];
+    let assignedWorkoutsByUser: WorkoutRecord[] = [];
     let generalWorkouts: WorkoutRecord[] = [];
     let personalizedWorkouts: WorkoutRecord[] = [];
-    const publishWorkouts = () => setWorkouts([...assignedWorkouts, ...generalWorkouts, ...personalizedWorkouts]);
+    const publishWorkouts = () => {
+      const uniqueAssigned = [...assignedWorkouts, ...assignedWorkoutsByUser].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index);
+      setWorkouts([...uniqueAssigned, ...generalWorkouts, ...personalizedWorkouts].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index));
+    };
     const unsubscribeWorkouts = onSnapshot(workoutsQuery, (snapshot) => {
       assignedWorkouts = snapshot.docs.map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">));
       publishWorkouts();
@@ -791,6 +796,14 @@ function useStudentPublishedWorkouts(enabled = true) {
     }, (error) => {
       console.error("Não foi possível carregar os treinos.", error);
       setLoading(false);
+    });
+    const unsubscribeWorkoutsByUser = onSnapshot(workoutsByUserQuery, (snapshot) => {
+      assignedWorkoutsByUser = snapshot.docs.filter((workout) => workout.data().status === "published").map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">));
+      publishWorkouts();
+      setLoading(false);
+    }, (error) => {
+      // A consulta é um índice de compatibilidade para fichas antigas. A consulta principal continua funcionando mesmo sem esse campo.
+      console.warn("Não foi possível consultar o vínculo alternativo do treino.", error);
     });
     const unsubscribeGeneralTemplates = onSnapshot(generalTemplatesQuery, (snapshot) => {
       const studentName = accountName(access.user.displayName, access.user.email);
@@ -810,7 +823,7 @@ function useStudentPublishedWorkouts(enabled = true) {
       console.error("Não foi possível carregar o programa personalizado.", error);
       setLoading(false);
     });
-    return () => { unsubscribeWorkouts(); unsubscribeGeneralTemplates(); unsubscribePersonalizedTemplates(); };
+    return () => { unsubscribeWorkouts(); unsubscribeWorkoutsByUser(); unsubscribeGeneralTemplates(); unsubscribePersonalizedTemplates(); };
   }, [access.academyId, access.userId, enabled]);
 
   return { workouts, loading };
@@ -936,7 +949,7 @@ function printWorkoutTemplate(template: WorkoutTemplateRecord) {
   }, "PROGRAMA-BASE");
 }
 
-function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutRecord) => void; onEvolution: () => void }) {
+function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (workout?: WorkoutRecord) => void; onEvolution: () => void; onViewWorkouts: () => void }) {
   const access = useAccess();
   const { workouts, loading } = useStudentPublishedWorkouts();
   const workout = workouts[0];
@@ -953,12 +966,12 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
         <div className="workout-copy">
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
           <h2>{loading ? "Carregando seu treino" : workout?.name ?? "Nenhum treino publicado"}</h2>
-          <p>{loading ? "Buscando sua ficha atual." : workout ? `Ficha publicada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}.` : "Seu professor ainda não publicou um treino."}</p>
+          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? `Ficha publicada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}. ${workout.recommendedDay && workout.recommendedDay !== "Flexível" ? `Indicado para ${workout.recommendedDay.toLocaleLowerCase("pt-BR")}, mas você pode escolher qualquer treino.` : "Você pode escolher qualquer treino disponível."}` : "Seu professor ainda não publicou um treino."}</p>
           <div className="workout-meta">
             <span><Clock3 size={16} /> {workout ? `${totalSets || "—"} séries` : "Aguardando"}</span>
             <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Sem exercícios"}</span>
           </div>
-          <button disabled={loading || !workout} onClick={() => workout && onStart(workout)}>{loading ? "Carregando..." : workout ? "Iniciar treino" : "Treino indisponível"} <ArrowRight size={19} /></button>
+          <div className="student-workout-actions"><button disabled={loading || !workout} onClick={() => workout && onStart(workout)}>{loading ? "Carregando..." : workout ? "Iniciar treino" : "Treino indisponível"} <ArrowRight size={19} /></button><button className="workout-secondary-action" type="button" onClick={onViewWorkouts}><Dumbbell size={17} /> Ver treinos</button></div>
         </div>
         <div className="workout-art" aria-hidden="true">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1114,10 +1127,12 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const isCompleted = Boolean(latest) && !isInProgress;
             const stateClass = isInProgress ? "is-in-progress" : isCompleted ? "is-completed" : "is-next";
             const stateLabel = isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
+            const workoutCode = String.fromCharCode(65 + (index % 26));
+            const recommendedDay = workout.recommendedDay && workout.recommendedDay !== "Flexível" ? workout.recommendedDay : null;
             const durationDelta = previous ? latest.durationSeconds - previous.durationSeconds : null;
             const stars = latest ? previous ? Math.max(1, Math.min(5, 3 + (durationDelta !== null && durationDelta <= 0 ? 1 : 0) + ((latest.maxLoad ?? 0) > (previous.maxLoad ?? 0) || (latest.maxReps ?? 0) > (previous.maxReps ?? 0) ? 1 : 0))) : 1 : 0;
             return <article key={workout.id} className={`workout-library-card ${stateClass}`}>
-            <button className="workout-open" type="button" onClick={() => onStart(workout)}><span className="workout-index">{isCompleted ? <Check size={17} /> : `0${index + 1}`}</span><div><small>{stateLabel}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios{latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}</p></div><span className="play-button">{isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
+            <button className="workout-open" type="button" onClick={() => onStart(workout)}><span className="workout-index">{isCompleted ? <Check size={17} /> : workoutCode}</span><div><small>{stateLabel} · TREINO {workoutCode}{recommendedDay ? ` · ${recommendedDay}` : ""}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios{latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}</p></div><span className="play-button">{isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             <button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={16} /> Imprimir</button>
           </article>;
@@ -1825,7 +1840,7 @@ function StudentPlanPanel() {
 }
 
 type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
-type BillingStudent = { id: string; name: string; active: boolean; teacherId?: string | null; birthDate?: string | null };
+type BillingStudent = { id: string; name: string; active: boolean; userId?: string | null; teacherId?: string | null; birthDate?: string | null };
 type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type PaymentMethod = "pix" | "cartao_credito" | "cartao_debito" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
@@ -1854,7 +1869,7 @@ function defaultExerciseDetails(exercise: ExerciseMetricSource) {
   const labels = exerciseMetricLabels(exercise);
   return labels.mode === "cardio" ? { sets: "1", reps: "20", load: "6", rest: "60" } : labels.mode === "timed" ? { sets: "3", reps: "30", load: "0", rest: "60" } : { sets: "3", reps: "10", load: "0", rest: "60" };
 }
-type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
+type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; studentRecordId?: string | null; studentUserId?: string | null; recommendedDay?: WorkoutTemplateDay; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type WorkoutLevel = "Fundação" | "Evolução" | "Performance" | "Elite";
 type WorkoutTemplateAudience = "Geral" | "Personalizado";
 const workoutTemplateDayOptions = ["Flexível", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"] as const;
@@ -2528,7 +2543,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const studentsRef = collection(db, "academies", access.academyId, "students");
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
-      setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; teacherId?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
+      setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; userId?: string | null; authUid?: string | null; uid?: string | null; teacherId?: string | null }; return { id: student.id, userId: data.userId ?? data.authUid ?? data.uid ?? student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
       setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
@@ -2548,6 +2563,29 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     });
     return () => { void academy; unsubscribeStudents(); unsubscribeExercises(); unsubscribeMachines(); unsubscribeWorkouts(); unsubscribeTemplates(); };
   }, [access.academyId, access.role, access.userId]);
+
+  useEffect(() => {
+    if (!db || !workouts.length || !students.length || !["admin", "teacher"].includes(access.role)) return;
+    const studentByRecordId = new Map(students.map((student) => [student.id, student]));
+    const legacyLinks = workouts.filter((workout) => {
+      const student = studentByRecordId.get(workout.studentId);
+      const studentUserId = student?.userId ?? student?.id;
+      return Boolean(student && studentUserId && (workout.studentId !== studentUserId || !workout.studentUserId || !workout.studentRecordId));
+    });
+    if (!legacyLinks.length) return;
+    void Promise.all(legacyLinks.map((workout) => {
+      const student = studentByRecordId.get(workout.studentId);
+      const studentUserId = student?.userId ?? student?.id;
+      if (!student || !studentUserId) return Promise.resolve();
+      return updateDoc(doc(db!, "academies", access.academyId, "workouts", workout.id), {
+        studentId: studentUserId,
+        studentUserId,
+        studentRecordId: student.id,
+        migratedAt: serverTimestamp(),
+        migratedBy: access.userId,
+      }).catch(() => undefined);
+    }));
+  }, [access.academyId, access.role, access.userId, students, workouts]);
 
   async function createExerciseLegacy(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2864,7 +2902,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
-      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
+      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentRecordId: student.id, studentUserId: student.userId ?? student.id, studentName: student.name, recommendedDay: templateDay, level: workoutLevel, audience: "Personalizado", exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
       const nextWorkouts = editingWorkoutId ? workouts.map((item) => item.id === editingWorkoutId ? localWorkout : item) : [...workouts, localWorkout];
       setWorkouts(nextWorkouts);
       writeLocalCollection(access.academyId, "workouts", nextWorkouts);
@@ -2874,7 +2912,8 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     setSaving(true);
     try {
-      const workoutData = { name: workoutName.trim(), studentId, studentName: student.name, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const studentUserId = student.userId ?? student.id;
+      const workoutData = { name: workoutName.trim(), studentId: studentUserId, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: templateDay, level: workoutLevel, audience: "Personalizado" as const, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
       if (editingWorkoutId) {
         await updateDoc(doc(db, "academies", access.academyId, "workouts", editingWorkoutId), workoutData);
         onFeedback("Treino atualizado para o aluno.");
@@ -3010,7 +3049,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function beginWorkoutEdit(workout: WorkoutRecord) {
-    setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setWorkoutLevel("Fundação"); setTemplateAudience("Personalizado"); setTemplateDay("Flexível"); setStudentId(workout.studentId); setSelectedExercises(workout.exerciseIds);
+    setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setWorkoutLevel(workout.level ?? "Fundação"); setTemplateAudience("Personalizado"); setTemplateDay(workout.recommendedDay ?? "Flexível"); setStudentId(workout.studentRecordId ?? workout.studentId); setSelectedExercises(workout.exerciseIds);
     setExerciseDetails(Object.fromEntries((workout.exerciseDetails ?? []).map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
     openTrainingCard("details.workout-builder-panel"); onFeedback("Treino carregado para edição.");
   }

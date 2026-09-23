@@ -891,11 +891,14 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .workout-copy > p { color: var(--steel-300); margin: 0 0 17px; font-size: 15px; }
 .workout-meta { display: flex; gap: 14px; color: var(--steel-500); font-size: 11px; margin-bottom: 22px; }
 .workout-meta span { display: flex; align-items: center; gap: 5px; }
+.student-workout-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
 .workout-copy button {
   height: 48px; border: 0; background: var(--bronze-400); color: #15100b;
   padding: 0 18px; display: flex; align-items: center; gap: 24px; font-weight: 900;
 }
 .workout-copy button:hover { background: var(--bronze-300); }
+.workout-copy .workout-secondary-action { border: 1px solid #6c5132; background: rgba(21, 17, 13, .64); color: var(--bronze-300); gap: 8px; }
+.workout-copy .workout-secondary-action:hover { background: rgba(92, 65, 33, .5); }
 .workout-art {
   position: absolute; inset: 0 0 0 35%;
   display: grid; place-items: center; background: #0d0f10;

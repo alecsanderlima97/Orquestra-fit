@@ -145,7 +145,8 @@ service cloud.firestore {
 
     match /academies/{academyId}/workouts/{workoutId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+        (isStudent(academyId) && (resource.data.studentId == request.auth.uid ||
+          resource.data.studentUserId == request.auth.uid));
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId) || isTeacher(academyId);
     }
