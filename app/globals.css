@@ -876,21 +876,22 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .student-header {
   height: 92px; display: flex; align-items: center; justify-content: space-between;
   padding: 18px 22px; border-bottom: 1px solid var(--line);
-  background: rgba(14,16,18,.95); position: relative; z-index: 20;
+  background: linear-gradient(108deg, #1b2022 0%, #121618 48%, #0d1012 100%); border-bottom-color: #5b6468; position: relative; z-index: 20;
+  box-shadow: inset 0 -1px rgba(218,225,227,.16), 0 8px 24px rgba(0,0,0,.2);
 }
 .student-header:after {
   content: ""; position: absolute; left: 22px; bottom: -1px;
-  width: 72px; height: 2px; background: var(--bronze-500);
+  width: 92px; height: 2px; background: linear-gradient(90deg, #e0e6e8, #7f8b90, transparent); box-shadow: 0 0 9px rgba(204,216,220,.35);
 }
 .academy-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .academy-brand img { width: 53px; height: 53px; object-fit: cover; border: 1px solid #564533; background: #050505; }
 .academy-brand div { display: grid; }
 .academy-brand span {
   font-family: Georgia, serif; font-size: 18px; font-weight: 700; text-transform: uppercase;
-  color: #f0ece4; line-height: 1.05;
+  color: #d7dfe1; line-height: 1.05; text-shadow: 0 1px 0 #fff3, 0 0 16px rgba(194,207,211,.14);
 }
 .academy-brand small {
-  color: var(--bronze-400); font-size: 10px; font-weight: 900;
+  color: #98a5aa; font-size: 10px; font-weight: 900;
   letter-spacing: 2.8px; text-transform: uppercase; margin-top: 5px;
 }
 .header-actions { display: flex; gap: 8px; }
@@ -1743,11 +1744,12 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .rail-powered strong { color: var(--bronze-300); font-family: Georgia, serif; font-size: 15px; margin-top: 3px; }
 .workspace-main { min-width: 0; }
 .workspace-topbar {
-  min-height: 84px; border-bottom: 1px solid var(--line); background: #0e1012;
+  min-height: 84px; border-bottom: 1px solid #596367; background: linear-gradient(108deg, #191e20 0%, #111517 52%, #0d1012 100%);
   padding: 15px 34px; display: flex; align-items: center; justify-content: space-between; gap: 30px;
+  box-shadow: inset 0 -1px rgba(217,224,226,.14), 0 8px 24px rgba(0,0,0,.16);
 }
 .workspace-topbar > div:first-child { display: grid; }
-.workspace-topbar > div:first-child span { color: var(--bronze-400); font-size: 8px; letter-spacing: 1.5px; font-weight: 900; }
+.workspace-topbar > div:first-child span { color: #b7c1c5; font-size: 8px; letter-spacing: 1.5px; font-weight: 900; text-shadow: 0 0 10px rgba(194,207,211,.17); }
 .workspace-topbar h1 { font-family: Georgia, serif; font-size: 23px; font-weight: 500; margin: 4px 0 0; }
 .workspace-search-inline { width: 150px; }
 .workspace-search-inline input { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid #3a3028; background: #141617; color: var(--paper); padding: 0 10px; font-size: 11px; outline: 0; }
@@ -2953,6 +2955,37 @@ input, select, textarea { border-radius: 10px; }
   .financial-report header span, .financial-report h3, .report-lines span, .report-lines strong, .report-detail, .report-detail h4, .report-detail p, .report-detail b { color: #111 !important; }
   .report-lines { grid-template-columns: repeat(5, 1fr); }
   .report-lines p, .report-lines .report-total { border: 1px solid #bbb; background: #fff !important; }
+}
+
+/* Cabeçalhos da academia: acabamento metálico comum às três áreas. */
+.student-header,
+[data-theme="ferro"] .student-header,
+[data-theme="neutro"] .student-header {
+  background: linear-gradient(108deg, #1b2022 0%, #121618 48%, #0d1012 100%);
+  border-bottom-color: #5b6468;
+  color: #d7dfe1;
+  box-shadow: inset 0 -1px rgba(218,225,227,.16), 0 8px 24px rgba(0,0,0,.2);
+}
+.workspace-topbar,
+[data-theme="ferro"] .workspace-topbar,
+[data-theme="neutro"] .workspace-topbar {
+  background: linear-gradient(108deg, #191e20 0%, #111517 52%, #0d1012 100%);
+  border-bottom-color: #596367;
+  box-shadow: inset 0 -1px rgba(217,224,226,.14), 0 8px 24px rgba(0,0,0,.16);
+}
+.academy-brand span,
+[data-theme="ferro"] .academy-brand span,
+[data-theme="neutro"] .academy-brand span,
+[data-theme="ferro"] .workspace-rail .academy-brand span,
+[data-theme="neutro"] .workspace-rail .academy-brand span {
+  color: #d7dfe1;
+  text-shadow: 0 1px 0 #fff3, 0 0 16px rgba(194,207,211,.14);
+}
+.academy-brand small { color: #98a5aa; }
+.workspace-topbar > div:first-child span,
+[data-theme="forja"] .workspace-topbar > div:first-child span {
+  color: #b7c1c5;
+  text-shadow: 0 0 10px rgba(194,207,211,.17);
 }
 
 /* Configurações organizadas por cartões, sem transbordar em telas estreitas. */

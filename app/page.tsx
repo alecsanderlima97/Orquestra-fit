@@ -681,7 +681,7 @@ export default function Home() {
             />
           ) : (
             <>
-              <StudentHeader onMenu={() => setMenuOpen(true)} />
+              <StudentHeader />
               <div className="student-scroll">
                 {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => setActiveTab("evolucao")} onViewWorkouts={() => setActiveTab("treinos")} />}
                 {activeTab === "treinos" && <WorkoutLibrary activeWorkoutId={activeWorkout?.id ?? activeWorkoutId} onStart={startStudentWorkout} />}
@@ -741,13 +741,12 @@ function RoleSwitcher({ role, onChange }: { role: Role; onChange: (role: Role) =
   );
 }
 
-function StudentHeader({ onMenu }: { onMenu: () => void }) {
+function StudentHeader() {
   return (
     <header className="student-header">
       <AcademyBrand />
       <div className="header-actions">
         <NotificationBell scope="student" className="icon-button" />
-        <button aria-label="Abrir menu" className="icon-button bronze" onClick={onMenu}><Menu size={22} /></button>
       </div>
     </header>
   );
