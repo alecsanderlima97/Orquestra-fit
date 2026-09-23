@@ -1619,15 +1619,20 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     const sets = exercises.flatMap((exercise, exerciseIndex) => Array.from({ length: exercise.sets }).map((_, setIndex) => {
       const id = `${exerciseIndex}-${setIndex}`;
       const value = setValues[id] ?? { load: exercise.load, reps: exercise.reps };
-      return { exerciseName: exercise.name, setNumber: setIndex + 1, load: value.load, reps: value.reps };
+      return { exerciseName: exercise.name, setNumber: setIndex + 1, load: value.load, reps: value.reps, metricMode: exercise.metricMode };
     }));
-    const maxLoad = sets.reduce((max, item) => Math.max(max, Number(item.load.replace(",", ".")) || 0), 0);
+    const maxLoad = sets.reduce((max, item) => item.metricMode === "strength" ? Math.max(max, Number(item.load.replace(",", ".")) || 0) : max, 0);
     const maxReps = sets.reduce((max, item) => Math.max(max, Number(item.reps.replace(",", ".")) || 0), 0);
-    const summaryMetrics = exerciseMetricLabels(exercises.find((exercise) => exercise.metricMode !== "strength") ?? exercises[0]);
-    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, calories: Math.max(1, Math.round(seconds / 60 * 5.5)), maxLoad, maxReps, maxMetricLabel: summaryMetrics.load === "Carga" ? "Maior carga" : `Maior ${summaryMetrics.load.toLocaleLowerCase("pt-BR")}`, maxMetricUnit: summaryMetrics.loadUnit, completedSets: completedSets.length, totalSets };
+    const totalVolume = sets.reduce((total, item) => {
+      if (item.metricMode !== "strength") return total;
+      const load = Number(item.load.replace(",", ".")) || 0;
+      const reps = Number(item.reps.replace(",", ".")) || 0;
+      return total + load * reps;
+    }, 0);
+    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, maxLoad, maxReps, totalVolume, maxMetricLabel: "Maior carga", maxMetricUnit: "kg", completedSets: completedSets.length, totalSets };
     if (!workout || !db) {
       if (workout) {
-        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, calories: summary.calories, maxLoad, maxReps, completedAt: new Date().toISOString() };
+        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, totalVolume, maxLoad, maxReps, completedAt: new Date().toISOString() };
         const executions = readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions");
         writeLocalCollection(access.academyId, "workoutExecutions", [execution, ...executions]);
       }
@@ -1644,7 +1649,7 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
         completedSets: completedSets.length,
         totalSets,
         sets,
-        calories: summary.calories,
+        totalVolume,
         maxLoad,
         maxReps,
         completedAt: serverTimestamp(),
@@ -1691,13 +1696,13 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
 function WorkoutCompletionSummary({ name, summary, onClose }: { name: string; summary: WorkoutCompletionSummary; onClose: () => void }) {
   const access = useAccess();
   const profile = useRegisteredProfile();
-  const [sharing, setSharing] = useState(false);
+  const [sharing, setSharing] = useState(true);
   const studentName = accountName(profile?.name || profile?.displayName || access.user.displayName, access.user.email);
   const profilePhoto = profile?.photoUrl || access.user.photoURL || "";
   if (sharing) return <WorkoutShareCard workoutName={displayWorkoutName(name)} studentName={studentName} profilePhoto={profilePhoto} summary={summary} onClose={() => setSharing(false)} />;
   return <div className="workout-completion-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-completion-title">
     <section className="workout-completion-card"><div className="workout-completion-mark"><Trophy size={25} /></div><small>CONQUISTA REGISTRADA</small><h2 id="workout-completion-title">Treino concluído</h2><p>{displayWorkoutName(name)} foi salvo no seu progresso pessoal.</p>
-      <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Flame size={17} /><small>Calorias</small><strong>≈ {summary.calories} kcal</strong></div><div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad > 0 ? `${summary.maxLoad}${summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}` : summary.maxMetricUnit ? `— ${summary.maxMetricUnit}` : "Peso corporal"}</strong></div><div><Activity size={17} /><small>Maior repetição</small><strong>{summary.maxReps || "—"}</strong></div></div>
+      <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Activity size={17} /><small>Séries concluídas</small><strong>{summary.completedSets}</strong></div>{summary.totalVolume > 0 && <div><Dumbbell size={17} /><small>Volume total</small><strong>{summary.totalVolume.toLocaleString("pt-BR")} kg</strong></div>}{typeof summary.calories === "number" && summary.calories > 0 && <div><Flame size={17} /><small>Calorias</small><strong>{summary.calories} kcal</strong></div>}{summary.maxLoad > 0 && <div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad}{summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}</strong></div>}</div>
       <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p><div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
     </section>
   </div>;
@@ -1975,7 +1980,7 @@ type ClassRecord = { id: string; name: string; instructor: string; instructorId?
 type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
-type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; calories?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
+type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string; metricMode?: ExerciseMetricMode }>; calories?: number; totalVolume?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
 
 function workoutExecutionTime(value: WorkoutExecution["completedAt"]) {
   if (value instanceof Date) return value.getTime();
@@ -1997,7 +2002,7 @@ function formatWorkoutDuration(seconds: number) {
   return `${Math.floor(safeSeconds / 60)}min ${String(safeSeconds % 60).padStart(2, "0")}s`;
 }
 
-type WorkoutCompletionSummary = { durationSeconds: number; calories: number; maxLoad: number; maxReps: number; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
+type WorkoutCompletionSummary = { durationSeconds: number; calories?: number; totalVolume: number; maxLoad: number; maxReps: number; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
 
 type ChargeViewStatus = "paid" | "overdue" | "dueSoon" | "pending";
 

@@ -1,18 +1,17 @@
 "use client";
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { Check, Download, ImagePlus, Share2, X } from "lucide-react";
+import { Camera, Check, Download, ImagePlus, Share2, X } from "lucide-react";
 
 export type ShareWorkoutSummary = {
   durationSeconds: number;
-  calories: number;
+  calories?: number;
+  totalVolume: number;
   maxLoad: number;
-  maxReps: number;
   completedSets: number;
   totalSets: number;
 };
 
-type ShareFormat = "story" | "feed";
 type Props = {
   workoutName: string;
   studentName: string;
@@ -132,27 +131,6 @@ function metric(context: CanvasRenderingContext2D, x: number, y: number, width: 
   context.fillText(value, x + 30, y + 116, width - 60);
 }
 
-function drawOrquestraFooterLogo(context: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number) {
-  context.save();
-  context.globalAlpha = .58;
-  context.shadowColor = "rgba(81, 171, 255, .20)";
-  context.shadowBlur = 18;
-  context.beginPath();
-  context.roundRect(x, y, width, height, 12);
-  context.clip();
-  // O arquivo original é uma arte quadrada; este recorte mantém o lockup legível no rodapé.
-  context.drawImage(image, 18, 370, 988, 270, x, y, width, height);
-  context.restore();
-  context.save();
-  context.globalAlpha = .38;
-  context.strokeStyle = "rgba(109, 189, 255, .55)";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.roundRect(x, y, width, height, 12);
-  context.stroke();
-  context.restore();
-}
-
 function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [""];
@@ -171,8 +149,17 @@ function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidt
   return lines;
 }
 
+function formatShareTitle(name: string) {
+  return name
+    .replace(/\s*[·|]\s*/g, " • ")
+    .replace(/\bfundação\b/gi, "Fundação")
+    .replace(/\bombros\b/gi, "Ombros")
+    .replace(/\bcore\b/gi, "Core")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 async function renderCard(canvas: HTMLCanvasElement, options: {
-  format: ShareFormat;
   photoUrl: string;
   workoutName: string;
   studentName: string;
@@ -181,62 +168,67 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   showPerformance: boolean;
 }) {
   const width = 1080;
-  const height = options.format === "story" ? 1920 : 1080;
+  const height = 1920;
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) return;
 
   const fallback = await loadImage("/dama-de-ferro.jpeg");
-  const [damaLogo, orquestraLogo] = await Promise.all([
-    loadImage("/dama-de-ferro.jpeg").catch(() => null),
-    loadImage("/branding/orquestra-cs-logo.png").catch(() => null),
-  ]);
+  const damaLogo = await loadImage("/dama-de-ferro.jpeg").catch(() => null);
   let background = fallback;
   if (options.photoUrl) {
     try { background = await loadImage(options.photoUrl); } catch { background = fallback; }
   }
   drawCover(context, background, width, height);
   const gradient = context.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "rgba(4, 5, 6, .30)");
-  gradient.addColorStop(.42, "rgba(4, 5, 6, .48)");
-  gradient.addColorStop(1, "rgba(3, 4, 5, .96)");
+  gradient.addColorStop(0, "rgba(5, 5, 5, .42)");
+  gradient.addColorStop(.34, "rgba(7, 7, 7, .12)");
+  gradient.addColorStop(.58, "rgba(8, 8, 8, .20)");
+  gradient.addColorStop(1, "rgba(5, 5, 5, .90)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, height);
+  const vignette = context.createRadialGradient(width / 2, height * .42, 120, width / 2, height * .42, 900);
+  vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+  vignette.addColorStop(1, "rgba(0, 0, 0, .38)");
+  context.fillStyle = vignette;
+  context.fillRect(0, 0, width, height);
 
-  const accent = "#e5b866";
+  const accent = "#d4a35f";
+  const silver = "#c7ced0";
 
   if (damaLogo) {
     context.save();
     context.beginPath();
-    context.roundRect(62, 62, 94, 94, 20);
+    context.roundRect(60, 60, 112, 112, 22);
     context.clip();
-    context.drawImage(damaLogo, 62, 62, 94, 94);
+    context.drawImage(damaLogo, 60, 60, 112, 112);
     context.restore();
   }
   context.fillStyle = accent;
-  context.fillRect(174, 62, 8, 108);
-  context.fillStyle = "#ffffff";
+  context.fillRect(192, 60, 7, 116);
+  context.fillStyle = silver;
   context.font = "800 40px Arial";
-  context.fillText("DAMA DE FERRO", 204, 112);
+  context.fillText("DAMA DE FERRO", 222, 114);
   context.fillStyle = accent;
   context.font = "700 22px Arial";
   context.letterSpacing = "5px";
-  context.fillText("ACADEMIA", 207, 151);
+  context.fillText("ACADEMIA", 225, 154);
   context.letterSpacing = "0px";
 
-  const contentTop = options.format === "story" ? 920 : 360;
+  const contentTop = 820;
   context.fillStyle = accent;
   context.font = "800 25px Arial";
   context.fillText("TREINO CONCLUÍDO", 70, contentTop);
   context.fillStyle = "#ffffff";
-  let titleFontSize = 54;
+  const shareTitle = formatShareTitle(options.workoutName);
+  let titleFontSize = 58;
   context.font = `800 ${titleFontSize}px Arial`;
-  while (titleFontSize > 34 && context.measureText(options.workoutName).width > 940) {
+  while (titleFontSize > 36 && context.measureText(shareTitle).width > 940) {
     titleFontSize -= 2;
     context.font = `800 ${titleFontSize}px Arial`;
   }
-  const titleLines = wrapCanvasText(context, options.workoutName, 940);
+  const titleLines = wrapCanvasText(context, shareTitle, 940);
   const titleLineHeight = Math.round(titleFontSize * 1.12);
   titleLines.forEach((line, index) => context.fillText(line, 70, contentTop + 88 + index * titleLineHeight, 940));
   const titleBottomOffset = 88 + (titleLines.length - 1) * titleLineHeight;
@@ -247,30 +239,32 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   }
 
   const metricTop = contentTop + Math.max(205, titleBottomOffset + (options.showName ? 130 : 110));
-  metric(context, 70, metricTop, 450, "Tempo", durationLabel(options.summary.durationSeconds), "clock");
-  metric(context, 560, metricTop, 450, "Séries", `${options.summary.completedSets}/${options.summary.totalSets}`, "sets");
-  if (options.showPerformance) {
-    metric(context, 70, metricTop + 195, 450, "Calorias", `≈ ${options.summary.calories} kcal`, "flame");
-    metric(context, 560, metricTop + 195, 450, "Maior carga", options.summary.maxLoad > 0 ? `${options.summary.maxLoad} kg` : "Peso corporal", "weight");
-  }
+  const metrics: Array<{ label: string; value: string; icon: MetricIcon }> = [
+    { label: "Duração", value: durationLabel(options.summary.durationSeconds), icon: "clock" },
+    { label: "Séries concluídas", value: String(options.summary.completedSets), icon: "sets" },
+  ];
+  if (options.showPerformance && options.summary.totalVolume > 0) metrics.push({ label: "Volume total", value: `${Math.round(options.summary.totalVolume).toLocaleString("pt-BR")} kg`, icon: "weight" });
+  if (options.showPerformance && typeof options.summary.calories === "number" && options.summary.calories > 0) metrics.push({ label: "Calorias", value: `${options.summary.calories} kcal`, icon: "flame" });
+  if (options.showPerformance && options.summary.maxLoad > 0) metrics.push({ label: "Maior carga", value: `${options.summary.maxLoad} kg`, icon: "weight" });
+  metrics.forEach((item, index) => {
+    const lastOdd = metrics.length % 2 === 1 && index === metrics.length - 1;
+    const row = Math.floor(index / 2);
+    metric(context, lastOdd ? 70 : index % 2 === 0 ? 70 : 555, metricTop + row * 195, lastOdd ? 940 : 455, item.label, item.value, item.icon);
+  });
 
   const footerY = height - 100;
   context.fillStyle = "rgba(255, 255, 255, .66)";
   context.font = "500 22px Arial";
   context.fillText(new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date()), 70, footerY);
   context.textAlign = "right";
-  if (orquestraLogo) {
-    drawOrquestraFooterLogo(context, orquestraLogo, width - 255, footerY - 49, 185, 50);
-  } else {
-    context.globalAlpha = .58;
-    context.fillStyle = "#6dbdff";
-    context.font = "700 21px Arial";
-    context.fillText("orquestra.cs", width - 70, footerY - 7);
-    context.fillStyle = "rgba(255, 255, 255, .42)";
-    context.font = "500 16px Arial";
-    context.fillText("tecnologia", width - 70, footerY + 18);
-    context.globalAlpha = 1;
-  }
+  context.globalAlpha = .52;
+  context.fillStyle = silver;
+  context.font = "700 18px Arial";
+  context.fillText("ORQUESTRA FIT", width - 70, footerY - 10);
+  context.fillStyle = accent;
+  context.font = "600 13px Arial";
+  context.fillText("TECNOLOGIA ORQUESTRA.CS", width - 70, footerY + 15);
+  context.globalAlpha = 1;
   context.textAlign = "left";
 }
 
@@ -280,7 +274,6 @@ function canvasBlob(canvas: HTMLCanvasElement) {
 
 export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", summary, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [format, setFormat] = useState<ShareFormat>("story");
   const [photoUrl, setPhotoUrl] = useState(profilePhoto);
   const [showName, setShowName] = useState(true);
   const [showPerformance, setShowPerformance] = useState(true);
@@ -290,8 +283,8 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    void renderCard(canvas, { format, photoUrl, workoutName, studentName, summary, showName, showPerformance });
-  }, [format, photoUrl, showName, showPerformance, studentName, summary, workoutName]);
+    void renderCard(canvas, { photoUrl, workoutName, studentName, summary, showName, showPerformance });
+  }, [photoUrl, showName, showPerformance, studentName, summary, workoutName]);
 
   useEffect(() => () => { if (photoUrl.startsWith("blob:")) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
@@ -313,7 +306,7 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
     setStatus("");
     try {
       const blob = await canvasBlob(canvas);
-      const file = new File([blob], `treino-dama-de-ferro-${format}.png`, { type: "image/png" });
+      const file = new File([blob], "treino-dama-de-ferro-story.png", { type: "image/png" });
       const data = { files: [file], title: "Treino concluído", text: "Treino concluído na Dama de Ferro Academia." };
       if (navigator.share && (!navigator.canShare || navigator.canShare(data))) {
         await navigator.share(data);
@@ -336,13 +329,13 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
 
   return <div className="workout-share-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-share-title">
     <section className="workout-share-panel">
-      <header><div><small>COMPARTILHAR CONQUISTA</small><h2 id="workout-share-title">Sua arte está pronta</h2><p>Escolha o formato e o que deseja mostrar.</p></div><button type="button" aria-label="Voltar ao resultado" onClick={onClose}><X /></button></header>
+      <header><div><small>COMPARTILHAR CONQUISTA</small><h2 id="workout-share-title">Sua arte está pronta</h2><p>Tire uma foto ou escolha uma imagem antes de publicar.</p></div><button type="button" aria-label="Voltar ao resultado" onClick={onClose}><X /></button></header>
       <div className="workout-share-layout">
-        <div className={`workout-share-preview is-${format}`}><canvas ref={canvasRef} aria-label="Prévia da arte do treino" /></div>
+        <div className="workout-share-preview is-story"><canvas ref={canvasRef} aria-label="Prévia da arte do treino" /></div>
         <div className="workout-share-options">
-          <fieldset><legend>Formato</legend><div className="workout-share-format"><button type="button" className={format === "story" ? "active" : ""} onClick={() => setFormat("story")}>Story <span>9:16</span></button><button type="button" className={format === "feed" ? "active" : ""} onClick={() => setFormat("feed")}>Feed <span>1:1</span></button></div></fieldset>
-          <label className="workout-share-photo"><ImagePlus /><span><strong>Foto de fundo</strong><small>{photoUrl ? "Foto selecionada" : "Use sua foto ou mantenha a arte da academia"}</small></span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /></label>
-          <fieldset><legend>Privacidade</legend><label className="workout-share-toggle"><input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} /><span><Check />Mostrar meu nome</span></label><label className="workout-share-toggle"><input type="checkbox" checked={showPerformance} onChange={(event) => setShowPerformance(event.target.checked)} /><span><Check />Mostrar calorias e carga</span></label></fieldset>
+          <div className="workout-share-output"><strong>Story e Status</strong><span>1080 × 1920 · pronto para publicar</span></div>
+          <fieldset><legend>Foto do treino</legend><div className="workout-share-photo-actions"><label className="workout-share-photo is-camera"><Camera /><span><strong>Tirar foto agora</strong><small>Use a câmera do celular</small></span><input type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label><label className="workout-share-photo"><ImagePlus /><span><strong>Escolher da galeria</strong><small>{photoUrl ? "Foto selecionada" : "JPG, PNG ou WebP"}</small></span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /></label></div></fieldset>
+          <fieldset><legend>Privacidade</legend><label className="workout-share-toggle"><input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} /><span><Check />Mostrar meu nome</span></label><label className="workout-share-toggle"><input type="checkbox" checked={showPerformance} onChange={(event) => setShowPerformance(event.target.checked)} /><span><Check />Mostrar métricas disponíveis</span></label></fieldset>
           <p className="workout-share-privacy">A foto é processada somente no seu aparelho.</p>
           {status && <p className="workout-share-status" role="status">{status}</p>}
           <button className="workout-share-submit" type="button" onClick={() => void share()} disabled={sharing}>{sharing ? <Download /> : <Share2 />}{sharing ? "Gerando arte…" : "Compartilhar ou salvar"}</button>
