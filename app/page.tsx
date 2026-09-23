@@ -1343,7 +1343,7 @@ function Agenda() {
   return (
     <div className="student-view">
       <PageIntro kicker="AULAS E RESERVAS" title="Sua agenda" copy="Organize a semana sem perder o ritmo." />
-      <div className="date-selector">{["SEG\n01", "TER\n02", "QUA\n03", "QUI\n04", "SEX\n05"].map((day, index) => <button className={selectedDay === index ? "active" : ""} key={day} onClick={() => setSelectedDay(index)}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>)}</div>
+      <div className="date-selector">{["SEG\n01", "TER\n02", "QUA\n03", "QUI\n04", "SEX\n05", "SÁB\n06", "DOM\n07"].map((day, index) => <button className={selectedDay === index ? "active" : ""} key={day} onClick={() => setSelectedDay(index)}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>)}</div>
       {classes.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>Nenhuma aula disponível</h3><p>As próximas turmas da academia aparecerão aqui.</p></div> : classes.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><small>{item.name.toUpperCase()}</small><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button onClick={() => reserved ? cancel(item) : reserve(item)}>{reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
     </div>
   );
@@ -1761,7 +1761,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
       {mobileMenuOpen && <WorkspaceMobileDrawer profile={profile} visibleNav={visibleNav} activeModule={activeModule} onNavigate={navigateToModule} onClose={() => setMobileMenuOpen(false)} operatorName={operatorName} operatorInitials={operatorInitials} onSettings={() => { setMobileMenuOpen(false); if (profile === "Gestão") setPermissionsOpen(true); else setAppearanceOpen(true); }} />}
       {appearanceOpen && theme && onThemeChange && <AppearancePanel theme={theme} onThemeChange={onThemeChange} onClose={() => setAppearanceOpen(false)} />}
       {permissionsOpen && theme && onThemeChange && <PermissionsPanel theme={theme} onThemeChange={onThemeChange} onClose={() => setPermissionsOpen(false)} onFeedback={feedback} />}
-      {profileOpen && <ManagerProfilePanel profile={registeredProfile} onClose={() => setProfileOpen(false)} onFeedback={feedback} />}
+      {profileOpen && <ManagerProfilePanel profile={registeredProfile} workspaceProfile={profile} onClose={() => setProfileOpen(false)} onFeedback={feedback} />}
     </section>
   );
 }
@@ -3871,8 +3871,9 @@ function WorkspaceModule({ title, profile, onFeedback }: { title: string; profil
   );
 }
 
-function ManagerProfilePanel({ profile, onClose, onFeedback }: { profile: AccountProfile | null; onClose: () => void; onFeedback: (message: string) => void }) {
+function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }: { profile: AccountProfile | null; workspaceProfile: "Gestão" | "Professor"; onClose: () => void; onFeedback: (message: string) => void }) {
   const access = useAccess();
+  const isManager = workspaceProfile === "Gestão";
   const [form, setForm] = useState<AccountProfile>(profile ?? {});
   const [saving, setSaving] = useState(false);
   const [photoSaving, setPhotoSaving] = useState(false);
@@ -3916,16 +3917,14 @@ function ManagerProfilePanel({ profile, onClose, onFeedback }: { profile: Accoun
   }
   return <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="profile-title">
     <section className="permissions-panel manager-profile-panel">
-      <header><div><span>PERFIL E DADOS DA ACADEMIA</span><h2 id="profile-title">Perfil do gestor</h2><p>Atualize seus dados, os contatos e o funcionamento da academia.</p></div><button aria-label="Fechar perfil" onClick={onClose}><X /></button></header>
+      <header><div><span>{isManager ? "PERFIL E DADOS DA ACADEMIA" : "PERFIL PROFISSIONAL"}</span><h2 id="profile-title">{isManager ? "Perfil do gestor" : "Perfil do professor"}</h2><p>{isManager ? "Atualize seus dados, os contatos e o funcionamento da academia." : "Atualize seus dados profissionais e a forma como a equipe identifica você."}</p></div><button aria-label="Fechar perfil" onClick={onClose}><X /></button></header>
       <form className="student-detail-form" onSubmit={save}>
         {form.photoUrl && <img className="manager-profile-photo" src={form.photoUrl} alt="Foto do gestor" />}
         <label>Foto do perfil<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importPhoto} disabled={photoSaving} /><small>{photoSaving ? "Importando..." : "Importe uma imagem do dispositivo."}</small></label>
         {(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl"] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site" } as Record<string, string>)[key]}<input value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}
         <div className="form-actions"><button className="detail-save" type="submit" disabled={saving || photoSaving}>{saving ? "Salvando..." : "Salvar perfil"}</button><button className="secondary-action" type="button" onClick={() => void logout()}>Sair da conta</button></div>
       </form>
-      <div className="manager-profile-hours">
-        <AcademyHoursSettings onFeedback={onFeedback} />
-      </div>
+      {isManager && <div className="manager-profile-hours"><AcademyHoursSettings onFeedback={onFeedback} /></div>}
     </section>
   </div>;
 }

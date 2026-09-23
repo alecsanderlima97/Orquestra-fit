@@ -1040,7 +1040,7 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .history-row strong { color: var(--bronze-300); font-size: 13px; }
 .history-row small { grid-column: 2; color: var(--steel-500); font-size: 8px; margin-top: -18px; }
 
-.date-selector { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin-bottom: 25px; }
+.date-selector { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; margin-bottom: 25px; }
 .date-selector button { border: 1px solid var(--line); background: #111315; color: #747a7d; min-height: 61px; display: grid; place-content: center; gap: 4px; font-size: 9px; }
 .date-selector button span:last-child { color: #d7d5cf; font-size: 15px; font-weight: 800; }
 .date-selector button.active { border-color: var(--bronze-500); background: var(--bronze-500); color: #23170d; }
