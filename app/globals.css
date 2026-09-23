@@ -1077,6 +1077,28 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .date-selector button span:last-child { color: #d7d5cf; font-size: 15px; font-weight: 800; }
 .date-selector button.active { border-color: var(--bronze-500); background: var(--bronze-500); color: #23170d; }
 .date-selector button.active span { color: #17100a; }
+.agenda-calendar { margin-bottom: 24px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: linear-gradient(145deg, rgba(34,25,18,.88), rgba(12,16,18,.96)); box-shadow: 0 14px 35px rgba(0,0,0,.16); }
+.agenda-calendar-toolbar { min-height: 58px; padding: 9px 12px; display: grid; grid-template-columns: 38px minmax(0,1fr) 38px auto; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.agenda-calendar-toolbar > strong { color: var(--text); font-size: 16px; text-transform: capitalize; text-align: center; }
+.agenda-calendar-toolbar button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid rgba(218,164,92,.28); border-radius: 10px; background: rgba(9,12,14,.78); color: var(--bronze-300); }
+.agenda-calendar-toolbar button svg { width: 17px; height: 17px; }
+.agenda-calendar-toolbar .agenda-calendar-today { width: auto; padding: 0 13px; color: #1b120a; border-color: transparent; background: linear-gradient(135deg, var(--bronze-300), var(--bronze-500)); font-size: 11px; font-weight: 800; }
+.agenda-calendar-weekdays, .agenda-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.agenda-calendar-weekdays { padding: 10px 10px 7px; gap: 4px; color: #858d91; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-align: center; }
+.agenda-calendar-grid { gap: 4px; padding: 0 10px 10px; }
+.agenda-calendar-grid button, .agenda-calendar-empty { min-height: 58px; position: relative; display: grid; place-items: center; border: 1px solid transparent; border-radius: 10px; background: rgba(9,12,14,.52); color: #d2d7d8; font-size: 14px; font-weight: 700; }
+.agenda-calendar-grid button:hover { border-color: rgba(218,164,92,.55); }
+.agenda-calendar-grid button.is-today { border-color: rgba(224,178,92,.65); color: var(--bronze-300); }
+.agenda-calendar-grid button.is-selected { border-color: var(--bronze-300); background: linear-gradient(145deg, rgba(167,102,42,.74), rgba(82,46,23,.9)); color: #fff6e9; box-shadow: 0 0 0 2px rgba(226,174,90,.13), 0 8px 20px rgba(89,46,17,.28); }
+.agenda-calendar-grid button i { position: absolute; right: 8px; bottom: 7px; width: 5px; height: 5px; border-radius: 50%; background: #8fcf85; box-shadow: 0 0 8px rgba(143,207,133,.85); }
+.agenda-calendar-legend { padding: 0 13px 13px; display: flex; flex-wrap: wrap; gap: 15px; color: #8d9598; font-size: 10px; }
+.agenda-calendar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.agenda-calendar-legend i { width: 7px; height: 7px; display: inline-block; border-radius: 50%; }
+.agenda-calendar-legend .legend-today { border: 1px solid var(--bronze-300); }
+.agenda-calendar-legend .legend-class { background: #8fcf85; box-shadow: 0 0 7px rgba(143,207,133,.7); }
+.agenda-selected-heading { display: grid; gap: 4px; margin: 0 2px 12px; }
+.agenda-selected-heading small { color: var(--bronze-300); font-size: 9px; font-weight: 800; letter-spacing: .16em; }
+.agenda-selected-heading strong { color: var(--text); font-size: 17px; text-transform: capitalize; }
 .class-card { border: 1px solid #59432f; background: #171511; padding: 18px; display: grid; grid-template-columns: 57px 1fr; gap: 14px; position: relative; }
 .class-time { border-right: 1px solid #4a3a2c; display: grid; align-content: center; }
 .class-time strong { font-size: 17px; }
@@ -1220,7 +1242,14 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .birthday-alert strong { color: #fff; font: 700 18px var(--font-serif); }
 .birthday-alert span { color: #aeb7bb; font-size: 11px; }
 .birthday-alert button { padding: 10px 12px; display: flex; align-items: center; gap: 7px; border: 1px solid rgba(224,164,91,.38); background: rgba(20,15,11,.7); color: #efbd77; font-weight: 750; }
+.birthday-upcoming { margin: 0 auto 16px; width: min(100% - 28px, 560px); padding: 13px 15px; display: flex; align-items: center; gap: 12px; border: 1px solid rgba(224,164,91,.33); border-radius: 13px; background: linear-gradient(110deg, rgba(69,42,21,.76), rgba(15,21,23,.94)); box-shadow: inset 0 1px rgba(255,255,255,.04), 0 12px 28px rgba(0,0,0,.12); }
+.birthday-upcoming > svg { flex: 0 0 auto; width: 21px; height: 21px; color: #efbd77; filter: drop-shadow(0 0 8px rgba(239,189,119,.3)); }
+.birthday-upcoming > div { min-width: 0; display: grid; gap: 3px; }
+.birthday-upcoming small { color: #dca761; font-size: 8px; font-weight: 850; letter-spacing: .14em; }
+.birthday-upcoming strong { color: #fff; font-size: 14px; line-height: 1.3; }
+.birthday-upcoming span { color: #aeb7bb; font-size: 10px; line-height: 1.35; }
 @media (max-width: 620px) { .birthday-alert { align-items: flex-start; flex-wrap: wrap; } .birthday-alert button { width: 100%; justify-content: center; } }
+@media (max-width: 480px) { .agenda-calendar-toolbar { grid-template-columns: 34px minmax(0,1fr) 34px; padding-inline: 9px; } .agenda-calendar-toolbar button { width: 34px; height: 34px; } .agenda-calendar-toolbar .agenda-calendar-today { grid-column: 1 / -1; width: 100%; height: 32px; } .agenda-calendar-grid { padding-inline: 7px; gap: 3px; } .agenda-calendar-grid button, .agenda-calendar-empty { min-height: 48px; border-radius: 8px; font-size: 13px; } .agenda-calendar-grid button i { right: 5px; bottom: 5px; width: 4px; height: 4px; } .agenda-calendar-weekdays { padding-inline: 7px; gap: 3px; font-size: 8px; } .birthday-upcoming { width: calc(100% - 22px); } }
 .exercise-card-title > svg { width: 17px; color: var(--bronze-300); transition: transform .2s ease; }
 .exercise-card.collapsed .exercise-card-title > svg { transform: rotate(-90deg); }
 .exercise-video-button { width: 36px; height: 36px; border: 1px solid #8a6037; background: linear-gradient(145deg, #3d2918, #17120d); color: var(--bronze-300); display: grid; place-items: center; box-shadow: inset 0 1px #f3c98a24, 0 5px 12px #0005; }

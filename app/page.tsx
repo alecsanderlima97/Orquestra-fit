@@ -7,7 +7,7 @@ import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp,
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
   Activity, ArrowLeft, ArrowRight, ArrowUp, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
-  ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
+  ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, LockKeyhole, Menu, MoreHorizontal, Palette, Play, Plus, Printer, Search, Settings,
   Eye, EyeOff, PersonStanding, QrCode, Share2, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, Package, X,
 } from "lucide-react";
@@ -86,6 +86,16 @@ function calculateAge(birthDate?: string | null, referenceDate = new Date()) {
   return age >= 0 ? age : null;
 }
 
+function birthdayCountdown(birthDate?: string | null, referenceDate = new Date()) {
+  if (!birthDate) return null;
+  const [, month, day] = birthDate.split("-").map(Number);
+  if (!month || !day) return null;
+  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  let nextBirthday = new Date(today.getFullYear(), month - 1, day);
+  if (nextBirthday < today) nextBirthday = new Date(today.getFullYear() + 1, month - 1, day);
+  return Math.round((nextBirthday.getTime() - today.getTime()) / 86400000);
+}
+
 function scrollToContent(selector: string) {
   window.setTimeout(() => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
 }
@@ -125,6 +135,7 @@ function BirthdayGreeting() {
   const access = useAccess();
   const [student, setStudent] = useState<{ name?: string; birthDate?: string } | null>(null);
   const [visible, setVisible] = useState(false);
+  const daysUntilBirthday = birthdayCountdown(student?.birthDate);
   useEffect(() => {
     const studentId = localStudentId(access.academyId, access.userId);
     if (!db) {
@@ -143,8 +154,11 @@ function BirthdayGreeting() {
       window.localStorage.setItem(annualKey, "shown");
     }
   }, [access.academyId, access.userId, student]);
-  if (!visible) return null;
-  return <div className="birthday-backdrop" role="dialog" aria-modal="true" aria-label="Mensagem de aniversário"><section className="birthday-card"><Sparkles /><small>DAMA DE FERRO ACADEMIA</small><h2>Feliz aniversário, {firstName(student?.name ?? null, null)}!</h2><p>Que seu novo ciclo venha com muita saúde, força e conquistas. É um prazer ter você treinando com a gente.</p><button type="button" onClick={() => setVisible(false)}>Começar meu dia</button></section></div>;
+  if (!student?.birthDate || daysUntilBirthday === null || daysUntilBirthday > 7) return visible ? <div className="birthday-backdrop" role="dialog" aria-modal="true" aria-label="Mensagem de aniversário"><section className="birthday-card"><Sparkles /><small>DAMA DE FERRO ACADEMIA</small><h2>Feliz aniversário, {firstName(student?.name ?? null, null)}!</h2><p>Que seu novo ciclo venha com muita saúde, força e conquistas. É um prazer ter você treinando com a gente.</p><button type="button" onClick={() => setVisible(false)}>Começar meu dia</button></section></div> : null;
+  return <>
+    <div className="birthday-upcoming" role="status"><Sparkles /><div><small>{daysUntilBirthday === 0 ? "ANIVERSÁRIO HOJE" : "ANIVERSÁRIO SE APROXIMANDO"}</small><strong>{daysUntilBirthday === 0 ? `Feliz aniversário, ${firstName(student.name ?? null, null)}!` : `Faltam ${daysUntilBirthday} ${daysUntilBirthday === 1 ? "dia" : "dias"} para o seu aniversário`}</strong><span>Prepare-se para celebrar mais um ciclo com a equipe da academia.</span></div></div>
+    {visible && <div className="birthday-backdrop" role="dialog" aria-modal="true" aria-label="Mensagem de aniversário"><section className="birthday-card"><Sparkles /><small>DAMA DE FERRO ACADEMIA</small><h2>Feliz aniversário, {firstName(student?.name ?? null, null)}!</h2><p>Que seu novo ciclo venha com muita saúde, força e conquistas. É um prazer ter você treinando com a gente.</p><button type="button" onClick={() => setVisible(false)}>Começar meu dia</button></section></div>}
+  </>;
 }
 
 async function logout() {
@@ -1271,7 +1285,11 @@ function Agenda() {
   const [classes, setClasses] = useState<ClassRecord[]>([]);
   const [reservationIds, setReservationIds] = useState<string[]>([]);
   const [attendanceIds, setAttendanceIds] = useState<string[]>([]);
-  const [selectedDay, setSelectedDay] = useState(0);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
+  const [selectedDate, setSelectedDate] = useState(todayIso());
   useEffect(() => {
     if (!db) {
       const studentId = localStudentId(access.academyId, access.userId);
@@ -1341,11 +1359,41 @@ function Agenda() {
   }
 
   const visibleClasses = classes.filter((item) => item.visibility !== "selected" || reservationIds.includes(item.id));
+  const calendarYear = calendarMonth.getFullYear();
+  const calendarMonthIndex = calendarMonth.getMonth();
+  const firstWeekday = (new Date(calendarYear, calendarMonthIndex, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(calendarYear, calendarMonthIndex + 1, 0).getDate();
+  const calendarCellCount = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const calendarCells = Array.from({ length: calendarCellCount }, (_, index) => {
+    const dayNumber = index - firstWeekday + 1;
+    return dayNumber >= 1 && dayNumber <= daysInMonth ? new Date(calendarYear, calendarMonthIndex, dayNumber) : null;
+  });
+  const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const selectedClasses = selectedDate ? visibleClasses.filter((item) => item.date === selectedDate) : visibleClasses;
+  const selectedDateLabel = selectedDate ? new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long" }).format(new Date(`${selectedDate}T12:00:00`)) : "Todas as aulas";
   return (
     <div className="student-view">
       <PageIntro kicker="AULAS E RESERVAS" title="Sua agenda" copy="Organize a semana sem perder o ritmo." />
-      <div className="date-selector">{["SEG\n01", "TER\n02", "QUA\n03", "QUI\n04", "SEX\n05", "SÁB\n06", "DOM\n07"].map((day, index) => <button className={selectedDay === index ? "active" : ""} key={day} onClick={() => setSelectedDay(index)}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>)}</div>
-      {visibleClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>Nenhuma aula disponível</h3><p>As próximas turmas da academia aparecerão aqui.</p></div> : visibleClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><small>{item.name.toUpperCase()}</small><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button onClick={() => reserved ? cancel(item) : reserve(item)}>{reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
+      <section className="agenda-calendar" aria-label="Calendário mensal da academia">
+        <div className="agenda-calendar-toolbar">
+          <button type="button" aria-label="Mês anterior" onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex - 1, 1))}><ChevronLeft /></button>
+          <strong>{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(calendarMonth)}</strong>
+          <button type="button" aria-label="Próximo mês" onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex + 1, 1))}><ChevronRight /></button>
+          <button className="agenda-calendar-today" type="button" onClick={() => { const now = new Date(); setCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelectedDate(todayIso()); }}>Hoje</button>
+        </div>
+        <div className="agenda-calendar-weekdays" aria-hidden="true">{["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="agenda-calendar-grid">{calendarCells.map((day, index) => {
+          if (!day) return <span className="agenda-calendar-empty" key={`empty-${index}`} aria-hidden="true" />;
+          const dateKey = localDateKey(day);
+          const hasClass = visibleClasses.some((item) => item.date === dateKey);
+          const isToday = dateKey === todayIso();
+          const isSelected = dateKey === selectedDate;
+          return <button type="button" className={`${isSelected ? "is-selected " : ""}${isToday ? "is-today " : ""}${hasClass ? "has-class" : ""}`} key={dateKey} onClick={() => setSelectedDate(dateKey)}><span>{day.getDate()}</span>{hasClass && <i aria-label="Há aulas neste dia" />}</button>;
+        })}</div>
+        <div className="agenda-calendar-legend"><span><i className="legend-today" /> Hoje</span><span><i className="legend-class" /> Aula disponível</span></div>
+      </section>
+      <div className="agenda-selected-heading"><small>AULAS DO DIA</small><strong>{selectedDateLabel}</strong></div>
+      {selectedClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>{visibleClasses.length === 0 ? "Nenhuma aula disponível" : "Nenhuma aula neste dia"}</h3><p>{visibleClasses.length === 0 ? "As próximas turmas da academia aparecerão aqui." : "Escolha outra data no calendário para consultar as aulas."}</p></div> : selectedClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><small>{item.name.toUpperCase()}</small><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button onClick={() => reserved ? cancel(item) : reserve(item)}>{reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
     </div>
   );
 }
