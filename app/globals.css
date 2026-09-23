@@ -129,6 +129,32 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .student-profile-overview > div { min-width: 0; padding: 12px; background: #111415; }
 .student-profile-overview small, .student-profile-metrics small { display: block; color: var(--steel-500); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .student-profile-overview strong { display: block; margin-top: 5px; color: var(--paper); font-size: 13px; overflow-wrap: anywhere; }
+.student-frequency-panel { margin: 14px 22px 0; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(145deg, rgba(32,25,19,.72), #101415 70%); overflow: hidden; }
+.student-frequency-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 14px; border-bottom: 1px solid var(--line); }
+.student-frequency-panel > header > div { display: grid; gap: 4px; min-width: 0; }
+.student-frequency-panel > header span { color: var(--bronze-300); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.student-frequency-panel > header h3 { margin: 0; color: var(--paper); font-size: 15px; }
+.student-frequency-panel > header p { margin: 0; color: var(--steel-500); font-size: 10px; line-height: 1.4; }
+.student-frequency-panel > header > strong { flex: 0 0 auto; color: var(--bronze-300); font-size: 12px; }
+.student-frequency-toolbar { display: grid; grid-template-columns: 32px minmax(0,1fr) 32px auto; align-items: center; gap: 7px; padding: 10px 12px; }
+.student-frequency-toolbar button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(218,164,92,.25); border-radius: 8px; background: #111617; color: var(--bronze-300); }
+.student-frequency-toolbar button svg { width: 15px; height: 15px; }
+.student-frequency-toolbar > strong { color: var(--paper); font-size: 12px; text-align: center; text-transform: capitalize; }
+.student-frequency-toolbar > span { color: var(--steel-500); font-size: 10px; white-space: nowrap; }
+.student-frequency-weekdays, .student-frequency-grid { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 4px; padding-inline: 12px; }
+.student-frequency-weekdays { padding-bottom: 5px; color: var(--steel-500); font-size: 8px; font-weight: 850; letter-spacing: .08em; text-align: center; }
+.student-frequency-grid { padding-bottom: 10px; }
+.student-frequency-grid > span, .student-frequency-empty { min-height: 40px; position: relative; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: rgba(9,12,14,.48); color: var(--steel-300); font-size: 11px; }
+.student-frequency-grid > span.today { border-color: rgba(224,178,92,.62); }
+.student-frequency-grid > span.visited { background: rgba(78,119,70,.26); border-color: rgba(122,181,107,.68); color: #d9f5d0; }
+.student-frequency-grid > span.absent { background: rgba(125,63,60,.26); border-color: rgba(206,111,102,.6); color: #f0c1ba; }
+.student-frequency-grid > span i { position: absolute; right: 5px; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: #8fcf85; }
+.student-frequency-grid > span.absent i { background: #d47a70; }
+.student-frequency-legend { display: flex; flex-wrap: wrap; gap: 11px; padding: 0 13px 13px; color: var(--steel-500); font-size: 9px; }
+.student-frequency-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.student-frequency-legend i { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: #879196; }
+.student-frequency-legend .is-visited { background: #8fcf85; box-shadow: 0 0 7px rgba(143,207,133,.6); }
+.student-frequency-legend .is-absent { background: #d47a70; }
 .student-profile-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 14px 22px 0; border: 1px solid var(--line); background: var(--line); }
 .student-profile-sections section { min-width: 0; padding: 12px; background: #111415; }
 .student-profile-sections section:last-child { grid-column: 1 / -1; }

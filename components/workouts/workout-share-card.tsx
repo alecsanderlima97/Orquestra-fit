@@ -13,6 +13,7 @@ export type ShareWorkoutSummary = {
 };
 
 type ShareFormat = "story" | "feed";
+type ShareStyle = "standard" | "energy";
 
 type Props = {
   workoutName: string;
@@ -70,6 +71,7 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   summary: ShareWorkoutSummary;
   showName: boolean;
   showPerformance: boolean;
+  visualStyle: ShareStyle;
 }) {
   const width = 1080;
   const height = options.format === "story" ? 1920 : 1080;
@@ -79,6 +81,10 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   if (!context) return;
 
   const fallback = await loadImage("/dama-de-ferro.jpeg");
+  const [damaLogo, orquestraLogo] = await Promise.all([
+    loadImage("/dama-de-ferro.jpeg").catch(() => null),
+    loadImage("/branding/orquestra-cs-logo.png").catch(() => null),
+  ]);
   let background = fallback;
   if (options.photoUrl) {
     try { background = await loadImage(options.photoUrl); } catch { background = fallback; }
@@ -91,19 +97,36 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, height);
 
-  context.fillStyle = "#e5b866";
-  context.fillRect(70, 70, 8, 102);
+  const accent = options.visualStyle === "energy" ? "#ff9b45" : "#e5b866";
+  if (options.visualStyle === "energy") {
+    const energy = context.createRadialGradient(width * .18, height * .18, 15, width * .18, height * .18, width * .7);
+    energy.addColorStop(0, "rgba(255, 132, 48, .34)");
+    energy.addColorStop(1, "rgba(255, 132, 48, 0)");
+    context.fillStyle = energy;
+    context.fillRect(0, 0, width, height);
+  }
+
+  if (damaLogo) {
+    context.save();
+    context.beginPath();
+    context.roundRect(70, 70, 78, 78, 18);
+    context.clip();
+    context.drawImage(damaLogo, 70, 70, 78, 78);
+    context.restore();
+  }
+  context.fillStyle = accent;
+  context.fillRect(165, 70, 8, 102);
   context.fillStyle = "#ffffff";
   context.font = "800 40px Arial";
-  context.fillText("DAMA DE FERRO", 105, 112);
-  context.fillStyle = "#e5b866";
+  context.fillText("DAMA DE FERRO", 195, 112);
+  context.fillStyle = accent;
   context.font = "700 22px Arial";
   context.letterSpacing = "5px";
-  context.fillText("ACADEMIA", 108, 151);
+  context.fillText("ACADEMIA", 198, 151);
   context.letterSpacing = "0px";
 
   const contentTop = options.format === "story" ? 920 : 360;
-  context.fillStyle = "#e5b866";
+  context.fillStyle = accent;
   context.font = "800 25px Arial";
   context.fillText("TREINO CONCLUÍDO", 70, contentTop);
   context.fillStyle = "#ffffff";
@@ -129,9 +152,15 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   context.font = "500 22px Arial";
   context.fillText(new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date()), 70, footerY);
   context.textAlign = "right";
-  context.fillStyle = "rgba(255, 255, 255, .56)";
-  context.font = "600 20px Arial";
-  context.fillText("Tecnologia Orquestra.cs", width - 70, footerY);
+  if (orquestraLogo) {
+    context.drawImage(orquestraLogo, width - 230, footerY - 48, 42, 42);
+  }
+  context.fillStyle = "#6dbdff";
+  context.font = "700 21px Arial";
+  context.fillText("orquestra.cs", width - 70, footerY - 7);
+  context.fillStyle = "rgba(255, 255, 255, .42)";
+  context.font = "500 16px Arial";
+  context.fillText("tecnologia", width - 70, footerY + 18);
   context.textAlign = "left";
 }
 
@@ -145,14 +174,15 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
   const [photoUrl, setPhotoUrl] = useState(profilePhoto);
   const [showName, setShowName] = useState(true);
   const [showPerformance, setShowPerformance] = useState(true);
+  const [visualStyle, setVisualStyle] = useState<ShareStyle>("standard");
   const [status, setStatus] = useState("");
   const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    void renderCard(canvas, { format, photoUrl, workoutName, studentName, summary, showName, showPerformance });
-  }, [format, photoUrl, showName, showPerformance, studentName, summary, workoutName]);
+    void renderCard(canvas, { format, photoUrl, workoutName, studentName, summary, showName, showPerformance, visualStyle });
+  }, [format, photoUrl, showName, showPerformance, studentName, summary, visualStyle, workoutName]);
 
   useEffect(() => () => { if (photoUrl.startsWith("blob:")) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
@@ -202,6 +232,7 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
         <div className={`workout-share-preview is-${format}`}><canvas ref={canvasRef} aria-label="Prévia da arte do treino" /></div>
         <div className="workout-share-options">
           <fieldset><legend>Formato</legend><div className="workout-share-format"><button type="button" className={format === "story" ? "active" : ""} onClick={() => setFormat("story")}>Story <span>9:16</span></button><button type="button" className={format === "feed" ? "active" : ""} onClick={() => setFormat("feed")}>Feed <span>1:1</span></button></div></fieldset>
+          <fieldset><legend>Estilo da arte</legend><div className="workout-share-format"><button type="button" className={visualStyle === "standard" ? "active" : ""} onClick={() => setVisualStyle("standard")}>Padrão <span>Clássico</span></button><button type="button" className={visualStyle === "energy" ? "active energy" : ""} onClick={() => setVisualStyle("energy")}>🔥 Energia <span>Fogo</span></button></div></fieldset>
           <label className="workout-share-photo"><ImagePlus /><span><strong>Foto de fundo</strong><small>{photoUrl ? "Foto selecionada" : "Use sua foto ou mantenha a arte da academia"}</small></span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /></label>
           <fieldset><legend>Privacidade</legend><label className="workout-share-toggle"><input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} /><span><Check />Mostrar meu nome</span></label><label className="workout-share-toggle"><input type="checkbox" checked={showPerformance} onChange={(event) => setShowPerformance(event.target.checked)} /><span><Check />Mostrar calorias e carga</span></label></fieldset>
           <p className="workout-share-privacy">A foto é processada somente no seu aparelho.</p>

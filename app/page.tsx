@@ -967,7 +967,7 @@ function printWorkoutSheet(workout: WorkoutRecord, audienceLabel = "ALUNO") {
     : `<tr><td colspan="5">Exercícios vinculados: ${workout.exerciseIds.length}</td></tr>`;
   const printedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date());
   const primaryMetrics = exerciseMetricLabels(exercises[0] ?? { name: "", exerciseType: "Força", equipmentName: "", muscleGroup: "" });
-  printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapePrintText(workout.name)} - ${escapePrintText(workout.studentName)}</title><style>@page{margin:5mm}*{box-sizing:border-box}body{margin:0 auto;max-width:190mm;color:#111;background:#fff;font-family:Arial,sans-serif;font-size:10pt}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}header strong{display:block;font-family:Georgia,serif;font-size:16pt}header span{display:block;font-size:8pt;letter-spacing:.18em;margin-top:2px}h1{font-family:Georgia,serif;font-size:15pt;margin:0 0 3px}.student{margin:0 0 12px;font-size:9pt}.student b{display:block;font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #bbb;padding:6px 3px;text-align:center;vertical-align:top}th{font-size:7.5pt;text-transform:uppercase}th:first-child,td:first-child{text-align:left;width:48%}td b,td small{display:block}td small{font-size:7.5pt;line-height:1.3;margin-top:2px;color:#333}footer{margin-top:12px;padding-top:8px;border-top:1px dashed #777;text-align:center;font-size:7.5pt}.no-print{display:block;width:100%;margin:16px 0;padding:10px;border:0;background:#111;color:#fff;font-weight:bold}@media print{.no-print{display:none}}@media(max-width:90mm){body{font-size:8pt}header strong{font-size:13pt}h1{font-size:12pt}th,td{padding:4px 2px}th:first-child,td:first-child{width:44%}}</style></head><body><header><strong>DAMA DE FERRO</strong><span>ACADEMIA · ORQUESTRA FIT</span></header><main><h1>${escapePrintText(workout.name)}</h1><p class="student"><span>${escapePrintText(audienceLabel)}</span><b>${escapePrintText(workout.studentName)}</b></p><table><thead><tr><th>Exercício</th><th>${escapePrintText(primaryMetrics.sets)}</th><th>${escapePrintText(primaryMetrics.reps)}</th><th>${escapePrintText(primaryMetrics.load)}</th><th>${escapePrintText(primaryMetrics.rest)}</th></tr></thead><tbody>${exerciseRows}</tbody></table></main><footer>Impresso em ${escapePrintText(printedAt)} · Tempos, velocidades e cargas podem ser ajustados pelo professor.</footer><button class="no-print" onclick="window.print()">Imprimir treino</button></body></html>`);
+  printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapePrintText(workout.name)} - ${escapePrintText(workout.studentName)}</title><style>@page{margin:5mm}*{box-sizing:border-box}body{margin:0 auto;max-width:190mm;color:#111;background:#fff;font-family:Arial,sans-serif;font-size:10pt}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}header img{width:48px;height:48px;object-fit:cover;border-radius:10px;display:block;margin:0 auto 5px}header strong{display:block;font-family:Georgia,serif;font-size:16pt}header span{display:block;font-size:8pt;letter-spacing:.18em;margin-top:2px}h1{font-family:Georgia,serif;font-size:15pt;margin:0 0 3px}.student{margin:0 0 12px;font-size:9pt}.student b{display:block;font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #bbb;padding:6px 3px;text-align:center;vertical-align:top}th{font-size:7.5pt;text-transform:uppercase}th:first-child,td:first-child{text-align:left;width:48%}td b,td small{display:block}td small{font-size:7.5pt;line-height:1.3;margin-top:2px;color:#333}footer{margin-top:12px;padding-top:8px;border-top:1px dashed #777;text-align:center;font-size:7.5pt}.no-print{display:block;width:100%;margin:16px 0;padding:10px;border:0;background:#111;color:#fff;font-weight:bold}@media print{.no-print{display:none}}@media(max-width:90mm){body{font-size:8pt}header strong{font-size:13pt}h1{font-size:12pt}th,td{padding:4px 2px}th:first-child,td:first-child{width:44%}}</style></head><body><header><img src="/dama-de-ferro.jpeg" alt="Dama de Ferro Academia"><strong>DAMA DE FERRO</strong><span>ACADEMIA · ORQUESTRA FIT</span></header><main><h1>${escapePrintText(workout.name)}</h1><p class="student"><span>${escapePrintText(audienceLabel)}</span><b>${escapePrintText(workout.studentName)}</b></p><table><thead><tr><th>Exercício</th><th>${escapePrintText(primaryMetrics.sets)}</th><th>${escapePrintText(primaryMetrics.reps)}</th><th>${escapePrintText(primaryMetrics.load)}</th><th>${escapePrintText(primaryMetrics.rest)}</th></tr></thead><tbody>${exerciseRows}</tbody></table></main><footer>Impresso em ${escapePrintText(printedAt)} · Tempos, velocidades e cargas podem ser ajustados pelo professor.</footer><button class="no-print" onclick="window.print()">Imprimir treino</button></body></html>`);
   printWindow.document.close();
   printWindow.focus();
   window.setTimeout(() => printWindow.print(), 250);
@@ -1968,7 +1968,7 @@ const workoutLevelOrder: WorkoutLevel[] = ["Fundação", "Evolução", "Performa
 type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; scheduleDay?: WorkoutTemplateDay; focusLabel?: string; targetStudentId?: string | null; targetStudentName?: string | null; seedKey?: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; instructorId?: string | null; date: string; time: string; capacity: number; active: boolean; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
 type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
-type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string };
+type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; calories?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
 
@@ -1976,6 +1976,15 @@ function workoutExecutionTime(value: WorkoutExecution["completedAt"]) {
   if (value instanceof Date) return value.getTime();
   if (typeof value === "string") return new Date(value).getTime();
   return value?.toDate?.().getTime() ?? 0;
+}
+
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function dateKeyFromValue(value: unknown) {
+  const date = firestoreDate(value);
+  return date ? localDateKey(date) : null;
 }
 
 function formatWorkoutDuration(seconds: number) {
@@ -3709,6 +3718,41 @@ function StudentMessagesPanel({ messages, body, sending, onBodyChange, onSend }:
   return <section className="student-profile-messages"><div className="student-profile-message-heading"><span><MessageCircle /> MENSAGEM INTERNA</span><small>{messages.length} enviada(s)</small></div>{messages.length > 0 && <div className="student-message-history">{messages.slice(0, 2).map((message) => <div key={message.id}><strong>{message.senderName}</strong><p>{message.body}</p></div>)}</div>}<div className="student-message-compose"><textarea value={body} onChange={(event) => onBodyChange(event.target.value)} placeholder="Escreva uma orientação ou lembrete para o aluno..." /><button type="button" onClick={onSend} disabled={sending || !body.trim()}>{sending ? "Enviando..." : "Enviar mensagem"}</button></div></section>;
 }
 
+function StudentFrequency({ attendance, executions }: { attendance: AttendanceRecord[]; executions: WorkoutExecution[] }) {
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const visitDates = useMemo(() => new Set([
+    ...attendance.filter((item) => item.status !== "absent").map((item) => item.date).filter(Boolean),
+    ...executions.map((item) => dateKeyFromValue(item.completedAt)).filter((item): item is string => Boolean(item)),
+  ]), [attendance, executions]);
+  const absenceDates = useMemo(() => new Set(attendance.filter((item) => item.status === "absent").map((item) => item.date).filter(Boolean)), [attendance]);
+  const year = calendarMonth.getFullYear();
+  const month = calendarMonth.getMonth();
+  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = Array.from({ length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 }, (_, index) => {
+    const dayNumber = index - firstWeekday + 1;
+    return dayNumber >= 1 && dayNumber <= daysInMonth ? new Date(year, month, dayNumber) : null;
+  });
+  const visitsThisMonth = [...visitDates].filter((date) => date.startsWith(`${year}-${String(month + 1).padStart(2, "0")}-`)).length;
+  return <section className="student-frequency-panel">
+    <header><div><span>FREQUÊNCIA</span><h3>Presença do aluno</h3><p>Visitas registradas por treino concluído ou presença em aula.</p></div><strong>{visitDates.size} visitas</strong></header>
+    <div className="student-frequency-toolbar"><button type="button" aria-label="Mês anterior" onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}><ChevronLeft /></button><strong>{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(calendarMonth)}</strong><button type="button" aria-label="Próximo mês" onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}><ChevronRight /></button><span>{visitsThisMonth} no mês</span></div>
+    <div className="student-frequency-weekdays" aria-hidden="true">{["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"].map((day) => <span key={day}>{day}</span>)}</div>
+    <div className="student-frequency-grid">{cells.map((day, index) => {
+      if (!day) return <i className="student-frequency-empty" key={`empty-${index}`} aria-hidden="true" />;
+      const key = localDateKey(day);
+      const visited = visitDates.has(key);
+      const absent = absenceDates.has(key);
+      const today = key === todayIso();
+      return <span className={`${visited ? "visited " : ""}${absent ? "absent " : ""}${today ? "today" : ""}`} key={key} title={visited ? "Visita registrada" : absent ? "Falta registrada" : "Sem registro"}><b>{day.getDate()}</b>{(visited || absent) && <i />}</span>;
+    })}</div>
+    <div className="student-frequency-legend"><span><i className="is-visited" /> Visita registrada</span><span><i className="is-absent" /> Falta registrada</span><span><i className="is-empty" /> Sem registro</span></div>
+  </section>;
+}
+
 function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = "", initialStudentId = "" }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void; initialSearch?: string; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
@@ -3730,6 +3774,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [studentCharges, setStudentCharges] = useState<MonthlyCharge[]>([]);
   const [financialOpen, setFinancialOpen] = useState(false);
   const [studentExecutions, setStudentExecutions] = useState<WorkoutExecution[]>([]);
+  const [studentAttendance, setStudentAttendance] = useState<AttendanceRecord[]>([]);
   const [studentMessages, setStudentMessages] = useState<InternalMessage[]>([]);
   const [messageBody, setMessageBody] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -3793,13 +3838,14 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   useEffect(() => {
     if (!db || !selectedId) {
       if (!selectedId) {
-        setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentMessages([]); setFinancialOpen(false);
+        setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentAttendance([]); setStudentMessages([]); setFinancialOpen(false);
         return;
       }
       setStudentWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === selectedId && item.status === "published"));
       setStudentAssessments(readLocalCollection<AssessmentRecord>(access.academyId, "assessments").filter((item) => item.studentId === selectedId).sort((a, b) => b.date.localeCompare(a.date)));
       setStudentCharges(access.role === "admin" ? readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === selectedId) : []);
       setStudentExecutions([]);
+      setStudentAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance").filter((item) => item.studentId === selectedId));
       setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
       return;
     }
@@ -3815,17 +3861,24 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const unsubscribeExecutions = onSnapshot(query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)));
     });
+    const unsubscribeAttendance = onSnapshot(query(collection(db, "academies", access.academyId, "attendance"), where("studentId", "==", selectedId)), (snapshot) => {
+      setStudentAttendance(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AttendanceRecord, "id">) })).sort((a, b) => b.date.localeCompare(a.date)));
+    });
     const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
     });
-    return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeMessages(); };
+    return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeAttendance(); unsubscribeMessages(); };
   }, [access.academyId, access.role, selectedId]);
 
   useEffect(() => {
     if (db || !selectedId) return;
-    const syncLocalMessages = () => setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
-    window.addEventListener("orquestra-fit:collection-updated", syncLocalMessages);
-    return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalMessages);
+    const syncLocalStudentDetails = () => {
+      setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
+      setStudentAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance").filter((item) => item.studentId === selectedId));
+      setStudentExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions").filter((item) => item.studentId === selectedId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)));
+    };
+    window.addEventListener("orquestra-fit:collection-updated", syncLocalStudentDetails);
+    return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalStudentDetails);
   }, [access.academyId, selectedId]);
 
   async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
@@ -3965,6 +4018,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
           {selectedStudent ? <>
             <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
             <div className="student-profile-overview"><div><small>STATUS DE ACESSO</small><strong>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</strong></div><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>ÚLTIMO TREINO</small><strong>{studentExecutions[0]?.workoutName ?? "Sem registro"}</strong></div></div>
+            <StudentFrequency attendance={studentAttendance} executions={studentExecutions} />
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{workout.name}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
             <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}><Dumbbell size={15} /> Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}><Activity size={15} /> Nova avaliação</button>{access.role === "admin" && <button type="button" className={financialOpen ? "is-open" : ""} onClick={() => setFinancialOpen((current) => !current)}><WalletCards size={15} /> {financialOpen ? "Ocultar financeiro" : "Ver financeiro"}</button>}</div>
             {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
@@ -4420,6 +4474,8 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const [newMemberRole, setNewMemberRole] = useState<"student" | "teacher" | null>(null);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
   const [dashboardCharges, setDashboardCharges] = useState<MonthlyCharge[]>([]);
+  const [dashboardAttendance, setDashboardAttendance] = useState<AttendanceRecord[]>([]);
+  const [dashboardExecutions, setDashboardExecutions] = useState<WorkoutExecution[]>([]);
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [metricsVisible, setMetricsVisible] = useState(true);
 
@@ -4428,6 +4484,8 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
       const syncLocalDashboard = () => {
         setRegisteredStudents(readLocalCollection<RegisteredStudent>(access.academyId, "students"));
         setDashboardCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges"));
+        setDashboardAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance"));
+        setDashboardExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions"));
       };
       syncLocalDashboard();
       window.addEventListener("orquestra-fit:collection-updated", syncLocalDashboard);
@@ -4446,16 +4504,34 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
         return { id: charge.id, ...data, amount: Number(data.amount ?? 0), status };
       }));
     }, (error) => console.error("Não foi possível atualizar o resumo financeiro.", error));
-    return () => { unsubscribeStudents(); unsubscribeCharges(); };
+    const unsubscribeAttendance = onSnapshot(collection(db, "academies", access.academyId, "attendance"), (snapshot) => {
+      setDashboardAttendance(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AttendanceRecord, "id">) })));
+    }, (error) => console.error("Não foi possível atualizar a frequência.", error));
+    const unsubscribeExecutions = onSnapshot(collection(db, "academies", access.academyId, "workoutExecutions"), (snapshot) => {
+      setDashboardExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })));
+    }, (error) => console.error("Não foi possível atualizar os treinos concluídos.", error));
+    return () => { unsubscribeStudents(); unsubscribeCharges(); unsubscribeAttendance(); unsubscribeExecutions(); };
   }, [access.academyId]);
 
+  const visitDatesByStudent = useMemo(() => {
+    const dates = new Map<string, Set<string>>();
+    const add = (studentId: string, date: string | null) => {
+      if (!studentId || !date) return;
+      const current = dates.get(studentId) ?? new Set<string>();
+      current.add(date);
+      dates.set(studentId, current);
+    };
+    dashboardAttendance.filter((item) => item.status !== "absent").forEach((item) => add(item.studentId, item.date || null));
+    dashboardExecutions.forEach((item) => add(item.studentId, dateKeyFromValue(item.completedAt)));
+    return dates;
+  }, [dashboardAttendance, dashboardExecutions]);
   const students = registeredStudents.map((student) => ({
       id: student.id,
       initials: student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
       name: student.name,
       plan: student.plan,
       status: student.active === false ? "Inativo" : "Ativo",
-      visits: "—",
+      visits: String(new Set([...(visitDatesByStudent.get(student.id) ?? new Set<string>()), ...(student.userId ? [...(visitDatesByStudent.get(student.userId) ?? new Set<string>())] : [])]).size),
       next: "A definir",
     }));
   const visibleStudents = students.filter((student) => `${student.name} ${student.plan}`.toLowerCase().includes(dashboardSearch.trim().toLowerCase()));
@@ -4464,6 +4540,8 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const dashboardOverdue = dashboardCharges.filter((charge) => chargeViewStatus(charge) === "overdue");
   const dashboardOpen = dashboardCharges.filter((charge) => charge.status !== "paid").reduce((total, charge) => total + charge.amount, 0);
   const dashboardPercent = dashboardTotal ? Math.round((dashboardReceived / dashboardTotal) * 100) : 0;
+  const resolveStudentId = (studentId: string) => registeredStudents.find((student) => student.id === studentId || student.userId === studentId)?.id ?? studentId;
+  const todayVisits = new Set([...dashboardAttendance.filter((item) => item.status !== "absent" && item.date === todayIso()).map((item) => resolveStudentId(item.studentId)), ...dashboardExecutions.filter((item) => dateKeyFromValue(item.completedAt) === todayIso()).map((item) => resolveStudentId(item.studentId))]);
   const today = new Date();
   const birthdayStudents = registeredStudents.filter((student) => { const parts = student.birthDate?.split("-").map(Number); return parts?.[1] === today.getMonth() + 1 && parts?.[2] === today.getDate(); });
   const money = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
@@ -4479,7 +4557,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
           <MetricCard icon={Users} label="Alunos ativos" value={metricsVisible ? String(registeredStudents.filter((student) => student.active !== false).length) : "••••"} note={metricsVisible ? `${registeredStudents.length} cadastro${registeredStudents.length === 1 ? "" : "s"} total` : "Valor protegido"} />
           <MetricCard icon={CircleDollarSign} label="Receita prevista" value={metricsVisible ? money(dashboardTotal) : "R$ ••••"} note={metricsVisible ? `${dashboardPercent}% já recebido` : "Valor protegido"} />
           <MetricCard icon={Banknote} label="Em aberto" value={metricsVisible ? money(dashboardOpen) : "R$ ••••"} note={metricsVisible ? `${dashboardCharges.filter((charge) => charge.status !== "paid").length} mensalidades` : "Valor protegido"} warning={dashboardOpen > 0} />
-          <MetricCard icon={Activity} label="Frequência hoje" value={metricsVisible ? "—" : "••••"} note={metricsVisible ? "Sem registros ainda" : "Valor protegido"} />
+          <MetricCard icon={Activity} label="Frequência hoje" value={metricsVisible ? String(todayVisits.size) : "••••"} note={metricsVisible ? "alunos com visita registrada" : "Valor protegido"} />
         </section>
         {birthdayStudents.length > 0 && <section className="birthday-alert"><Sparkles /><div><small>ANIVERSARIANTE DO DIA</small><strong>{birthdayStudents.map((student) => student.name).join(", ")}</strong><span>{birthdayStudents.length === 1 ? "Hoje é aniversário deste aluno." : "Hoje é aniversário destes alunos."}</span></div><button type="button" onClick={() => navigateWorkspace("Alunos", birthdayStudents[0].id)}>Abrir cadastro <ChevronRight /></button></section>}
         <section className="operations-grid">
@@ -4512,7 +4590,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
         </section>
         <section className="admin-lower">
           <article><span>AÇÕES RÁPIDAS</span><h3>O que precisa acontecer hoje</h3><div><button onClick={() => setNewMemberRole("teacher")}><UserRoundCheck />Cadastrar professor</button><button onClick={() => navigateWorkspace("Treinos")}><ClipboardList />Montar ficha de treino</button><button onClick={() => navigateWorkspace("Aulas e reservas")}><CalendarDays />Criar aula</button></div></article>
-          <article className="occupancy"><div><span>OCUPAÇÃO AGORA</span><strong>Sem registros</strong></div><div className="directory-empty"><p>A frequência da academia aparecerá aqui quando houver acessos registrados.</p></div></article>
+          <article className="occupancy"><div><span>OCUPAÇÃO HOJE</span><strong>{todayVisits.size} {todayVisits.size === 1 ? "aluno" : "alunos"}</strong></div><div className="directory-empty"><p>{todayVisits.size > 0 ? "Visitas registradas em treinos concluídos ou aulas com presença." : "A frequência aparecerá aqui quando houver acessos registrados."}</p></div></article>
         </section>
       </div>
       {newMemberRole && <NewMemberModal role={newMemberRole} onClose={() => setNewMemberRole(null)} onFeedback={feedback} />}
