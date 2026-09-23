@@ -2762,3 +2762,66 @@ input, select, textarea { border-radius: 10px; }
   .report-lines { grid-template-columns: repeat(5, 1fr); }
   .report-lines p, .report-lines .report-total { border: 1px solid #bbb; background: #fff !important; }
 }
+
+/* Configurações organizadas por cartões, sem transbordar em telas estreitas. */
+.permissions-panel {
+  width: min(820px, 100%);
+  overflow-x: hidden;
+}
+.permissions-panel > header {
+  margin-bottom: 16px;
+}
+.permissions-panel .settings-section + .settings-section {
+  margin-top: 12px;
+  border-top: 0;
+}
+.permissions-panel .settings-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(37, 27, 19, .72), rgba(14, 17, 18, .95));
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .14);
+}
+.permissions-panel .settings-card .permission-roles {
+  padding: 0;
+}
+.permissions-panel .settings-card .settings-section-heading {
+  margin-bottom: 14px;
+}
+.permissions-panel .settings-card .settings-section-heading h3 {
+  margin-top: 4px;
+}
+.developer-console-launch > .detail-save {
+  width: 100%;
+  margin: 0;
+  min-width: 0;
+}
+.settings-access-section .invite-box,
+.media-settings-section .gif-library-importer,
+.settings-announcement-section .announcement-composer {
+  min-width: 0;
+  max-width: 100%;
+}
+.exercise-field-unit {
+  color: var(--bronze-300);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .permissions-backdrop { padding: 10px; }
+  .permissions-panel { width: 100%; max-height: calc(100vh - 20px); padding: 14px; }
+  .permissions-panel > header { gap: 12px; padding-bottom: 16px; }
+  .permissions-panel h2 { font-size: 24px; }
+  .permissions-panel header p { max-width: 34ch; }
+  .permissions-panel .settings-card { padding: 14px; }
+  .permissions-panel .settings-section-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .permissions-panel .permission-role { min-width: 0; }
+  .permissions-panel .invite-box { grid-template-columns: minmax(0, 1fr); }
+  .permissions-panel .invite-box > button { width: 100%; min-width: 0; }
+  .permissions-panel .generated-code { min-width: 0; flex-wrap: wrap; }
+  .permissions-panel .generated-code code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .academy-hours-days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

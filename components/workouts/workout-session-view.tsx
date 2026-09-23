@@ -14,6 +14,7 @@ export type WorkoutSessionExercise = {
   videoUrl?: string;
   equipmentName?: string;
   instructions?: string;
+  metricMode?: "strength" | "cardio" | "timed";
 };
 
 type Props = {
@@ -82,7 +83,11 @@ export function WorkoutSessionView(props: Props) {
         const isResting = restTimer?.exerciseIndex === index;
         const instructions = exercise.instructions?.trim();
         const hasInstructions = instructions && instructions !== "Orientação objetiva será adicionada pelo professor.";
-        const timedReps = /\b(s|seg|segundos|min|minutos)\b/i.test(exercise.reps);
+        const metricLabels = exercise.metricMode === "cardio"
+          ? { sets: "Blocos", reps: "Tempo", load: "Velocidade", repsUnit: "min", loadUnit: "km/h" }
+          : exercise.metricMode === "timed"
+            ? { sets: "Séries", reps: "Tempo", load: "Intensidade", repsUnit: "s", loadUnit: "" }
+            : { sets: "Séries", reps: "Repetições", load: "Carga", repsUnit: "rep.", loadUnit: "kg" };
         const panelId = `workout-exercise-${index}`;
         if (isComplete && !isOpen) return <article className="workout-exercise is-complete is-collapsed" key={`${index}-${exercise.name}`}>
           <button className="workout-exercise-complete-summary" type="button" aria-expanded="false" aria-controls={panelId} onClick={() => props.onOpen(index)}>
@@ -95,7 +100,7 @@ export function WorkoutSessionView(props: Props) {
           <button className="workout-exercise-toggle" type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => props.onOpen(isOpen ? null : index)}>
             <span className="workout-exercise-meta"><span className="workout-exercise-number">{isComplete ? <Check size={15} /> : String(index + 1).padStart(2, "0")}</span><span>{exercise.group}</span><span className="workout-exercise-state">{isComplete ? "Concluído" : completed ? `${completed}/${exercise.sets} feitas` : isOpen ? "Em foco" : ""}</span></span>
             <span className="workout-exercise-name">{exercise.name}</span>
-            <span className="workout-exercise-bottom"><span className="workout-exercise-prescription">{exercise.sets} séries <span aria-hidden="true">×</span> {exercise.reps}{!timedReps && " rep."}</span><span className="workout-exercise-action">{isOpen ? "Recolher" : isComplete ? "Rever" : completed ? "Continuar" : "Iniciar"}{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span></span>
+            <span className="workout-exercise-bottom"><span className="workout-exercise-prescription">{exercise.sets} {metricLabels.sets.toLocaleLowerCase("pt-BR")} <span aria-hidden="true">×</span> {exercise.reps} {metricLabels.repsUnit}</span><span className="workout-exercise-action">{isOpen ? "Recolher" : isComplete ? "Rever" : completed ? "Continuar" : "Iniciar"}{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span></span>
           </button>
           {isOpen && <div className="workout-exercise-content" id={panelId}>
             {exercise.gifUrl && <MovementDemo src={exercise.gifUrl} name={exercise.name} />}
@@ -106,14 +111,14 @@ export function WorkoutSessionView(props: Props) {
               {exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer"><Play size={16} />Ver vídeo</a>}
             </div>
             <div className="workout-set-heading"><h3>Suas séries</h3><span>{completed}/{exercise.sets} feitas</span></div>
-            <div className="workout-set-labels" aria-hidden="true"><span>Série</span><span>Carga (kg)</span><span>{timedReps ? "Duração" : "Repetições"}</span><span>Feito</span></div>
+            <div className="workout-set-labels" aria-hidden="true"><span>Série</span><span>{metricLabels.load}{metricLabels.loadUnit ? ` (${metricLabels.loadUnit})` : ""}</span><span>{metricLabels.reps}{metricLabels.repsUnit ? ` (${metricLabels.repsUnit})` : ""}</span><span>Feito</span></div>
             {Array.from({ length: exercise.sets }).map((_, set) => {
               const id = `${index}-${set}`;
               const done = completedSets.includes(id);
               return <div className={`workout-set${done ? " is-done" : ""}`} key={id}>
                 <span>{String(set + 1).padStart(2, "0")}</span>
-                <input aria-label={`Carga da série ${set + 1} de ${exercise.name}`} inputMode="decimal" value={props.setValues[id]?.load ?? exercise.load} onChange={(event) => props.onValueChange(id, "load", event.target.value, exercise)} />
-                <input aria-label={`Repetições da série ${set + 1} de ${exercise.name}`} inputMode="numeric" value={props.setValues[id]?.reps ?? exercise.reps} onChange={(event) => props.onValueChange(id, "reps", event.target.value, exercise)} />
+                <input aria-label={`${metricLabels.load} da série ${set + 1} de ${exercise.name}`} inputMode={exercise.metricMode === "cardio" ? "decimal" : "decimal"} value={props.setValues[id]?.load ?? exercise.load} onChange={(event) => props.onValueChange(id, "load", event.target.value, exercise)} />
+                <input aria-label={`${metricLabels.reps} da série ${set + 1} de ${exercise.name}`} inputMode={exercise.metricMode === "cardio" ? "decimal" : "numeric"} value={props.setValues[id]?.reps ?? exercise.reps} onChange={(event) => props.onValueChange(id, "reps", event.target.value, exercise)} />
                 <button type="button" aria-pressed={done} aria-label={`${done ? "Desmarcar" : "Concluir"} série ${set + 1} de ${exercise.name}`} onClick={() => props.onToggleSet(index, set)}><Check size={20} /></button>
               </div>;
             })}
