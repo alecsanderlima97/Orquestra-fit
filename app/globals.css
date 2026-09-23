@@ -974,6 +974,10 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .workout-library-card.is-next { border-color: #30383b; background: #111416; }
 .workout-library-card.is-in-progress { border-color: #e1b83d; background: linear-gradient(100deg, rgba(88, 69, 18, .32), #111416 68%); box-shadow: 0 0 0 1px rgba(225,184,61,.2), 0 8px 22px rgba(225,184,61,.08); }
 .workout-library-card.is-completed { border-color: #4f9b67; background: linear-gradient(100deg, rgba(31, 75, 49, .42), #111816 68%); box-shadow: 0 0 0 1px rgba(93,183,116,.14); }
+.workout-library-card.is-locked { border-color: #30383a; background: linear-gradient(100deg, rgba(38, 44, 45, .45), #111416 68%); opacity: .78; }
+.workout-library-card.is-locked .workout-open { cursor: not-allowed; }
+.workout-library-card.is-locked .workout-state-text { color: #a7afb0 !important; }
+.workout-library-card.is-locked .workout-index, .workout-library-card.is-locked .play-button { color: #879092; }
 .workout-open { min-height: 94px; width: 100%; border: 0; background: transparent; color: #fff; display: grid; grid-template-columns: 39px 1fr 40px; align-items: center; gap: 13px; padding: 14px; text-align: left; }
 .workout-open > div { display: grid; gap: 3px; }
 .workout-card-main { min-width: 0; }
@@ -2705,6 +2709,7 @@ input, select, textarea { border-radius: 10px; }
 .workout-state-legend i { display: block; width: 8px; height: 8px; border-radius: 50%; background: #3b4548; box-shadow: 0 0 0 2px rgba(59,69,72,.2); }
 .workout-state-legend .legend-in-progress i { background: #e1b83d; box-shadow: 0 0 0 2px rgba(225,184,61,.18); }
 .workout-state-legend .legend-completed i { background: #62b77a; box-shadow: 0 0 0 2px rgba(98,183,122,.18); }
+.workout-state-legend .legend-locked { color: #a7afb0; }
 
 /* Estados dos treinos precisam vencer o tema visual para permanecerem legíveis. */
 [data-theme="ferro"] .workout-library-card.is-in-progress,

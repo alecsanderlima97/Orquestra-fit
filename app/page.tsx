@@ -8,7 +8,7 @@ import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage
 import {
   Activity, ArrowLeft, ArrowRight, ArrowUp, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
-  House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Printer, Search, Settings,
+  House, LayoutDashboard, LockKeyhole, Menu, MoreHorizontal, Palette, Play, Plus, Printer, Search, Settings,
   Eye, EyeOff, PersonStanding, QrCode, Share2, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, Package, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
@@ -626,6 +626,7 @@ export default function Home() {
   }
 
   function startStudentWorkout(workout?: WorkoutRecord) {
+    if (workout?.isLocked) return;
     setActiveWorkout(workout ?? null);
     setActiveWorkoutId(workout?.id ?? null);
     setCompletedSets([]);
@@ -783,7 +784,9 @@ function useStudentPublishedWorkouts(enabled = true) {
         const studentName = accountName(access.user.displayName, access.user.email);
         const assigned = readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => (item.studentId === studentId || item.studentRecordId === studentId || item.studentUserId === access.userId) && item.status === "published");
         const availableTemplates = readLocalCollection<WorkoutTemplateRecord>(access.academyId, "workoutTemplates").filter((item) => (item.audience ?? "Geral") === "Geral" || (item.audience === "Personalizado" && item.targetStudentId === studentId)).map((item) => normalizeTemplateForStudent(item, studentId, studentName));
-        setWorkouts([...assigned, ...availableTemplates]);
+        const unlockedTemplateIds = new Set(assigned.map((item) => item.sourceTemplateId).filter((item): item is string => Boolean(item)));
+        const visibleTemplates = availableTemplates.filter((item) => item.audience !== "Geral" || !unlockedTemplateIds.has(item.sourceTemplateId ?? ""));
+        setWorkouts([...assigned, ...visibleTemplates].map((item) => item.audience === "Geral" ? { ...item, isLocked: !item.sourceTemplateId || !unlockedTemplateIds.has(item.sourceTemplateId) } : item));
         setLoading(false);
       };
       syncLocalWorkouts();
@@ -806,7 +809,9 @@ function useStudentPublishedWorkouts(enabled = true) {
     let personalizedWorkouts: WorkoutRecord[] = [];
     const publishWorkouts = () => {
       const uniqueAssigned = [...assignedWorkouts, ...assignedWorkoutsByUser].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index);
-      setWorkouts([...uniqueAssigned, ...generalWorkouts, ...personalizedWorkouts].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index));
+      const unlockedTemplateIds = new Set(uniqueAssigned.map((item) => item.sourceTemplateId).filter((item): item is string => Boolean(item)));
+      const visibleGeneralWorkouts = generalWorkouts.filter((item) => !unlockedTemplateIds.has(item.sourceTemplateId ?? ""));
+      setWorkouts([...uniqueAssigned, ...visibleGeneralWorkouts, ...personalizedWorkouts].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index).map((item) => item.audience === "Geral" ? { ...item, isLocked: !item.sourceTemplateId || !unlockedTemplateIds.has(item.sourceTemplateId) } : item));
     };
     const unsubscribeWorkouts = onSnapshot(workoutsQuery, (snapshot) => {
       assignedWorkouts = snapshot.docs.filter((workout) => !previewingStudent || [targetStudentId, previewStudent?.id].includes(workout.data().studentId) || [targetStudentId, previewStudent?.id].includes(workout.data().studentUserId) || [targetStudentId, previewStudent?.id].includes(workout.data().studentRecordId)).map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">));
@@ -969,7 +974,7 @@ function printWorkoutTemplate(template: WorkoutTemplateRecord) {
 function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (workout?: WorkoutRecord) => void; onEvolution: () => void; onViewWorkouts: () => void }) {
   const access = useAccess();
   const { workouts, loading } = useStudentPublishedWorkouts();
-  const workout = workouts[0];
+  const workout = workouts.find((item) => !item.isLocked);
   const exerciseCount = workout?.exerciseDetails?.length || workout?.exerciseIds.length || 0;
   const totalSets = workout?.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) ?? 0;
   return (
@@ -983,12 +988,12 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
         <div className="workout-copy">
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
           <h2>{loading ? "Carregando seu treino" : workout?.name ?? "Nenhum treino publicado"}</h2>
-          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? `Ficha publicada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}. ${workout.recommendedDay && workout.recommendedDay !== "Flexível" ? `Indicado para ${workout.recommendedDay.toLocaleLowerCase("pt-BR")}, mas você pode escolher qualquer treino.` : "Você pode escolher qualquer treino disponível."}` : "Seu professor ainda não publicou um treino."}</p>
+          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? `Ficha liberada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}. ${workout.recommendedDay && workout.recommendedDay !== "Flexível" ? `Indicada para ${workout.recommendedDay.toLocaleLowerCase("pt-BR")}, mas você pode escolher qualquer treino liberado.` : "Você pode escolher qualquer treino liberado."}` : "Seu professor ainda não liberou um treino."}</p>
           <div className="workout-meta">
             <span><Clock3 size={16} /> {workout ? `${totalSets || "—"} séries` : "Aguardando"}</span>
             <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Sem exercícios"}</span>
           </div>
-          <div className="student-workout-actions"><button disabled={loading || !workout} onClick={() => workout && onStart(workout)}>{loading ? "Carregando..." : workout ? "Iniciar treino" : "Treino indisponível"} <ArrowRight size={19} /></button><button className="workout-secondary-action" type="button" onClick={onViewWorkouts}><Dumbbell size={17} /> Ver treinos</button></div>
+          <div className="student-workout-actions"><button disabled={loading || !workout} onClick={() => workout && onStart(workout)}>{loading ? "Carregando..." : workout ? "Iniciar treino" : "Aguardando liberação"} <ArrowRight size={19} /></button><button className="workout-secondary-action" type="button" onClick={onViewWorkouts}><Dumbbell size={17} /> Ver treinos</button></div>
         </div>
         <div className="workout-art" aria-hidden="true">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1143,6 +1148,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
         <span className="legend-in-progress"><i /> Em andamento</span>
         <span className="legend-completed"><i /> Concluído</span>
         <span className="legend-next"><i /> Próximo</span>
+        <span className="legend-locked"><LockKeyhole size={11} /> Liberado pelo professor</span>
       </div>
       <div className="workout-list">
         {visibleWorkouts.length > 0 ? visibleWorkouts.map((workout, index) => (
@@ -1150,10 +1156,11 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const history = workoutHistory(workout.id);
             const latest = history[0];
             const previous = history[1];
-            const isInProgress = activeWorkoutId === workout.id;
-            const isCompleted = Boolean(latest) && !isInProgress;
-            const stateClass = isInProgress ? "is-in-progress" : isCompleted ? "is-completed" : "is-next";
-            const stateLabel = isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
+            const isLocked = Boolean(workout.isLocked);
+            const isInProgress = !isLocked && activeWorkoutId === workout.id;
+            const isCompleted = !isLocked && Boolean(latest) && !isInProgress;
+            const stateClass = isLocked ? "is-locked" : isInProgress ? "is-in-progress" : isCompleted ? "is-completed" : "is-next";
+            const stateLabel = isLocked ? "NÍVEL BLOQUEADO" : isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
             const workoutCode = String.fromCharCode(65 + (index % 26));
             const recommendedDay = workout.recommendedDay && workout.recommendedDay !== "Flexível" ? workout.recommendedDay : null;
             const level = workout.level ?? "Fundação";
@@ -1162,7 +1169,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const durationDelta = previous ? latest.durationSeconds - previous.durationSeconds : null;
             const stars = latest ? previous ? Math.max(1, Math.min(5, 3 + (durationDelta !== null && durationDelta <= 0 ? 1 : 0) + ((latest.maxLoad ?? 0) > (previous.maxLoad ?? 0) || (latest.maxReps ?? 0) > (previous.maxReps ?? 0) ? 1 : 0))) : 1 : 0;
             return <article key={workout.id} className={`workout-library-card ${stateClass}`}>
-            <button className="workout-open" type="button" onClick={() => onStart(workout)}><span className="workout-index">{isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {recommendedDay ?? "Flexível"}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios{latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}</p></div><span className="play-button">{isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
+            <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {recommendedDay ?? "Flexível"}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{workout.name}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             <button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={16} /> Imprimir</button>
           </article>;
@@ -1899,7 +1906,7 @@ function defaultExerciseDetails(exercise: ExerciseMetricSource) {
   const labels = exerciseMetricLabels(exercise);
   return labels.mode === "cardio" ? { sets: "1", reps: "20", load: "6", rest: "60" } : labels.mode === "timed" ? { sets: "3", reps: "30", load: "0", rest: "60" } : { sets: "3", reps: "10", load: "0", rest: "60" };
 }
-type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; studentRecordId?: string | null; studentUserId?: string | null; recommendedDay?: WorkoutTemplateDay; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; focusLabel?: string; sourceTemplateId?: string | null; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
+type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; studentRecordId?: string | null; studentUserId?: string | null; recommendedDay?: WorkoutTemplateDay; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; focusLabel?: string; sourceTemplateId?: string | null; isLocked?: boolean; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
 type WorkoutLevel = "Fundação" | "Evolução" | "Performance" | "Elite";
 type WorkoutTemplateAudience = "Geral" | "Personalizado";
 const workoutTemplateDayOptions = ["Flexível", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"] as const;
