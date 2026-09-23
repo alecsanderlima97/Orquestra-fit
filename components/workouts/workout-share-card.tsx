@@ -134,7 +134,8 @@ function metric(context: CanvasRenderingContext2D, x: number, y: number, width: 
 
 function drawOrquestraFooterLogo(context: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number) {
   context.save();
-  context.shadowColor = "rgba(81, 171, 255, .34)";
+  context.globalAlpha = .58;
+  context.shadowColor = "rgba(81, 171, 255, .20)";
   context.shadowBlur = 18;
   context.beginPath();
   context.roundRect(x, y, width, height, 12);
@@ -143,12 +144,31 @@ function drawOrquestraFooterLogo(context: CanvasRenderingContext2D, image: HTMLI
   context.drawImage(image, 18, 370, 988, 270, x, y, width, height);
   context.restore();
   context.save();
+  context.globalAlpha = .38;
   context.strokeStyle = "rgba(109, 189, 255, .55)";
   context.lineWidth = 2;
   context.beginPath();
   context.roundRect(x, y, width, height, 12);
   context.stroke();
   context.restore();
+}
+
+function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && context.measureText(candidate).width > maxWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 async function renderCard(canvas: HTMLCanvasElement, options: {
@@ -189,20 +209,20 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   if (damaLogo) {
     context.save();
     context.beginPath();
-    context.roundRect(70, 70, 78, 78, 18);
+    context.roundRect(62, 62, 94, 94, 20);
     context.clip();
-    context.drawImage(damaLogo, 70, 70, 78, 78);
+    context.drawImage(damaLogo, 62, 62, 94, 94);
     context.restore();
   }
   context.fillStyle = accent;
-  context.fillRect(165, 70, 8, 102);
+  context.fillRect(174, 62, 8, 108);
   context.fillStyle = "#ffffff";
   context.font = "800 40px Arial";
-  context.fillText("DAMA DE FERRO", 195, 112);
+  context.fillText("DAMA DE FERRO", 204, 112);
   context.fillStyle = accent;
   context.font = "700 22px Arial";
   context.letterSpacing = "5px";
-  context.fillText("ACADEMIA", 198, 151);
+  context.fillText("ACADEMIA", 207, 151);
   context.letterSpacing = "0px";
 
   const contentTop = options.format === "story" ? 920 : 360;
@@ -210,16 +230,23 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   context.font = "800 25px Arial";
   context.fillText("TREINO CONCLUÍDO", 70, contentTop);
   context.fillStyle = "#ffffff";
-  context.font = "800 70px Arial";
-  const title = options.workoutName.length > 23 ? `${options.workoutName.slice(0, 22)}…` : options.workoutName;
-  context.fillText(title, 70, contentTop + 88, 940);
+  let titleFontSize = 54;
+  context.font = `800 ${titleFontSize}px Arial`;
+  while (titleFontSize > 34 && context.measureText(options.workoutName).width > 940) {
+    titleFontSize -= 2;
+    context.font = `800 ${titleFontSize}px Arial`;
+  }
+  const titleLines = wrapCanvasText(context, options.workoutName, 940);
+  const titleLineHeight = Math.round(titleFontSize * 1.12);
+  titleLines.forEach((line, index) => context.fillText(line, 70, contentTop + 88 + index * titleLineHeight, 940));
+  const titleBottomOffset = 88 + (titleLines.length - 1) * titleLineHeight;
   if (options.showName) {
     context.fillStyle = "rgba(255, 255, 255, .78)";
     context.font = "500 31px Arial";
-    context.fillText(options.studentName, 70, contentTop + 142, 920);
+    context.fillText(options.studentName, 70, contentTop + titleBottomOffset + 54, 920);
   }
 
-  const metricTop = contentTop + 205;
+  const metricTop = contentTop + Math.max(205, titleBottomOffset + (options.showName ? 130 : 110));
   metric(context, 70, metricTop, 450, "Tempo", durationLabel(options.summary.durationSeconds), "clock");
   metric(context, 560, metricTop, 450, "Séries", `${options.summary.completedSets}/${options.summary.totalSets}`, "sets");
   if (options.showPerformance) {
@@ -233,14 +260,16 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   context.fillText(new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date()), 70, footerY);
   context.textAlign = "right";
   if (orquestraLogo) {
-    drawOrquestraFooterLogo(context, orquestraLogo, width - 300, footerY - 57, 230, 60);
+    drawOrquestraFooterLogo(context, orquestraLogo, width - 255, footerY - 49, 185, 50);
   } else {
+    context.globalAlpha = .58;
     context.fillStyle = "#6dbdff";
     context.font = "700 21px Arial";
     context.fillText("orquestra.cs", width - 70, footerY - 7);
     context.fillStyle = "rgba(255, 255, 255, .42)";
     context.font = "500 16px Arial";
     context.fillText("tecnologia", width - 70, footerY + 18);
+    context.globalAlpha = 1;
   }
   context.textAlign = "left";
 }
