@@ -770,6 +770,8 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .published-sent-list .published-list { padding-top: 0; }
 @media (max-width: 640px) {
   .published-list { padding: 4px 14px 16px; }
+  .published-list > .published-template-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: start; }
+  .published-list > .published-template-row .published-item-actions { width: 100%; }
   .published-template-group { margin: 9px 0 14px; border-radius: 11px; }
   .published-template-group > header { padding: 12px; }
   .published-template-group > .published-template-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0 12px; padding: 14px 0; }
