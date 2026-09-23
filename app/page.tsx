@@ -2515,7 +2515,12 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setWorkouts(snapshot.docs.map((workout) => { const data = workout.data() as Omit<WorkoutRecord, "id">; return { id: workout.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: data.status === "draft" ? "draft" : "published" }; }));
     });
     const unsubscribeTemplates = onSnapshot(collection(db, "academies", access.academyId, "workoutTemplates"), (snapshot) => {
-      setTemplates(snapshot.docs.map((template) => { const data = template.data() as Omit<WorkoutTemplateRecord, "id">; return { id: template.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [] }; }));
+      const normalizedTemplates = snapshot.docs.map((template) => { const data = template.data() as Omit<WorkoutTemplateRecord, "id">; return { id: template.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [] }; });
+      setTemplates(normalizedTemplates);
+      const legacyTemplates = snapshot.docs.filter((template) => !template.data().audience);
+      if (legacyTemplates.length && (access.role === "admin" || access.role === "teacher")) {
+        void Promise.all(legacyTemplates.map((template) => updateDoc(doc(db!, "academies", access.academyId, "workoutTemplates", template.id), { audience: "Geral", scheduleDay: "Flexível", targetStudentId: null, targetStudentName: null }))).catch(() => undefined);
+      }
     });
     return () => { void academy; unsubscribeStudents(); unsubscribeExercises(); unsubscribeMachines(); unsubscribeWorkouts(); unsubscribeTemplates(); };
   }, [access.academyId, access.role, access.userId]);
