@@ -61,6 +61,22 @@ function workoutInProgressKey(academyId: string, userId: string) {
   return `orquestra-fit:${academyId}:workout-in-progress:${userId}`;
 }
 
+type WorkoutProgressSnapshot = { workoutId: string; completedSets: string[]; setValues: Record<string, { load: string; reps: string }>; seconds: number };
+
+function workoutProgressKey(academyId: string, userId: string) {
+  return `${workoutInProgressKey(academyId, userId)}:state`;
+}
+
+function readWorkoutProgress(academyId: string, userId: string, workoutId?: string) {
+  try {
+    const raw = window.sessionStorage.getItem(workoutProgressKey(academyId, userId));
+    const value = raw ? JSON.parse(raw) as WorkoutProgressSnapshot : null;
+    return value && (!workoutId || value.workoutId === workoutId) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function readLocalCollection<T>(academyId: string, collectionName: string): T[] {
   try {
     const stored = window.localStorage.getItem(localCollectionKey(academyId, collectionName));
@@ -650,13 +666,15 @@ export default function Home() {
     if (workout?.isLocked) return;
     setActiveWorkout(workout ?? null);
     setActiveWorkoutId(workout?.id ?? null);
-    setCompletedSets([]);
+    const savedProgress = workout ? readWorkoutProgress(access.academyId, access.userId, workout.id) : null;
+    setCompletedSets(savedProgress?.completedSets ?? []);
     if (workout) window.sessionStorage.setItem(workoutInProgressKey(access.academyId, access.userId), workout.id);
     setSessionOpen(true);
   }
 
   function finishStudentWorkout() {
     window.sessionStorage.removeItem(workoutInProgressKey(access.academyId, access.userId));
+    window.sessionStorage.removeItem(workoutProgressKey(access.academyId, access.userId));
     setActiveWorkoutId(null);
     setActiveWorkout(null);
     setSessionOpen(false);
@@ -995,9 +1013,23 @@ function printWorkoutTemplate(template: WorkoutTemplateRecord) {
 function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (workout?: WorkoutRecord) => void; onEvolution: () => void; onViewWorkouts: () => void }) {
   const access = useAccess();
   const { workouts, loading } = useStudentPublishedWorkouts();
-  const workout = workouts.find((item) => !item.isLocked);
+  const executions = useStudentWorkoutExecutions();
+  const inProgressId = typeof window === "undefined" ? null : window.sessionStorage.getItem(workoutInProgressKey(access.academyId, access.userId));
+  const workout = workouts.find((item) => item.id === inProgressId && !item.isLocked) ?? workouts.find((item) => !item.isLocked);
   const exerciseCount = workout?.exerciseDetails?.length || workout?.exerciseIds.length || 0;
   const totalSets = workout?.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) ?? 0;
+  const estimatedMinutes = totalSets ? Math.max(20, Math.round(totalSets * 2.1 / 5) * 5) : 0;
+  const weekStart = useMemo(() => {
+    const date = new Date();
+    const mondayOffset = (date.getDay() + 6) % 7;
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - mondayOffset);
+    return date.getTime();
+  }, []);
+  const weekExecutions = executions.filter((execution) => workoutExecutionTime(execution.completedAt) >= weekStart);
+  const weeklyGoal = Math.max(1, Math.min(5, workouts.filter((item) => !item.isLocked).length || 4));
+  const weeklyPercentage = Math.min(100, Math.round(weekExecutions.length / weeklyGoal * 100));
+  const completedToday = weekExecutions.filter((execution) => new Date(workoutExecutionTime(execution.completedAt)).toDateString() === new Date().toDateString()).length;
   return (
     <div className="student-view home-view">
       <section className="welcome-row">
@@ -1008,13 +1040,15 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
       <article className="today-workout">
         <div className="workout-copy">
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
+          <small className="today-workout-program">{workout?.level ? `Programa ${workout.level}` : "Seu programa atual"}</small>
           <h2>{loading ? "Carregando seu treino" : workout ? displayWorkoutName(workout.name) : "Nenhum treino publicado"}</h2>
-          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? `Ficha liberada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}. Você pode escolher qualquer treino liberado.` : "Seu professor ainda não liberou um treino."}</p>
+          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? (workout.focusLabel || "Treino liberado pelo professor para o seu momento.") : "Seu professor ainda não liberou um treino."}</p>
           <div className="workout-meta">
-            <span><Clock3 size={16} /> {workout ? `${totalSets || "—"} séries` : "Aguardando"}</span>
-            <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Sem exercícios"}</span>
+            <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Aguardando"}</span>
+            <span><Activity size={16} /> {workout ? `${totalSets || "—"} séries` : "Sem séries"}</span>
+            {estimatedMinutes > 0 && <span><Clock3 size={16} /> ~{estimatedMinutes} min</span>}
           </div>
-          <div className="student-workout-actions"><button disabled={loading || !workout} onClick={() => workout && onStart(workout)}>{loading ? "Carregando..." : workout ? "Iniciar treino" : "Aguardando liberação"} <ArrowRight size={19} /></button><button className="workout-secondary-action" type="button" onClick={onViewWorkouts}><Dumbbell size={17} /> Ver treinos</button></div>
+          <div className="student-workout-actions"><button disabled={loading || !workout} onClick={() => workout && onStart(workout)}>{loading ? "Carregando..." : inProgressId === workout?.id ? "Continuar treino" : workout ? "Iniciar treino" : "Aguardando liberação"} <ArrowRight size={19} /></button><button className="workout-secondary-action" type="button" onClick={onViewWorkouts}><Dumbbell size={17} /> Ver treinos</button></div>
         </div>
         <div className="workout-art" aria-hidden="true">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1027,8 +1061,8 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
         <StudentPaymentStatus />
         <article role="button" tabIndex={0} onClick={() => onEvolution()}>
           <span className="status-icon"><Activity /></span>
-          <div><small>Frequência</small><strong>Sem registros</strong><p>Os acessos aparecerão aqui.</p></div>
-          <div className="mini-progress"><i /></div>
+          <div><small>Frequência</small><strong>{weekExecutions.length ? `${weekExecutions.length} treino${weekExecutions.length === 1 ? "" : "s"}` : "Sem registros"}</strong><p>{completedToday ? "Você já treinou hoje." : "Seu próximo treino está disponível."}</p></div>
+          <div className="mini-progress"><i style={{ width: `${weeklyPercentage}%` }} /></div>
         </article>
       </section>
 
@@ -1038,11 +1072,13 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
         </div>
         <article className="weekly-card">
           <div className="week-bars">
-            {[42, 74, 28, 86, 58, 18, 8].map((height, index) => (
-              <div key={index}><i style={{ height: `${height}%` }} className={index === 3 ? "peak" : ""} /><span>{["S", "T", "Q", "Q", "S", "S", "D"][index]}</span></div>
-            ))}
+            {Array.from({ length: 7 }).map((_, index) => {
+              const day = new Date(weekStart + index * 86400000);
+              const count = weekExecutions.filter((execution) => new Date(workoutExecutionTime(execution.completedAt)).toDateString() === day.toDateString()).length;
+              return <div key={index}><i style={{ height: `${count ? Math.min(100, 35 + count * 35) : 8}%` }} className={count ? "peak" : ""} /><span>{["S", "T", "Q", "Q", "S", "S", "D"][index]}</span></div>;
+            })}
           </div>
-          <div className="weekly-score"><Gauge size={24} /><div><strong>Sem histórico</strong><span>treinos concluídos</span></div></div>
+          <div className="weekly-score"><Gauge size={24} /><div><strong>{weekExecutions.length} de {weeklyGoal} treinos concluídos</strong><span>{weeklyPercentage}% da meta semanal</span></div></div>
         </article>
       </section>
 
@@ -1149,7 +1185,10 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
   const executions = useStudentWorkoutExecutions();
   const [levelFilter, setLevelFilter] = useState<"Todos" | WorkoutLevel>("Todos");
   function workoutHistory(workoutId: string) { return executions.filter((execution) => execution.workoutId === workoutId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)); }
+  const currentProgram = publishedWorkouts.find((workout) => workout.id === activeWorkoutId)?.level ?? publishedWorkouts.find((workout) => !workout.isLocked)?.level ?? "Fundação";
   const orderedWorkouts = [...publishedWorkouts].sort((first, second) => {
+    const programDifference = Number((first.level ?? "Fundação") !== currentProgram) - Number((second.level ?? "Fundação") !== currentProgram);
+    if (programDifference !== 0) return programDifference;
     const levelDifference = workoutLevelOrder.indexOf(first.level ?? "Fundação") - workoutLevelOrder.indexOf(second.level ?? "Fundação");
     if (levelDifference !== 0) return levelDifference;
     return first.name.localeCompare(second.name, "pt-BR");
@@ -1157,10 +1196,10 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
   const visibleWorkouts = levelFilter === "Todos" ? orderedWorkouts : orderedWorkouts.filter((workout) => (workout.level ?? "Fundação") === levelFilter);
   return (
     <div className="student-view">
-      <PageIntro kicker="PROGRAMA ATUAL" title="Seus treinos" copy="Escolha qualquer treino liberado e acompanhe sua evolução." />
-      <div className="student-workout-toolbar"><div><small>FICHAS DISPONÍVEIS</small><strong>{publishedWorkouts.length}</strong><span>programas publicados para você</span></div><label>Filtrar por nível<select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as "Todos" | WorkoutLevel)}><option value="Todos">Todos os níveis</option><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label></div>
+      <PageIntro kicker="MEU PROGRAMA ATUAL" title="Seus treinos" copy="Comece pelo treino recomendado e escolha outra ficha quando precisar." />
+      <div className="student-workout-toolbar"><div><small>PROGRAMA ATUAL</small><strong>{currentProgram}</strong><span>{publishedWorkouts.filter((workout) => (workout.level ?? "Fundação") === currentProgram && !workout.isLocked).length} treino(s) liberado(s)</span></div><label>Filtrar por programa<select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as "Todos" | WorkoutLevel)}><option value="Todos">Todos os programas</option><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label></div>
       <div className="program-summary">
-        <div><small>ORIENTAÇÃO DA ACADEMIA</small><strong>Escolha o treino que deseja fazer hoje</strong></div><span>ESCOLHA LIVRE</span>
+        <div><small>ORIENTAÇÃO DA ACADEMIA</small><strong>Seu próximo passo é o programa {currentProgram}</strong></div><span>ESCOLHA LIVRE</span>
         <div className="program-line"><i /></div>
       </div>
       <div className="workout-state-legend" aria-label="Legenda dos estados dos treinos">
@@ -1187,11 +1226,14 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const audience = workout.audience === "Geral" ? "Geral" : "Personalizado";
             const durationDelta = previous ? latest.durationSeconds - previous.durationSeconds : null;
             const stars = latest ? previous ? Math.max(1, Math.min(5, 3 + (durationDelta !== null && durationDelta <= 0 ? 1 : 0) + ((latest.maxLoad ?? 0) > (previous.maxLoad ?? 0) || (latest.maxReps ?? 0) > (previous.maxReps ?? 0) ? 1 : 0))) : 1 : 0;
-            return <article key={workout.id} className={`workout-library-card ${stateClass}`}>
+            const previousLevel = index > 0 ? visibleWorkouts[index - 1].level ?? "Fundação" : null;
+            const isCurrentProgram = level === currentProgram;
+            return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`}>
             <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {recommendedDay ?? "Flexível"}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
+            <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             {!isLocked && <button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={16} /> Imprimir</button>}
-          </article>;
+          </article></div>;
           })()
         )) : <div className="directory-empty"><Dumbbell /><p>{loading ? "Carregando seus treinos..." : publishedWorkouts.length ? "Nenhum treino encontrado neste nível." : "Nenhum treino publicado ainda."}</p></div>}
       </div>
@@ -1203,6 +1245,9 @@ function Evolution() {
   const access = useAccess();
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
+  const [period, setPeriod] = useState<7 | 30 | 90 | 365>(30);
+  const [currentAssessmentId, setCurrentAssessmentId] = useState("");
+  const [comparisonAssessmentId, setComparisonAssessmentId] = useState("");
   useEffect(() => {
     if (!db) {
       const syncLocalEvolution = () => {
@@ -1224,10 +1269,22 @@ function Evolution() {
     }, (error) => console.error("Não foi possível carregar o histórico de treinos.", error));
     return () => { unsubscribeAssessments(); unsubscribeExecutions(); };
   }, [access.academyId, access.userId]);
-  const latestAssessment = assessments[0] ?? null;
-  const previousAssessment = assessments[1] ?? null;
-  const totalWorkoutSeconds = executions.reduce((total, item) => total + (item.durationSeconds || 0), 0);
-  const totalWorkoutCalories = executions.reduce((total, item) => total + (item.calories || Math.round((item.durationSeconds || 0) / 60 * 5.5)), 0);
+  useEffect(() => {
+    if (!currentAssessmentId && assessments[0]) setCurrentAssessmentId(assessments[0].id);
+    if (!comparisonAssessmentId && assessments[1]) setComparisonAssessmentId(assessments[1].id);
+  }, [assessments, comparisonAssessmentId, currentAssessmentId]);
+  const periodStart = Date.now() - period * 86400000;
+  const periodExecutions = executions.filter((item) => workoutExecutionTime(item.completedAt) >= periodStart);
+  const previousPeriodExecutions = executions.filter((item) => {
+    const timestamp = workoutExecutionTime(item.completedAt);
+    return timestamp >= periodStart - period * 86400000 && timestamp < periodStart;
+  });
+  const latestAssessment = assessments.find((item) => item.id === currentAssessmentId) ?? assessments[0] ?? null;
+  const previousAssessment = assessments.find((item) => item.id === comparisonAssessmentId) ?? assessments[1] ?? null;
+  const totalWorkoutSeconds = periodExecutions.reduce((total, item) => total + (item.durationSeconds || 0), 0);
+  const totalVolume = periodExecutions.reduce((total, item) => total + (item.totalVolume || 0), 0);
+  const previousVolume = previousPeriodExecutions.reduce((total, item) => total + (item.totalVolume || 0), 0);
+  const workoutDelta = previousPeriodExecutions.length ? Math.round((periodExecutions.length - previousPeriodExecutions.length) / previousPeriodExecutions.length * 100) : null;
   const comparisonMetrics: Array<{ label: string; key: "weight" | "bodyFat" | "biceps" | "waist" | "chest" | "thigh"; unit: string }> = [
     { label: "Peso", key: "weight", unit: "kg" },
     { label: "Gordura corporal", key: "bodyFat", unit: "%" },
@@ -1241,6 +1298,7 @@ function Evolution() {
     return value ? Number(value.replace(",", ".")) : null;
   }
   function assessmentDelta(key: typeof comparisonMetrics[number]["key"]) {
+    if (!latestAssessment || !previousAssessment || latestAssessment.id === previousAssessment.id) return null;
     const current = assessmentValue(latestAssessment, key);
     const previous = assessmentValue(previousAssessment, key);
     if (current === null || previous === null) return null;
@@ -1255,17 +1313,19 @@ function Evolution() {
   return (
     <div className="student-view">
       <PageIntro kicker="ACOMPANHAMENTO" title="Sua evolução" copy="Consistência que aparece nos números." />
-      <div className="evolution-hero"><span>TREINOS CONCLUÍDOS</span><strong>{executions.length}</strong><p>{executions.length === 1 ? "1 treino registrado" : `${executions.length} treinos registrados`}</p><div><i style={{ width: `${Math.min(executions.length * 12, 100)}%` }} /></div></div>
+      <div className="evolution-period" role="group" aria-label="Período da evolução">{([7, 30, 90, 365] as const).map((days) => <button type="button" key={days} className={period === days ? "active" : ""} onClick={() => setPeriod(days)}>{days === 7 ? "7 dias" : days === 30 ? "30 dias" : days === 90 ? "3 meses" : "1 ano"}</button>)}</div>
+      <div className="evolution-hero"><span>TREINOS CONCLUÍDOS</span><strong>{periodExecutions.length}</strong><p>{workoutDelta === null ? "Ainda não há período anterior para comparação." : `${workoutDelta >= 0 ? "↑" : "↓"} ${Math.abs(workoutDelta)}% em relação ao período anterior`}</p><div><i style={{ width: `${Math.min(periodExecutions.length * 16, 100)}%` }} /></div></div>
       <section className="evolution-grid">
-        <article><Trophy /><small>Último treino</small><strong>{executions[0] ? displayWorkoutName(executions[0].workoutName) : "—"}</strong><p>{executions[0] ? `${executions[0].completedSets} séries concluídas` : "Ainda sem execução registrada"}</p></article>
-        <article><Activity /><small>Séries concluídas</small><strong>{executions.reduce((total, item) => total + item.completedSets, 0)}</strong><p>Registradas nos seus treinos</p></article>
+        <article><Trophy /><small>Último treino</small><strong>{periodExecutions[0] ? displayWorkoutName(periodExecutions[0].workoutName) : "—"}</strong><p>{periodExecutions[0] ? `${periodExecutions[0].completedSets} séries concluídas` : "Nenhuma execução no período"}</p></article>
+        <article><Activity /><small>Séries concluídas</small><strong>{periodExecutions.reduce((total, item) => total + item.completedSets, 0)}</strong><p>Registradas no período selecionado</p></article>
         <article><Clock3 /><small>Tempo acumulado</small><strong>{formatWorkoutDuration(totalWorkoutSeconds)}</strong><p>Somado nas execuções salvas</p></article>
-        <article><Flame /><small>Calorias estimadas</small><strong>{totalWorkoutCalories || "—"}</strong><p>Estimativa baseada no tempo de treino</p></article>
+        <article><Dumbbell /><small>Volume total</small><strong>{totalVolume > 0 ? `${totalVolume.toLocaleString("pt-BR")} kg` : "—"}</strong><p>{previousVolume > 0 && totalVolume > previousVolume ? `+${(totalVolume - previousVolume).toLocaleString("pt-BR")} kg no período` : "Calculado pelas cargas registradas"}</p></article>
       </section>
       <section className="assessment-comparison">
         <div className="section-heading"><div><span>AVALIAÇÃO FÍSICA</span><h2>Seu progresso</h2></div><small>{latestAssessment ? formatDate(latestAssessment.date) : "Sem avaliação"}</small></div>
         {!latestAssessment ? <div className="directory-empty"><Activity /><p>Faça uma avaliação física para acompanhar suas medidas.</p></div> : <>
-          <div className="assessment-summary"><strong>{latestAssessment.weight} kg</strong><span>Peso atual</span><p>{previousAssessment ? `Comparação com ${formatDate(previousAssessment.date)}` : "Primeira avaliação registrada"}</p></div>
+          {assessments.length > 1 && <div className="assessment-selector"><label>Atual<select value={latestAssessment.id} onChange={(event) => setCurrentAssessmentId(event.target.value)}>{assessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{formatDate(assessment.date)}</option>)}</select></label><label>Comparar com<select value={previousAssessment?.id ?? ""} onChange={(event) => setComparisonAssessmentId(event.target.value)}>{assessments.filter((assessment) => assessment.id !== latestAssessment.id).map((assessment) => <option key={assessment.id} value={assessment.id}>{formatDate(assessment.date)}</option>)}</select></label></div>}
+          <div className="assessment-summary"><strong>{latestAssessment.weight} kg</strong><span>Peso atual</span><p>{previousAssessment && previousAssessment.id !== latestAssessment.id ? `Comparação com ${formatDate(previousAssessment.date)}` : "Primeira avaliação registrada"}</p></div>
           <div className="comparison-list">{comparisonMetrics.map((metric) => {
             const current = assessmentValue(latestAssessment, metric.key);
             const delta = assessmentDelta(metric.key);
@@ -1554,9 +1614,10 @@ function MachineQrReader({ exercises, onClose, onSelect }: { exercises: SessionE
 function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onCompleted: () => void; onToggleSet: (id: string) => void }) {
   const access = useAccess();
   const feedback = useFeedback();
-  const [seconds, setSeconds] = useState(0);
+  const persistedProgress = typeof window === "undefined" ? null : readWorkoutProgress(access.academyId, access.userId, workout?.id);
+  const [seconds, setSeconds] = useState(() => persistedProgress?.seconds ?? 0);
   const [machineReaderOpen, setMachineReaderOpen] = useState(false);
-  const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>({});
+  const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>(() => persistedProgress?.setValues ?? {});
   const [saving, setSaving] = useState(false);
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
@@ -1567,11 +1628,20 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
   const exercises: SessionExercise[] = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource({ ...exercise, ...currentMedia, name: exercise.name }, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode }));
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
+  const previousExecutions = useStudentWorkoutExecutions();
+  const previousSets = useMemo(() => {
+    const latest = previousExecutions.filter((execution) => execution.workoutId === workout?.id).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt))[0];
+    return Object.fromEntries((latest?.sets ?? []).map((item) => [item.exerciseName, { load: item.load, reps: item.reps }]));
+  }, [previousExecutions, workout?.id]);
   useEffect(() => {
     if (completionSummary) return;
     const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
     return () => window.clearInterval(timer);
   }, [completionSummary]);
+  useEffect(() => {
+    if (!workout || completionSummary) return;
+    window.sessionStorage.setItem(workoutProgressKey(access.academyId, access.userId), JSON.stringify({ workoutId: workout.id, completedSets, setValues, seconds } satisfies WorkoutProgressSnapshot));
+  }, [access.academyId, access.userId, completedSets, completionSummary, seconds, setValues, workout]);
   useEffect(() => {
     const studentId = localStudentId(access.academyId, access.userId);
     const setProfile = (value?: string) => setAnatomyProfile(value === "feminino" ? "feminino" : "masculino");
@@ -1672,6 +1742,7 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
       setValues={setValues}
       restTimer={restTimer}
       saving={saving}
+      previousSets={previousSets}
       onBack={onBack}
       onOpen={setOpenExerciseIndex}
       onToggleSet={toggleSet}

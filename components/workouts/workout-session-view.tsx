@@ -26,6 +26,7 @@ type Props = {
   setValues: Record<string, { load: string; reps: string }>;
   restTimer: { exerciseIndex: number; total: number; remaining: number } | null;
   saving: boolean;
+  previousSets?: Record<string, { load: string; reps: string }>;
   onBack: () => void;
   onOpen: (index: number | null) => void;
   onToggleSet: (exerciseIndex: number, setIndex: number) => void;
@@ -111,6 +112,7 @@ export function WorkoutSessionView(props: Props) {
               {exercise.videoUrl && <a href={exercise.videoUrl} target="_blank" rel="noreferrer"><Play size={16} />Ver vídeo</a>}
             </div>
             <div className="workout-set-heading"><h3>Suas séries</h3><span>{completed}/{exercise.sets} feitas</span></div>
+            {props.previousSets?.[exercise.name] && <p className="workout-previous-performance">Último treino: <strong>{props.previousSets[exercise.name].load || "—"}{exercise.metricMode === "strength" ? " kg" : ""} · {props.previousSets[exercise.name].reps || "—"} {metricLabels.repsUnit}</strong></p>}
             <div className="workout-set-labels" aria-hidden="true"><span>Série</span><span>{metricLabels.load}{metricLabels.loadUnit ? ` (${metricLabels.loadUnit})` : ""}</span><span>{metricLabels.reps}{metricLabels.repsUnit ? ` (${metricLabels.repsUnit})` : ""}</span><span>Feito</span></div>
             {Array.from({ length: exercise.sets }).map((_, set) => {
               const id = `${index}-${set}`;
