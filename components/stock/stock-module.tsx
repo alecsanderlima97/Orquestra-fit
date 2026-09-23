@@ -129,28 +129,30 @@ export function StockModule({
   const [qrImage, setQrImage] = useState("");
   useEffect(() => {
     if (!db) {
-      try {
-        setItems(
-          JSON.parse(
-            localStorage.getItem(key(access.academyId, "items")) || "[]",
-          ),
-        );
-        setCategories(
-          JSON.parse(
-            localStorage.getItem(key(access.academyId, "categories")) || "[]",
-          ),
-        );
-        setMovements(
-          JSON.parse(
-            localStorage.getItem(key(access.academyId, "movements")) || "[]",
-          ),
-        );
-      } catch {
-        setItems([]);
-        setCategories([]);
-        setMovements([]);
-      }
-      return;
+      const timer = window.setTimeout(() => {
+        try {
+          setItems(
+            JSON.parse(
+              localStorage.getItem(key(access.academyId, "items")) || "[]",
+            ),
+          );
+          setCategories(
+            JSON.parse(
+              localStorage.getItem(key(access.academyId, "categories")) || "[]",
+            ),
+          );
+          setMovements(
+            JSON.parse(
+              localStorage.getItem(key(access.academyId, "movements")) || "[]",
+            ),
+          );
+        } catch {
+          setItems([]);
+          setCategories([]);
+          setMovements([]);
+        }
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
     const offItems = onSnapshot(
       collection(db, "academies", access.academyId, "stockItems"),

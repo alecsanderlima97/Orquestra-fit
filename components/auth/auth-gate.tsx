@@ -2,7 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, updateProfile, User } from "firebase/auth";
-import { LockKeyhole, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { Activity, BarChart3, CalendarDays, Dumbbell, LockKeyhole, LogIn, Mail, ShieldCheck, UserRound } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
 import { AccessProvider } from "./access-context";
@@ -78,6 +78,19 @@ function usernameAuthEmail(username: string) {
   return `${normalizeUsername(username)}@accounts.orquestra-fit.local`;
 }
 
+function authenticationMessage(code?: string, creating = false) {
+  if (code === "auth/network-request-failed") return "Sem conexão com o serviço de acesso. Verifique sua internet e tente novamente.";
+  if (code === "auth/too-many-requests") return "Muitas tentativas seguidas. Aguarde alguns minutos antes de tentar novamente.";
+  if (code === "auth/user-disabled") return "Este acesso está bloqueado. Fale com a academia ou com o suporte.";
+  if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "Login ou senha incorretos.";
+  if (code === "auth/weak-password") return "A senha precisa ter pelo menos 6 caracteres.";
+  if (code === "auth/email-already-in-use") return "Este acesso já existe. Entre com seus dados.";
+  if (code === "auth/invalid-email") return "Informe um e-mail válido.";
+  return creating
+    ? "Não foi possível criar o acesso. Confira os dados e tente novamente."
+    : "Não foi possível entrar. Confira seus dados de acesso.";
+}
+
 function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
   const [email, setEmail] = useState(() => window.localStorage.getItem("orquestra_fit_last_email") ?? "");
   const [username, setUsername] = useState(() => window.localStorage.getItem("orquestra_fit_last_username") ?? "");
@@ -113,9 +126,7 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
       }
     } catch (error) {
       const code = (error as { code?: string }).code;
-      setStatus(mode === "signup"
-        ? code === "auth/email-already-in-use" ? "Este acesso já existe. Entre com seus dados." : "Não foi possível criar o acesso. Confira os dados e use uma senha com pelo menos 6 caracteres."
-        : "Não foi possível entrar. Confira seus dados de acesso.");
+      setStatus(authenticationMessage(code, mode === "signup"));
     } finally {
       setSubmitting(false);
     }
@@ -162,21 +173,51 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
 
   return (
     <main className="auth-page">
-      <section className="auth-panel" aria-labelledby="login-title">
-        <div className="auth-mark"><ShieldCheck size={28} /></div>
-        <p>ORQUESTRA FIT</p>
-        <h1 id="login-title">{mode === "signup" ? "Criar acesso" : "Acesso ao Orquestra Fit"}</h1>
-        <span>{mode === "signup" ? `Crie seu acesso com ${accessMode === "username" ? "nome de usuário e senha" : "login de acesso e senha"}. Depois, informe o código recebido da academia.` : "Use seu login de acesso e senha ou entre com sua conta Google."}</span>
-        <form onSubmit={submit}>
-          {accessMode === "email" ? <label><Mail size={17} /> Login de acesso<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" placeholder="E-mail cadastrado" required /></label> : <label><UserRound size={17} /> Login de acesso<input value={username} onChange={(event) => setUsername(event.target.value.replace(/\s/g, "."))} autoComplete="username" placeholder="Ex.: maria.silva" required /></label>}
-          <label><LockKeyhole size={17} /> Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={6} required /></label>
-          {status && <p className="auth-status" role="status">{status}</p>}
-          <button type="submit" disabled={submitting}>{submitting ? "Aguarde..." : mode === "signup" ? "Criar acesso" : "Entrar"}</button>
-        </form>
-        {mode === "login" && <><div className="auth-divider"><span>ou</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button>{accessMode === "email" && <button className="auth-link" type="button" onClick={resetPassword}>Esqueci minha senha</button>}</>}
-        <button className="auth-link" type="button" onClick={() => { setAccessMode((current) => current === "email" ? "username" : "email"); setMode("login"); setStatus(null); }}>{accessMode === "email" ? "Entrar com usuário da academia" : "Entrar com login por e-mail"}</button>
-        <button className="auth-link" type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Já tenho uma conta" : accessMode === "username" ? "Criar login de acesso" : "Criar acesso por e-mail"}</button>
-      </section>
+      <div className="auth-shell">
+        <aside className="auth-visual" aria-label="Orquestra.cs, tecnologia para o esporte">
+          <div className="auth-score" aria-hidden="true"><span /><span /><span /><span /></div>
+          <header className="auth-platform-brand">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/branding/orquestra-cs-logo.png" alt="Orquestra.cs" />
+            <div><small>ORQUESTRA.CS</small><strong>ORQUESTRA FIT</strong></div>
+          </header>
+          <div className="auth-visual-content">
+            <div className="auth-fit-orbit" aria-hidden="true"><Dumbbell /></div>
+            <span className="auth-visual-kicker"><i /> PLATAFORMA PARA ACADEMIAS</span>
+            <h2>Toda a operação em movimento.</h2>
+            <p>Treinos, evolução e gestão conectados em uma experiência feita para alunos, professores e gestores.</p>
+          </div>
+          <div className="auth-module-grid" aria-label="Recursos da plataforma">
+            <span><Dumbbell /><b>Treinos</b><small>Prescrição e execução</small></span>
+            <span><Activity /><b>Evolução</b><small>Histórico do aluno</small></span>
+            <span><CalendarDays /><b>Agenda</b><small>Aulas e reservas</small></span>
+            <span><BarChart3 /><b>Gestão</b><small>Operação integrada</small></span>
+          </div>
+        </aside>
+        <section className="auth-form-side">
+          <section className="auth-panel" aria-labelledby="login-title">
+            <div className="auth-brand" aria-label="Orquestra Fit">
+              <div className="auth-logo" aria-hidden="true"><Dumbbell /></div>
+              <div><strong>ORQUESTRA FIT</strong><span>GESTÃO E PERFORMANCE</span></div>
+            </div>
+            <p className="auth-kicker"><ShieldCheck size={14} /> AMBIENTE SEGURO</p>
+            <h1 id="login-title">{mode === "signup" ? "Crie seu acesso" : "Boas-vindas"}</h1>
+            <span>{mode === "signup" ? `Cadastre ${accessMode === "username" ? "usuário e senha" : "e-mail e senha"}. Em seguida, valide o código enviado pela academia.` : "Entre para acessar sua academia e continuar de onde parou."}</span>
+            <form onSubmit={submit}>
+              {accessMode === "email" ? <label><Mail size={17} /> E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" inputMode="email" placeholder="voce@exemplo.com" required /></label> : <label><UserRound size={17} /> Usuário<input value={username} onChange={(event) => setUsername(event.target.value.replace(/\s/g, "."))} autoComplete="username" placeholder="Ex.: maria.silva" required /></label>}
+              <label><LockKeyhole size={17} /> Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={6} placeholder="Mínimo de 6 caracteres" required /></label>
+              {status && <p className="auth-status" role="status" aria-live="polite">{status}</p>}
+              <button type="submit" disabled={submitting}><LogIn size={18} /> {submitting ? "Aguarde..." : mode === "signup" ? "Criar acesso" : "Entrar na plataforma"}</button>
+            </form>
+            {mode === "login" && <><div className="auth-divider"><span>ou continue com</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Google</button>{accessMode === "email" && <button className="auth-link" type="button" onClick={resetPassword}>Esqueci minha senha</button>}</>}
+            <div className="auth-secondary-actions">
+              <button className="auth-link" type="button" onClick={() => { setAccessMode((current) => current === "email" ? "username" : "email"); setMode("login"); setStatus(null); }}>{accessMode === "email" ? "Entrar com usuário da academia" : "Entrar com e-mail"}</button>
+              <button className="auth-link" type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Já tenho uma conta" : "Primeiro acesso"}</button>
+            </div>
+            <footer>Suporte: <a href="mailto:orquestracs@gmail.com">orquestracs@gmail.com</a></footer>
+          </section>
+        </section>
+      </div>
     </main>
   );
 }

@@ -18,6 +18,7 @@ import { FinanceModule } from "@/components/finance/finance-module-v2";
 import { AppGuide } from "@/components/assistant/app-guide";
 import { StockModule } from "@/components/stock/stock-module";
 import { auth, db, functions, storage } from "@/lib/firebase/client";
+import { verifiedFemaleGifUrls } from "@/lib/workouts/verified-female-gifs";
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
@@ -46,6 +47,10 @@ function profileStorageKey(userId: string) {
 
 function localCollectionKey(academyId: string, collectionName: string) {
   return `orquestra-fit:${academyId}:${collectionName}`;
+}
+
+function workoutInProgressKey(academyId: string, userId: string) {
+  return `orquestra-fit:${academyId}:workout-in-progress:${userId}`;
 }
 
 function readLocalCollection<T>(academyId: string, collectionName: string): T[] {
@@ -389,7 +394,7 @@ function gifCatalogFilters(name: string, muscleGroup: string) {
   return { equipment, muscle };
 }
 
-type VerifiedExerciseGif = { maleFile: string; femaleUrl?: string };
+type VerifiedExerciseGif = { maleFile: string; femaleUrl?: string; match?: "exact" | "equivalent" };
 
 // Esta lista contém somente movimentos revisados manualmente pelo nome, equipamento e grupo muscular.
 // Os demais permanecem sem vínculo automático para nunca exibir uma execução incorreta ao aluno.
@@ -523,6 +528,12 @@ const verifiedExerciseGifs: Record<string, VerifiedExerciseGif> = {
   "alongamento de panturrilha": { maleFile: "FUNCIONAL/ALONGAMENTO/Crouching-Heel-Back-Calf-Stretch_Calves__converted.gif" },
   "gluteo quatro apoios": { maleFile: "FUNCIONAL/PESO CORPORAL/PERNA/Bent-Leg-Kickback-(kneeling)-(male)_Hips-FIX__converted.gif" },
   "air bike": { maleFile: "FUNCIONAL/CARDIO/Assault-Bike-Run_Cardio__converted.gif" },
+  "prancha abdominal": { maleFile: "KETTLEBELL/ABDOMINAIS/Kettlebell-Plank-Pass-Through_Waist__converted.gif", match: "equivalent" },
+  "prancha lateral": { maleFile: "KETTLEBELL/ABDOMINAIS/Kettlebell-Side-Plank-(male)_Waist__converted.gif", match: "equivalent" },
+  "flexao declinada": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/TRICEPS/Decline-Diamond-Push-up_Chest__converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1aa0qvtjRk_N8BnxE44AhjZv3YGqgohih&export=download&confirm=t", match: "equivalent" },
+  "elevacao frontal com anilha": { maleFile: "EXERCÍCIOS COM BARRAS/OMBROS/Barbell-Front-Raise_Shoulders_converted.gif", femaleUrl: "https://drive.usercontent.google.com/download?id=1bWrqGQJxOzw8AYG3UcTUU_8wO1atsGsi&export=download&confirm=t", match: "equivalent" },
+  "rosca 21": { maleFile: "EXERCÍCIOS COM BARRAS/BICEPS/Barbell-Curl_Upper-Arms-FIX2__converted.gif", match: "equivalent" },
+  "abdominal remador": { maleFile: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Vertical-Sit-Up-(male)_Waist__converted.gif", match: "equivalent" },
 };
 
 function exerciseGifKey(name: string) {
@@ -535,9 +546,10 @@ function packagedGifUrl(file: string) {
 }
 
 function verifiedExerciseGif(name: string, profile: "masculino" | "feminino" = "masculino") {
-  const gif = verifiedExerciseGifs[exerciseGifKey(name)];
+  const key = exerciseGifKey(name);
+  const gif = verifiedExerciseGifs[key];
   if (!gif) return "";
-  return profile === "feminino" ? (gif.femaleUrl || packagedGifUrl(gif.maleFile)) : packagedGifUrl(gif.maleFile);
+  return profile === "feminino" ? (verifiedFemaleGifUrls[key] || gif.femaleUrl || packagedGifUrl(gif.maleFile)) : packagedGifUrl(gif.maleFile);
 }
 
 function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">, profile: "masculino" | "feminino" = "masculino") {
@@ -587,6 +599,7 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutRecord | null>(null);
+  const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
   const [completedSets, setCompletedSets] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const canSwitchRole = access.accountType === "developer" || access.role === "admin";
@@ -602,9 +615,28 @@ export default function Home() {
     window.localStorage.setItem("orquestra_fit_theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    setActiveWorkoutId(window.sessionStorage.getItem(workoutInProgressKey(access.academyId, access.userId)));
+  }, [access.academyId, access.userId]);
+
   function announce(message: string) {
     setFeedback(message);
     window.setTimeout(() => setFeedback(null), 2600);
+  }
+
+  function startStudentWorkout(workout?: WorkoutRecord) {
+    setActiveWorkout(workout ?? null);
+    setActiveWorkoutId(workout?.id ?? null);
+    setCompletedSets([]);
+    if (workout) window.sessionStorage.setItem(workoutInProgressKey(access.academyId, access.userId), workout.id);
+    setSessionOpen(true);
+  }
+
+  function finishStudentWorkout() {
+    window.sessionStorage.removeItem(workoutInProgressKey(access.academyId, access.userId));
+    setActiveWorkoutId(null);
+    setActiveWorkout(null);
+    setSessionOpen(false);
   }
 
   return (
@@ -624,6 +656,7 @@ export default function Home() {
               workout={activeWorkout ?? undefined}
               completedSets={completedSets}
               onBack={() => setSessionOpen(false)}
+              onCompleted={finishStudentWorkout}
               onToggleSet={(id) =>
                 setCompletedSets((current) =>
                   current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
@@ -634,8 +667,8 @@ export default function Home() {
             <>
               <StudentHeader onMenu={() => setMenuOpen(true)} />
               <div className="student-scroll">
-                {activeTab === "inicio" && <StudentHome onStart={(workout) => { setActiveWorkout(workout ?? null); setCompletedSets([]); setSessionOpen(true); }} onEvolution={() => setActiveTab("evolucao")} />}
-                {activeTab === "treinos" && <WorkoutLibrary onStart={(workout) => { setActiveWorkout(workout ?? null); setCompletedSets([]); setSessionOpen(true); }} />}
+                {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => setActiveTab("evolucao")} />}
+                {activeTab === "treinos" && <WorkoutLibrary activeWorkoutId={activeWorkout?.id ?? activeWorkoutId} onStart={startStudentWorkout} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
                 {activeTab === "perfil" && <Profile onNavigate={setActiveTab} theme={theme} onThemeChange={setTheme} />}
@@ -747,6 +780,24 @@ function useStudentPublishedWorkouts(enabled = true) {
   }, [access.academyId, access.userId, enabled]);
 
   return { workouts, loading };
+}
+
+function useStudentWorkoutExecutions() {
+  const access = useAccess();
+  const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
+  useEffect(() => {
+    if (!db) {
+      const syncLocal = () => {
+        const studentId = localStudentId(access.academyId, access.userId);
+        setExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions").filter((item) => item.studentId === studentId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)));
+      };
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+    return onSnapshot(query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", access.userId)), (snapshot) => setExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt))));
+  }, [access.academyId, access.userId]);
+  return executions;
 }
 
 function useAcademyAnnouncements() {
@@ -895,6 +946,7 @@ function StudentHome({ onStart, onEvolution }: { onStart: (workout?: WorkoutReco
       <StudentMessagesInbox />
 
       <StudentAnnouncementCard />
+      <AcademyHoursCard />
     </div>
   );
 }
@@ -966,8 +1018,33 @@ function StudentAnnouncementCard() {
   </article>;
 }
 
-function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => void }) {
+const academyWeekdayLabels: Record<string, string> = { monday: "Segunda", tuesday: "Terça", wednesday: "Quarta", thursday: "Quinta", friday: "Sexta", saturday: "Sábado", sunday: "Domingo" };
+
+function AcademyHoursCard() {
+  const access = useAccess();
+  const [settings, setSettings] = useState({ openingDays: Object.keys(academyWeekdayLabels), openingTime: "06:00", closingTime: "22:00" });
+  useEffect(() => {
+    function apply(data: { openingDays?: unknown; openingTime?: string; closingTime?: string } | null | undefined) {
+      const openingDays = Array.isArray(data?.openingDays) ? data.openingDays.filter((item): item is string => typeof item === "string") : [];
+      setSettings({ openingDays: openingDays.length ? openingDays : Object.keys(academyWeekdayLabels), openingTime: data?.openingTime || "06:00", closingTime: data?.closingTime || "22:00" });
+    }
+    if (!db) {
+      const syncLocal = () => {
+        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { openingDays?: unknown; openingTime?: string; closingTime?: string } | null); } catch { apply(null); }
+      };
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { openingDays?: unknown; openingTime?: string; closingTime?: string } | undefined));
+  }, [access.academyId]);
+  return <article className="academy-hours-card"><div className="academy-hours-card-mark"><Clock3 size={18} /></div><div><small>FUNCIONAMENTO DA ACADEMIA</small><strong>{settings.openingTime} – {settings.closingTime}</strong><p>{settings.openingDays.map((day) => academyWeekdayLabels[day]).filter(Boolean).join(" · ")}</p></div></article>;
+}
+
+function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: WorkoutRecord) => void; activeWorkoutId?: string | null }) {
   const { workouts: publishedWorkouts, loading } = useStudentPublishedWorkouts();
+  const executions = useStudentWorkoutExecutions();
+  function workoutHistory(workoutId: string) { return executions.filter((execution) => execution.workoutId === workoutId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)); }
   return (
     <div className="student-view">
       <PageIntro kicker="PROGRAMA ATUAL" title="Seus treinos" copy="Um plano construído para evoluir com consistência." />
@@ -975,12 +1052,29 @@ function WorkoutLibrary({ onStart }: { onStart: (workout?: WorkoutRecord) => voi
         <div><small>Ciclo</small><strong>Nenhum ciclo ativo</strong></div><span>AGUARDANDO</span>
         <div className="program-line"><i /></div>
       </div>
+      <div className="workout-state-legend" aria-label="Legenda dos estados dos treinos">
+        <span className="legend-in-progress"><i /> Em andamento</span>
+        <span className="legend-completed"><i /> Concluído</span>
+        <span className="legend-next"><i /> Próximo</span>
+      </div>
       <div className="workout-list">
         {publishedWorkouts.length > 0 ? publishedWorkouts.map((workout, index) => (
-          <article key={workout.id} className={index === 0 ? "workout-library-card active" : "workout-library-card"}>
-            <button className="workout-open" type="button" onClick={() => onStart(workout)}><span className="workout-index">0{index + 1}</span><div><small>{index === 0 ? "PROGRAMADO PARA HOJE" : "TREINO PUBLICADO"}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios</p></div><span className="play-button"><Play size={18} fill="currentColor" /></span></button>
+          (() => {
+            const history = workoutHistory(workout.id);
+            const latest = history[0];
+            const previous = history[1];
+            const isInProgress = activeWorkoutId === workout.id;
+            const isCompleted = Boolean(latest) && !isInProgress;
+            const stateClass = isInProgress ? "is-in-progress" : isCompleted ? "is-completed" : "is-next";
+            const stateLabel = isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
+            const durationDelta = previous ? latest.durationSeconds - previous.durationSeconds : null;
+            const stars = latest ? previous ? Math.max(1, Math.min(5, 3 + (durationDelta !== null && durationDelta <= 0 ? 1 : 0) + ((latest.maxLoad ?? 0) > (previous.maxLoad ?? 0) || (latest.maxReps ?? 0) > (previous.maxReps ?? 0) ? 1 : 0))) : 1 : 0;
+            return <article key={workout.id} className={`workout-library-card ${stateClass}`}>
+            <button className="workout-open" type="button" onClick={() => onStart(workout)}><span className="workout-index">{isCompleted ? <Check size={17} /> : `0${index + 1}`}</span><div><small>{stateLabel}</small><strong>{workout.name}</strong><p>{workout.exerciseIds.length} exercícios{latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}</p></div><span className="play-button">{isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
+            {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             <button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={16} /> Imprimir</button>
-          </article>
+          </article>;
+          })()
         )) : <div className="directory-empty"><Dumbbell /><p>{loading ? "Carregando seus treinos..." : "Nenhum treino publicado ainda."}</p></div>}
       </div>
     </div>
@@ -1008,12 +1102,14 @@ function Evolution() {
       setAssessments(snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date)));
     }, (error) => console.error("Não foi possível carregar a avaliação.", error));
     const unsubscribeExecutions = onSnapshot(executionQuery, (snapshot) => {
-      setExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => (b.completedAt?.toDate?.().getTime() ?? 0) - (a.completedAt?.toDate?.().getTime() ?? 0)));
+       setExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)));
     }, (error) => console.error("Não foi possível carregar o histórico de treinos.", error));
     return () => { unsubscribeAssessments(); unsubscribeExecutions(); };
   }, [access.academyId, access.userId]);
   const latestAssessment = assessments[0] ?? null;
   const previousAssessment = assessments[1] ?? null;
+  const totalWorkoutSeconds = executions.reduce((total, item) => total + (item.durationSeconds || 0), 0);
+  const totalWorkoutCalories = executions.reduce((total, item) => total + (item.calories || Math.round((item.durationSeconds || 0) / 60 * 5.5)), 0);
   const comparisonMetrics: Array<{ label: string; key: "weight" | "bodyFat" | "biceps" | "waist" | "chest" | "thigh"; unit: string }> = [
     { label: "Peso", key: "weight", unit: "kg" },
     { label: "Gordura corporal", key: "bodyFat", unit: "%" },
@@ -1045,6 +1141,8 @@ function Evolution() {
       <section className="evolution-grid">
         <article><Trophy /><small>Último treino</small><strong>{executions[0]?.workoutName ?? "—"}</strong><p>{executions[0] ? `${executions[0].completedSets} séries concluídas` : "Ainda sem execução registrada"}</p></article>
         <article><Activity /><small>Séries concluídas</small><strong>{executions.reduce((total, item) => total + item.completedSets, 0)}</strong><p>Registradas nos seus treinos</p></article>
+        <article><Clock3 /><small>Tempo acumulado</small><strong>{formatWorkoutDuration(totalWorkoutSeconds)}</strong><p>Somado nas execuções salvas</p></article>
+        <article><Flame /><small>Calorias estimadas</small><strong>{totalWorkoutCalories || "—"}</strong><p>Estimativa baseada no tempo de treino</p></article>
       </section>
       <section className="assessment-comparison">
         <div className="section-heading"><div><span>AVALIAÇÃO FÍSICA</span><h2>Seu progresso</h2></div><small>{latestAssessment ? formatDate(latestAssessment.date) : "Sem avaliação"}</small></div>
@@ -1300,7 +1398,7 @@ function MachineQrReader({ exercises, onClose, onSelect }: { exercises: SessionE
   </div>;
 }
 
-function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onToggleSet: (id: string) => void }) {
+function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onCompleted: () => void; onToggleSet: (id: string) => void }) {
   const access = useAccess();
   const feedback = useFeedback();
   const [seconds, setSeconds] = useState(0);
@@ -1312,13 +1410,15 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
   const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">>>({});
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(null);
   const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
+  const [completionSummary, setCompletionSummary] = useState<WorkoutCompletionSummary | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
   const exercises = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource({ ...exercise, ...currentMedia, name: exercise.name }, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, sets: Number(exercise.sets) || 1, reps: exercise.reps || "10", load: exercise.load || "0", rest: `${exercise.rest || "60"} s` }; }) : workoutPlan;
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   useEffect(() => {
+    if (completionSummary) return;
     const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [completionSummary]);
   useEffect(() => {
     const studentId = localStudentId(access.academyId, access.userId);
     const setProfile = (value?: string) => setAnatomyProfile(value === "feminino" ? "feminino" : "masculino");
@@ -1368,14 +1468,16 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
       const value = setValues[id] ?? { load: exercise.load, reps: exercise.reps };
       return { exerciseName: exercise.name, setNumber: setIndex + 1, load: value.load, reps: value.reps };
     }));
+    const maxLoad = sets.reduce((max, item) => Math.max(max, Number(item.load.replace(",", ".")) || 0), 0);
+    const maxReps = sets.reduce((max, item) => Math.max(max, Number(item.reps.replace(",", ".")) || 0), 0);
+    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, calories: Math.max(1, Math.round(seconds / 60 * 5.5)), maxLoad, maxReps, completedSets: completedSets.length, totalSets };
     if (!workout || !db) {
       if (workout) {
-        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets };
+        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, calories: summary.calories, maxLoad, maxReps, completedAt: new Date().toISOString() };
         const executions = readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions");
         writeLocalCollection(access.academyId, "workoutExecutions", [execution, ...executions]);
       }
-      feedback("Treino concluído.");
-      onBack();
+      setCompletionSummary(summary);
       return;
     }
     setSaving(true);
@@ -1388,10 +1490,12 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
         completedSets: completedSets.length,
         totalSets,
         sets,
+        calories: summary.calories,
+        maxLoad,
+        maxReps,
         completedAt: serverTimestamp(),
       });
-      feedback("Treino concluído e salvo no seu histórico.");
-      onBack();
+      setCompletionSummary(summary);
     } catch {
       feedback("Não foi possível salvar este treino. Tente novamente.");
     } finally {
@@ -1425,11 +1529,21 @@ function WorkoutSession({ workout, completedSets, onBack, onToggleSet }: { worko
       onFinish={() => void finishWorkout()}
     />
     {anatomyExercise && <ExerciseAnatomyView exercise={anatomyExercise} onClose={closeAnatomy} />}
-    {machineReaderOpen && <MachineQrReader exercises={exercises as SessionExercise[]} onClose={() => setMachineReaderOpen(false)} onSelect={(index) => { setOpenExerciseIndex(index); setMachineReaderOpen(false); window.setTimeout(() => document.querySelectorAll(".workout-exercise")[index]?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }} />}
-  </>;
+     {machineReaderOpen && <MachineQrReader exercises={exercises as SessionExercise[]} onClose={() => setMachineReaderOpen(false)} onSelect={(index) => { setOpenExerciseIndex(index); setMachineReaderOpen(false); window.setTimeout(() => document.querySelectorAll(".workout-exercise")[index]?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }} />}
+     {completionSummary && <WorkoutCompletionSummary name={workout?.name ?? "Treino"} summary={completionSummary} onClose={onCompleted} />}
+   </>;
+ }
+
+function WorkoutCompletionSummary({ name, summary, onClose }: { name: string; summary: WorkoutCompletionSummary; onClose: () => void }) {
+  return <div className="workout-completion-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-completion-title">
+    <section className="workout-completion-card"><div className="workout-completion-mark"><Trophy size={25} /></div><small>CONQUISTA REGISTRADA</small><h2 id="workout-completion-title">Treino concluído</h2><p>{name} foi salvo no seu progresso pessoal.</p>
+      <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Flame size={17} /><small>Calorias</small><strong>≈ {summary.calories} kcal</strong></div><div><Dumbbell size={17} /><small>Maior carga</small><strong>{summary.maxLoad > 0 ? `${summary.maxLoad} kg` : "Peso corporal"}</strong></div><div><Activity size={17} /><small>Maior repetição</small><strong>{summary.maxReps || "—"}</strong></div></div>
+      <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button>
+    </section>
+  </div>;
 }
 
-const workspaceNav = [
+ const workspaceNav = [
   ["Visão geral", LayoutDashboard],
   ["Alunos", Users],
   ["Professores", UserRoundCheck],
@@ -1666,14 +1780,28 @@ function paymentMethodLabel(method?: PaymentMethod) { return method === "cartao_
 type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
 type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
 type ExerciseType = "Força" | "Peso corporal" | "Alongamento" | "Cardio";
-type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifMatch?: "exact" | "equivalent"; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
-type WorkoutTemplateRecord = { id: string; name: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
+type WorkoutLevel = "Fundação" | "Evolução" | "Performance" | "Elite";
+type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
-type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; completedAt?: { toDate?: () => Date } };
+type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; calories?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
+
+function workoutExecutionTime(value: WorkoutExecution["completedAt"]) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string") return new Date(value).getTime();
+  return value?.toDate?.().getTime() ?? 0;
+}
+
+function formatWorkoutDuration(seconds: number) {
+  const safeSeconds = Math.max(0, Math.round(seconds || 0));
+  return `${Math.floor(safeSeconds / 60)}min ${String(safeSeconds % 60).padStart(2, "0")}s`;
+}
+
+type WorkoutCompletionSummary = { durationSeconds: number; calories: number; maxLoad: number; maxReps: number; completedSets: number; totalSets: number };
 
 type ChargeViewStatus = "paid" | "overdue" | "dueSoon" | "pending";
 
@@ -1981,9 +2109,9 @@ function exercisePhaseGuide(phase: ExercisePhase) {
 }
 
 function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggle, onParameterChange, onEdit, onRemove, accessRole }: { exercises: ExerciseRecord[]; selectedExercises: string[]; exerciseDetails: Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>; onToggle: (exercise: ExerciseRecord) => void; onParameterChange: (exerciseId: string, field: "sets" | "reps" | "load" | "rest", value: string) => void; onEdit: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void; accessRole: string }) {
-  const [openPhases, setOpenPhases] = useState<ExercisePhase[]>([]);
+  const [openPhases, setOpenPhases] = useState<ExercisePhase[]>(["Preparação"]);
   function togglePhase(currentPhase: ExercisePhase) { setOpenPhases((current) => current.includes(currentPhase) ? current.filter((item) => item !== currentPhase) : [...current, currentPhase]); }
-  return <div className="exercise-picker">{exercisePhaseOrder.map((currentPhase) => {
+  return <div className="exercise-picker"><div className="exercise-picker-intro"><span>2 · BIBLIOTECA JÁ CADASTRADA</span><strong>Escolha os exercícios da ficha</strong><p>Preparação, treino principal e cardio são fases da mesma biblioteca. Use <b>Adicionar</b> para colocar um movimento no programa.</p></div>{exercisePhaseOrder.map((currentPhase) => {
     const phaseExercises = exercises.filter((exercise) => (exercise.phase ?? "Treino principal") === currentPhase);
     if (!phaseExercises.length) return null;
     const isOpen = openPhases.includes(currentPhase);
@@ -1991,15 +2119,22 @@ function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggl
     return <section className={isOpen ? "exercise-phase-group open" : "exercise-phase-group"} key={currentPhase}><button className="collapse-header" type="button" onClick={() => togglePhase(currentPhase)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exercisePhaseIcon(currentPhase)}{currentPhase}</span><small>{phaseExercises.length} exercícios · {guide.label}</small></button>{isOpen && <div className="collapse-content"><div className="exercise-phase-guide"><strong>{guide.label}</strong><p>{guide.detail}</p><ol><li>Escolha a região do corpo.</li><li>Abra o grupo muscular.</li><li>Marque o exercício e ajuste séries, repetições, carga e descanso.</li></ol></div>{exerciseRegionOrder.map((region) => {
       const regionExercises = phaseExercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region);
       if (!regionExercises.length) return null;
-      return <div className="exercise-region-group" key={region}><h4>{exerciseRegionIcon(region)}{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="exercise-class-group" key={`${region}-${muscleGroup}`}><h5>{muscleGroup}</h5>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const selected = selectedExercises.includes(exercise.id); const preview = exerciseGifSource(exercise); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><div className="exercise-choice-main"><label>{preview && <HoverGifPreview className="exercise-choice-gif" src={preview} alt={`Demonstração de ${exercise.name}`} />}<input type="checkbox" checked={selected} onChange={() => onToggle(exercise)} /><span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{!preview && " · sem GIF vinculado"}</small></span></label><div className="exercise-actions exercise-choice-actions"><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>{selected && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>Repetições<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>)}</div>;
+      return <div className="exercise-region-group" key={region}><h4>{exerciseRegionIcon(region)}{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="exercise-class-group" key={`${region}-${muscleGroup}`}><h5>{muscleGroup}</h5>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const selected = selectedExercises.includes(exercise.id); const preview = exerciseGifSource(exercise); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><div className="exercise-choice-main"><div className="exercise-choice-info">{preview && <HoverGifPreview className="exercise-choice-gif" src={preview} alt={`Demonstração de ${exercise.name}`} />}<span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{!preview && " · sem GIF vinculado"}</small></span></div><div className="exercise-actions exercise-choice-actions"><button type="button" className={selected ? "exercise-add-button added" : "exercise-add-button"} onClick={() => onToggle(exercise)}>{selected ? <><Check size={14} /> Adicionado</> : <><Plus size={14} /> Adicionar</>}</button><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>{selected && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>Repetições<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>)}</div>;
     })}</div>}</section>;
   })}</div>;
+}
+
+function WorkoutComposition({ exercises, selectedExercises, exerciseDetails, canSave, canPublish, saving, onSave, onParameterChange, onRemove }: { exercises: ExerciseRecord[]; selectedExercises: string[]; exerciseDetails: Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>; canSave: boolean; canPublish: boolean; saving: boolean; onSave: () => void; onParameterChange: (exerciseId: string, field: "sets" | "reps" | "load" | "rest", value: string) => void; onRemove: (exercise: ExerciseRecord) => void }) {
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
+  const selected = selectedExercises.map((id) => exercises.find((exercise) => exercise.id === id)).filter((exercise): exercise is ExerciseRecord => Boolean(exercise));
+  return <section className="workout-composition" aria-label="Exercícios incluídos no modelo"><header><div><small>MODELO EM MONTAGEM</small><strong>{selected.length} {selected.length === 1 ? "exercício adicionado" : "exercícios adicionados"}</strong></div><div className="workout-composition-header-actions"><span>Use o botão + na biblioteca abaixo</span><button className="detail-secondary" type="button" onClick={onSave} disabled={!canSave}>Salvar programa</button><button className="detail-save" type="submit" disabled={!canPublish || saving}>{saving ? "Enviando..." : "Enviar"}</button></div></header>{!selected.length ? <p>Comece por preparação, depois escolha os movimentos principais e finalize com cardio ou recuperação.</p> : <div>{selected.map((exercise, index) => { const editing = editingExerciseId === exercise.id; const detail = exerciseDetails[exercise.id]; return <article className={editing ? "editing" : ""} key={exercise.id}><div className="workout-composition-row"><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.muscleGroup} · {detail?.sets ?? "3"} séries × {detail?.reps ?? "10"}</small></div><div className="workout-composition-actions"><button type="button" className="workout-adjust-button" onClick={() => setEditingExerciseId(editing ? null : exercise.id)}>{editing ? "Concluir" : "Ajustar"}</button><button type="button" aria-label={`Remover ${exercise.name} do modelo`} onClick={() => onRemove(exercise)}><X size={15} /></button></div></div>{editing && <div className="workout-inline-parameters"><label>Séries<input value={detail?.sets ?? "3"} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>Repetições<input value={detail?.reps ?? "10"} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>Carga<input value={detail?.load ?? "0"} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>Descanso<input value={detail?.rest ?? "60"} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</article>; })}</div>}</section>;
 }
 
 function HoverGifPreview({ src, alt, className, placeholder = "GIF", focusable = true }: { src?: string; alt: string; className: string; placeholder?: string; focusable?: boolean }) {
   const [active, setActive] = useState(false);
   if (!src) return <span className={`${className} is-empty`}>{placeholder}</span>;
-  return <span className={className} tabIndex={focusable ? 0 : undefined} role="img" aria-label={alt} onMouseEnter={() => setActive(true)} onFocus={() => setActive(true)}>{active ? <img src={src} alt="" /> : <small>{placeholder}<b>Passe o mouse</b></small>}</span>;
+  function togglePreview() { setActive((current) => !current); }
+  return <button type="button" className={active ? `${className} is-playing` : className} aria-label={`${alt}. ${active ? "Toque para pausar" : "Toque para ver"}`} onClick={togglePreview} onMouseEnter={() => setActive(true)} onMouseLeave={() => setActive(false)} onFocus={() => setActive(true)} onBlur={() => setActive(false)} onKeyDown={(event) => { if (event.key === "Escape") setActive(false); }} tabIndex={focusable ? 0 : -1}>{active ? <img src={src} alt="" /> : <small>{placeholder}<b>Toque para ver</b></small>}</button>;
 }
 
 function gifLibraryStoragePath(file: string) {
@@ -2024,30 +2159,44 @@ function CatalogGifPreview({ item }: { item: GifCatalogItem }) {
 }
 
 function ExerciseLibrary({ exercises, accessRole, onEdit, onLinkGif, onRemove }: { exercises: ExerciseRecord[]; accessRole: string; onEdit: (exercise: ExerciseRecord) => void; onLinkGif: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void }) {
-  const [openRegions, setOpenRegions] = useState<BodyRegion[]>([]);
-  function toggleRegion(region: BodyRegion) { setOpenRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region]); }
-  return <div className="exercise-library">{exerciseRegionOrder.map((region) => {
-    const regionExercises = exercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region);
-    if (!regionExercises.length) return null;
-    const isOpen = openRegions.includes(region);
-    return <section className={isOpen ? "library-region-group open" : "library-region-group"} key={region}>
-      <button className="collapse-header" type="button" onClick={() => toggleRegion(region)}><span><ChevronDown className={isOpen ? "rotated" : ""} />{exerciseRegionIcon(region)}{region}</span><small>{regionExercises.length} exercícios</small></button>
-      {isOpen && <div className="collapse-content">{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${region}-${muscleGroup}`}>
-        <div className="library-class-heading"><h4>{muscleGroup}</h4><small>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).length} exercícios</small></div>
-        {regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const maleGif = exerciseGifSource(exercise); const femaleGif = exerciseGifSource(exercise, "feminino"); const hasSavedGif = Boolean(exercise.gifMaleUrl || exercise.gifUrl || exercise.gifFemaleUrl); return <div className="library-exercise-row" key={exercise.id}>
-          <HoverGifPreview className="library-exercise-gif" src={maleGif} alt={`Demonstração de ${exercise.name}`} />
-          <div><strong>{exercise.name}</strong><small>{exercise.phase ?? "Treino principal"} · {exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{maleGif && femaleGif ? " · GIF masculino e feminino" : maleGif ? " · GIF masculino" : femaleGif ? " · GIF feminino" : " · sem GIF"}{!hasSavedGif && maleGif ? " · catálogo revisado" : ""}</small></div>
-          <div className="exercise-actions"><button type="button" onClick={() => onLinkGif(exercise)}>{maleGif || femaleGif ? "Ajustar GIF" : "Vincular GIF"}</button><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div>
-        </div>; })}
-      </div>)}</div>}
-    </section>;
-  })}</div>;
+  const [openGroups, setOpenGroups] = useState<string[]>(["phase:Preparação", "phase:Treino principal", "phase:Cardio"]);
+  function toggleGroup(group: string) { setOpenGroups((current) => current.includes(group) ? current.filter((item) => item !== group) : [...current, group]); }
+  return <div className="exercise-library">
+    <div className="library-phase-legend"><span>FASES DA BIBLIOTECA</span><p>Os exercícios abaixo já estão cadastrados. A fase indica onde o professor pode usá-los na montagem da ficha.</p><div>{exercisePhaseOrder.filter((phase) => exercises.some((exercise) => (exercise.phase ?? "Treino principal") === phase)).map((phase) => <em key={phase}>{phase}</em>)}</div></div>
+    {exercisePhaseOrder.map((phase) => {
+      const phaseExercises = exercises.filter((exercise) => (exercise.phase ?? "Treino principal") === phase);
+      if (!phaseExercises.length) return null;
+      const phaseKey = `phase:${phase}`;
+      const isPhaseOpen = openGroups.includes(phaseKey);
+      const guide = exercisePhaseGuide(phase);
+      return <section className={isPhaseOpen ? "library-phase-group open" : "library-phase-group"} key={phase}>
+        <button className="collapse-header library-phase-header" type="button" onClick={() => toggleGroup(phaseKey)}><span><ChevronDown className={isPhaseOpen ? "rotated" : ""} />{exercisePhaseIcon(phase)}{phase}</span><small>{phaseExercises.length} exercícios · {guide.label}</small></button>
+        {isPhaseOpen && <div className="collapse-content"><p className="library-phase-description">{guide.detail}</p>{exerciseRegionOrder.map((region) => {
+          const regionExercises = phaseExercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region);
+          if (!regionExercises.length) return null;
+          const regionKey = `${phaseKey}:${region}`;
+          const isRegionOpen = openGroups.includes(regionKey);
+          return <section className={isRegionOpen ? "library-region-group open" : "library-region-group"} key={region}>
+            <button className="collapse-header" type="button" onClick={() => toggleGroup(regionKey)}><span><ChevronDown className={isRegionOpen ? "rotated" : ""} />{exerciseRegionIcon(region)}{region}</span><small>{regionExercises.length} exercícios</small></button>
+            {isRegionOpen && <div className="collapse-content">{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => <div className="library-class-group" key={`${regionKey}-${muscleGroup}`}>
+              <div className="library-class-heading"><h4>{muscleGroup}</h4><small>{regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).length} exercícios</small></div>
+              {regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup).map((exercise) => { const maleGif = exerciseGifSource(exercise); const femaleGif = exerciseGifSource(exercise, "feminino"); const hasSavedGif = Boolean(exercise.gifMaleUrl || exercise.gifUrl || exercise.gifFemaleUrl); return <div className="library-exercise-row" key={exercise.id}>
+                <HoverGifPreview className="library-exercise-gif" src={maleGif} alt={`Demonstração de ${exercise.name}`} />
+                <div><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{maleGif && femaleGif ? " · GIF masculino e feminino" : maleGif ? " · GIF masculino" : femaleGif ? " · GIF feminino" : " · sem GIF"}{exercise.gifMatch === "equivalent" ? " · demonstração equivalente" : ""}{!hasSavedGif && maleGif ? " · catálogo revisado" : ""}</small></div>
+                <div className="exercise-actions"><button type="button" onClick={() => onLinkGif(exercise)}>{maleGif || femaleGif ? "Ajustar GIF" : "Vincular GIF"}</button><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div>
+              </div>; })}
+            </div>)}</div>}
+          </section>;
+        })}</div>}
+      </section>;
+    })}
+  </div>;
 }
 
 type GifCatalogItem = { id: string; name: string; file: string; url: string; equipment: string; muscle: string; profile: "masculino" | "feminino" };
 type SelectedCatalogGif = { url: string; path: string; profile: "masculino" | "feminino" };
 
-function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle, onClose, onSelect }: { open: boolean; initialQuery: string; initialEquipment: string; initialMuscle: string; onClose: () => void; onSelect: (item: GifCatalogItem) => Promise<void> }) {
+function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle, usedGifPaths, onClose, onSelect }: { open: boolean; initialQuery: string; initialEquipment: string; initialMuscle: string; usedGifPaths: string[]; onClose: () => void; onSelect: (item: GifCatalogItem) => Promise<void> }) {
   const [items, setItems] = useState<GifCatalogItem[]>([]);
   const [profileFilter, setProfileFilter] = useState<"" | "masculino" | "feminino">("");
   const [equipment, setEquipment] = useState("");
@@ -2067,16 +2216,18 @@ function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle,
   useEffect(() => { if (open) { setProfileFilter(""); setQuery(initialQuery); setEquipment(initialEquipment); setMuscle(initialMuscle); } }, [initialEquipment, initialMuscle, initialQuery, open]);
   if (!open) return null;
   const normalized = query.trim().toLocaleLowerCase("pt-BR");
+  const usedPaths = new Set(usedGifPaths.map((path) => path.replace(/^\/+/, "")));
   const scopedItems = items.filter((item) => !profileFilter || item.profile === profileFilter);
   const equipmentFolders = Array.from(new Set(scopedItems.map((item) => item.equipment))).sort();
   const muscleFolders = Array.from(new Set(scopedItems.filter((item) => !equipment || item.equipment === equipment).map((item) => item.muscle))).sort();
   const filtered = scopedItems.filter((item) => (!equipment || item.equipment === equipment) && (!muscle || item.muscle === muscle) && (!normalized || `${item.name} ${item.equipment} ${item.muscle} ${item.profile}`.toLocaleLowerCase("pt-BR").includes(normalized))).slice(0, 48);
-  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · TODOS OS PERFIS</span><h3>Escolher demonstração</h3><p>Navegue pelas pastas de perfil, equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando os catálogos masculino e feminino…</p> : <><p className="panel-helper">Escolha uma pasta de perfil para separar os GIFs masculinos e femininos, ou mantenha “Todos” para pesquisar a biblioteca completa.</p><div className="gif-folder-browser"><div><small>1 · PERFIL DA DEMONSTRAÇÃO</small><div className="gif-folder-list"><button type="button" className={!profileFilter ? "active" : ""} onClick={() => { setProfileFilter(""); setEquipment(""); setMuscle(""); setQuery(""); }}>TODOS OS GIFS</button><button type="button" className={profileFilter === "masculino" ? "active" : ""} onClick={() => { setProfileFilter("masculino"); setEquipment(""); setMuscle(""); setQuery(""); }}>MASCULINO</button><button type="button" className={profileFilter === "feminino" ? "active" : ""} onClick={() => { setProfileFilter("feminino"); setEquipment(""); setMuscle(""); setQuery(""); }}>FEMININO</button></div></div><div><small>2 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>3 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca opcional: shoulder, bench press, squat..." />{!equipment && <p className="panel-helper">Escolha uma pasta de equipamento para refinar os movimentos.</p>}<div className="gif-catalog-grid">{filtered.map((item) => <button type="button" key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><CatalogGifPreview item={item} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{item.profile === "feminino" ? "Feminino" : "Masculino"} · {item.equipment} · {item.muscle}</small></span></button>)}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
+  const usedCount = items.filter((item) => usedPaths.has(gifLibraryStoragePath(item.file))).length;
+  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · TODOS OS PERFIS</span><h3>Escolher demonstração</h3><p>Navegue pelas pastas de perfil, equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando os catálogos masculino e feminino…</p> : <><div className="gif-catalog-summary" aria-label="Resumo da biblioteca"><div><small>CATÁLOGO TOTAL</small><strong>{items.length.toLocaleString("pt-BR")}</strong><span>GIFs disponíveis</span></div><div><small>EM USO NESTA ACADEMIA</small><strong>{usedCount.toLocaleString("pt-BR")}</strong><span>já vinculados a exercícios</span></div><div><small>DISPONÍVEIS</small><strong>{Math.max(0, items.length - usedCount).toLocaleString("pt-BR")}</strong><span>prontos para usar</span></div></div><p className="panel-helper">Escolha uma pasta de perfil para separar os GIFs masculinos e femininos, ou mantenha “Todos” para pesquisar a biblioteca completa.</p><div className="gif-folder-browser"><div><small>1 · PERFIL DA DEMONSTRAÇÃO</small><div className="gif-folder-list"><button type="button" className={!profileFilter ? "active" : ""} onClick={() => { setProfileFilter(""); setEquipment(""); setMuscle(""); setQuery(""); }}>TODOS OS GIFS</button><button type="button" className={profileFilter === "masculino" ? "active" : ""} onClick={() => { setProfileFilter("masculino"); setEquipment(""); setMuscle(""); setQuery(""); }}>MASCULINO</button><button type="button" className={profileFilter === "feminino" ? "active" : ""} onClick={() => { setProfileFilter("feminino"); setEquipment(""); setMuscle(""); setQuery(""); }}>FEMININO</button></div></div><div><small>2 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>3 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca opcional: shoulder, bench press, squat..." />{!equipment && <p className="panel-helper">Escolha uma pasta de equipamento para refinar os movimentos.</p>}<div className="gif-catalog-grid">{filtered.map((item) => { const inUse = usedPaths.has(gifLibraryStoragePath(item.file)); return <button type="button" className={inUse ? "is-in-use" : ""} key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><CatalogGifPreview item={item} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{item.profile === "feminino" ? "Feminino" : "Masculino"} · {item.equipment} · {item.muscle}</small><em className={inUse ? "gif-use-badge used" : "gif-use-badge"}>{inUse ? "Em uso" : "Disponível"}</em></span></button>; })}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
 }
 
 function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTemplate, onEditWorkout, onRemoveWorkout }: { templates: WorkoutTemplateRecord[]; workouts: WorkoutRecord[]; onEditTemplate: (template: WorkoutTemplateRecord) => void; onRemoveTemplate: (template: WorkoutTemplateRecord) => void; onEditWorkout: (workout: WorkoutRecord) => void; onRemoveWorkout: (workout: WorkoutRecord) => void }) {
   const empty = templates.length === 0 && workouts.length === 0;
-  return <section className="workspace-panel published-workouts"><header><div><span>MODELOS E TREINOS PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{empty ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha para reutilizar depois.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Modelo</em><button type="button" onClick={() => onEditTemplate(template)}>Editar</button><button type="button" onClick={() => onRemoveTemplate(template)}>Excluir</button></div></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Publicado</em><button type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={13} /> Imprimir</button><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>)}</div>}</section>;
+  return <section className="workspace-panel published-workouts"><header><div><span>PROGRAMAS E TREINOS PUBLICADOS</span><h3>{templates.length} programas-base · {workouts.length} enviados</h3></div></header>{empty ? <div className="directory-empty"><Dumbbell /><p>Crie um programa-base para reutilizá-lo com novos alunos.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>{template.level ?? "Fundação"} · programa reutilizável · {template.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>{template.level ?? "Fundação"}</em><button type="button" onClick={() => onEditTemplate(template)}>Abrir</button><button type="button" onClick={() => onRemoveTemplate(template)}>Excluir</button></div></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><div className="published-item-actions"><em>Enviado</em><button type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={13} /> Imprimir</button><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>)}</div>}</section>;
 }
 
 function GifLibraryImporter({ onFeedback }: { onFeedback: (message: string) => void }) {
@@ -2206,7 +2357,7 @@ function GifLibraryImporter({ onFeedback }: { onFeedback: (message: string) => v
     onFeedback(message);
   }
   if (access.accountType !== "developer") return null;
-  return <section className="workspace-panel gif-library-importer"><header><div><span>BIBLIOTECA GLOBAL</span><h3>Importação única dos GIFs</h3><p>O pacote fica no Firebase Storage e poderá ser usado por todas as academias. A gestora não precisará repetir esse envio.</p></div></header><div className="gif-library-import-actions"><label className="detail-secondary">Escolher pasta ou arquivos GIF<input type="file" accept="image/gif,.gif" multiple {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={selectFolder} disabled={running} /></label><button className="detail-save" type="button" onClick={() => void importLibrary()} disabled={running}>{running ? "Importando biblioteca..." : files.length ? "Importar uma vez" : "Selecionar GIFs primeiro"}</button></div>{notice && <small className="gif-library-notice" role="status">{notice}</small>}{files.length > 0 && <small className="panel-helper">{files.length} GIFs selecionados. Os arquivos já enviados serão ignorados.</small>}{progress && <div className="gif-library-progress"><div><strong>{progress.done + progress.skipped} de {progress.total}</strong><span>{progress.status === "running" ? `${progress.failed} falhas · ${progress.current}` : progress.status === "completed" ? `${progress.done} enviados · ${progress.skipped} já existentes · ${progress.failed} falhas` : `interrompido · ${progress.failed} falhas`}</span></div><div className="gif-library-progress-track"><i style={{ width: `${Math.round(((progress.done + progress.skipped) / Math.max(progress.total, 1)) * 100)}%` }} /></div></div>}</section>;
+  return <section className="workspace-panel gif-library-importer gif-library-importer-footer"><header><div><span>BIBLIOTECA GLOBAL</span><h3>Importação única dos GIFs</h3><p>Ferramenta técnica do desenvolvedor. O pacote fica no Firebase Storage e poderá ser usado por todas as academias. A gestora não precisará repetir esse envio.</p></div></header><div className="gif-library-import-actions"><label className="detail-secondary">Escolher pasta ou arquivos GIF<input type="file" accept="image/gif,.gif" multiple {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={selectFolder} disabled={running} /></label><button className="detail-save" type="button" onClick={() => void importLibrary()} disabled={running}>{running ? "Importando biblioteca..." : files.length ? "Importar uma vez" : "Selecionar GIFs primeiro"}</button></div>{notice && <small className="gif-library-notice" role="status">{notice}</small>}{files.length > 0 && <small className="panel-helper">{files.length} GIFs selecionados. Os arquivos já enviados serão ignorados.</small>}{progress && <div className="gif-library-progress"><div><strong>{progress.done + progress.skipped} de {progress.total}</strong><span>{progress.status === "running" ? `${progress.failed} falhas · ${progress.current}` : progress.status === "completed" ? `${progress.done} enviados · ${progress.skipped} já existentes · ${progress.failed} falhas` : `interrompido · ${progress.failed} falhas`}</span></div><div className="gif-library-progress-track"><i style={{ width: `${Math.round(((progress.done + progress.skipped) / Math.max(progress.total, 1)) * 100)}%` }} /></div></div>}</section>;
 }
 
 function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {
@@ -2239,6 +2390,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [exerciseType, setExerciseType] = useState<ExerciseType>("Força");
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [workoutName, setWorkoutName] = useState("");
+  const [workoutLevel, setWorkoutLevel] = useState<WorkoutLevel>("Fundação");
   const [studentId, setStudentId] = useState(initialStudentId);
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
   const [exerciseDetails, setExerciseDetails] = useState<Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>>({});
@@ -2263,7 +2415,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; teacherId?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
       setExerciseSnapshotReady(true);
     });
     const unsubscribeMachines = onSnapshot(query(collection(db, "academies", access.academyId, "stockItems"), where("kind", "==", "machine")), (snapshot) => setStockMachines(snapshot.docs.map((item) => { const data = item.data() as { name?: string; machineCode?: string }; return { id: item.id, name: data.name ?? "Máquina", machineCode: data.machineCode }; })));
@@ -2504,33 +2656,45 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const firestore = db;
     const firebaseStorage = storage;
     const pending = exercises.filter((exercise) => {
-      const verified = verifiedExerciseGifs[exerciseGifKey(exercise.name)];
-      return Boolean(verified) && !exercise.gifMaleUrl && !exercise.gifUrl && !autoLinkedExerciseIds.current.has(exercise.id);
+      const key = exerciseGifKey(exercise.name);
+      const verified = verifiedExerciseGifs[key];
+      const needsMale = !exercise.gifMaleUrl && !exercise.gifUrl;
+      const needsFemale = Boolean(verifiedFemaleGifUrls[key]) && !exercise.gifFemaleUrl;
+      return Boolean(verified) && (needsMale || needsFemale) && !autoLinkedExerciseIds.current.has(exercise.id);
     });
     if (!pending.length) return;
     pending.forEach((exercise) => autoLinkedExerciseIds.current.add(exercise.id));
     void (async () => {
       const resolved = await Promise.all(pending.map(async (exercise) => {
-        const verified = verifiedExerciseGifs[exerciseGifKey(exercise.name)];
+        const key = exerciseGifKey(exercise.name);
+        const verified = verifiedExerciseGifs[key];
         if (!verified) return null;
+        const femaleUrl = verifiedFemaleGifUrls[key] || verified.femaleUrl || "";
+        const existingMaleUrl = exercise.gifMaleUrl || exercise.gifUrl || "";
+        const existingMalePath = exercise.gifMalePath || exercise.gifPath || "";
+        if (existingMaleUrl) return { exercise, path: existingMalePath, url: existingMaleUrl, femaleUrl };
         try {
           const path = gifLibraryStoragePath(verified.maleFile);
           const url = await getDownloadURL(storageRef(firebaseStorage, path));
-          return { exercise, path, url };
+          return { exercise, path, url, femaleUrl };
         } catch {
-          return null;
+          return femaleUrl ? { exercise, path: "", url: "", femaleUrl } : null;
         }
       }));
       const available = resolved.filter((item): item is NonNullable<typeof item> => Boolean(item));
       if (!available.length) return;
       const batch = writeBatch(firestore);
-      available.forEach(({ exercise, path, url }) => {
+      available.forEach(({ exercise, path, url, femaleUrl }) => {
+        const verified = verifiedExerciseGifs[exerciseGifKey(exercise.name)];
+        const mediaPatch = {
+          ...(url ? { gifUrl: url, gifMaleUrl: url } : {}),
+          ...(path ? { gifPath: path, gifMalePath: path } : {}),
+          ...(femaleUrl ? { gifFemaleUrl: femaleUrl } : {}),
+        };
         batch.set(doc(firestore, "academies", access.academyId, "exercises", exercise.id), {
-          gifUrl: url,
-          gifPath: path,
-          gifMaleUrl: url,
-          gifMalePath: path,
+          ...mediaPatch,
           gifLinkedFrom: "global-library",
+          gifMatch: verified?.match ?? "exact",
           updatedAt: serverTimestamp(),
           updatedBy: access.userId,
         }, { merge: true });
@@ -2573,7 +2737,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       const nextWorkouts = editingWorkoutId ? workouts.map((item) => item.id === editingWorkoutId ? localWorkout : item) : [...workouts, localWorkout];
       setWorkouts(nextWorkouts);
       writeLocalCollection(access.academyId, "workouts", nextWorkouts);
-      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); setEditingWorkoutId(null);
+      setWorkoutName(""); setWorkoutLevel("Fundação"); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); setEditingWorkoutId(null);
       onFeedback(editingWorkoutId ? "Treino atualizado no modo local." : "Treino publicado no modo local.");
       return;
     }
@@ -2587,7 +2751,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
         await addDoc(collection(db, "academies", access.academyId, "workouts"), { ...workoutData, createdBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp() });
         onFeedback("Treino publicado para o aluno.");
       }
-      setWorkoutName(""); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); setEditingWorkoutId(null);
+      setWorkoutName(""); setWorkoutLevel("Fundação"); setStudentId(""); setSelectedExercises([]); setExerciseDetails({}); setEditingWorkoutId(null);
     } catch { onFeedback("Não foi possível publicar o treino."); }
     finally { setSaving(false); }
   }
@@ -2604,7 +2768,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
-      const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
+      const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
       const nextTemplates = editingTemplateId ? templates.map((item) => item.id === editingTemplateId ? localTemplate : item) : [...templates, localTemplate];
       setTemplates(nextTemplates);
       writeLocalCollection(access.academyId, "workoutTemplates", nextTemplates);
@@ -2613,7 +2777,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       return;
     }
     try {
-      const templateData = { name: workoutName.trim(), exerciseIds: selectedExercises, exerciseDetails: details, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const templateData = { name: workoutName.trim(), level: workoutLevel, exerciseIds: selectedExercises, exerciseDetails: details, updatedBy: access.userId, updatedAt: serverTimestamp() };
       if (editingTemplateId) {
         await updateDoc(doc(db, "academies", access.academyId, "workoutTemplates", editingTemplateId), templateData);
         onFeedback("Modelo de treino atualizado.");
@@ -2630,6 +2794,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (!template) return;
     setEditingTemplateId(null); setEditingWorkoutId(null);
     setWorkoutName(template.name);
+    setWorkoutLevel(template.level ?? "Fundação");
     setSelectedExercises(template.exerciseIds);
     setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
     scrollToContent(".training-layout-redesigned .training-form-panel");
@@ -2637,13 +2802,13 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function beginTemplateEdit(template: WorkoutTemplateRecord) {
-    setEditingTemplateId(template.id); setEditingWorkoutId(null); setWorkoutName(template.name); setStudentId(""); setSelectedExercises(template.exerciseIds);
+    setEditingTemplateId(template.id); setEditingWorkoutId(null); setWorkoutName(template.name); setWorkoutLevel(template.level ?? "Fundação"); setStudentId(""); setSelectedExercises(template.exerciseIds);
     setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
     scrollToContent(".training-layout-redesigned .training-form-panel"); onFeedback("Modelo carregado para edição.");
   }
 
   function beginWorkoutEdit(workout: WorkoutRecord) {
-    setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setStudentId(workout.studentId); setSelectedExercises(workout.exerciseIds);
+    setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setWorkoutLevel("Fundação"); setStudentId(workout.studentId); setSelectedExercises(workout.exerciseIds);
     setExerciseDetails(Object.fromEntries((workout.exerciseDetails ?? []).map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
     scrollToContent(".training-layout-redesigned .training-form-panel"); onFeedback("Treino carregado para edição.");
   }
@@ -2699,19 +2864,33 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   const linkedGifCount = exercises.filter((exercise) => Boolean(exerciseGifSource(exercise))).length;
   const pendingGifCount = Math.max(0, exercises.length - linkedGifCount);
+  const usedGifPaths = exercises.flatMap((exercise) => [exercise.gifPath, exercise.gifMalePath, exercise.gifFemalePath].filter((path): path is string => Boolean(path)));
 
   return <div className="workspace-content module-view">
     <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Monte uma ficha por etapas, salve modelos e publique para um aluno quando estiver pronta.</p></div></section>
-    <section className="workspace-panel training-machine-quickselect"><label>Máquina do exercício<select value={exerciseEquipment} onChange={(event) => setExerciseEquipment(event.target.value)}><option value="">Sem máquina · peso livre/corporal</option>{stockMachines.map((machine) => <option key={machine.id} value={machine.name}>{machine.name}</option>)}</select><small>As opções vêm do Estoque e o QR Code da máquina fica vinculado ao exercício.</small></label></section>
-    {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
-    {access.accountType === "developer" && <GifLibraryImporter onFeedback={onFeedback} />}
+     {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
+     {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
     <section className="training-layout training-layout-redesigned">
-      <article className="workspace-panel training-form-panel"><header><div><span>1 · MONTAGEM DA FICHA</span><h3>Escolher exercícios</h3><p className="panel-helper">Comece pela preparação, avance para o treino principal e finalize com cardio ou alongamento.</p></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Modelo existente<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Criar ficha do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome da ficha<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Peito e bíceps · A" required /></label><label>Aluno específico <span className="optional-label">opcional para salvar como modelo</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · salvar modelo</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} accessRole={access.role} /><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} /><div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar modelo</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Publicar para aluno"}</button></div></form></article>
-      <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS</span><h3>Organizada por corpo e classe</h3><p className="panel-helper">{linkedGifCount} movimentos com GIF disponível · {pendingGifCount} sem vínculo confirmado. Sem vínculo confirmado significa que o exercício ainda não tem GIF salvo nem correspondência revisada; os GIFs do catálogo continuam disponíveis para escolha.</p></div><button className="detail-secondary" type="button" onClick={exportExerciseGifReport}><Download size={14} /> Exportar relatório</button></header><div className="starter-library-box"><p>Inclui musculação, peso corporal, alongamento, mobilidade e cardio.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); setSelectedCatalogGif(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O perfil será ajustado automaticamente quando você escolher um GIF na galeria.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => { setGifFile(event.target.files?.[0] ?? null); setSelectedCatalogGif(null); }} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria completa de GIFs</button>{(gifFile || selectedCatalogGif) && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : selectedCatalogGif ? `GIF global selecionado para ${gifProfile}.` : `Selecionado para ${gifProfile}: ${gifFile?.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form></article>
+      <article className="workspace-panel training-form-panel workout-builder-panel">
+        <header><div><span>1 · PROGRAMA E FICHA</span><h3>Monte uma vez. Use sempre.</h3><p className="panel-helper">Crie um programa-base por nível, adicione os exercícios com + e publique para um aluno quando precisar.</p></div></header>
+        <form className="student-detail-form" onSubmit={createWorkout}>
+          <div className="workout-builder-fields">
+            <label>Começar com programa-base<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Novo programa do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.level ?? "Fundação"} · {template.name}</option>)}</select></label>
+            <label>Nível do programa<select value={workoutLevel} onChange={(event) => setWorkoutLevel(event.target.value as WorkoutLevel)}><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label>
+            <label>Nome do programa<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Fundamentos · Corpo inteiro A" required /></label>
+            <label>Enviar para aluno <span className="optional-label">opcional ao salvar programa-base</span><select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Nenhum aluno · apenas salvar</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>
+          </div>
+          <WorkoutComposition exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} canSave={Boolean(workoutName.trim() && selectedExercises.length)} canPublish={Boolean(workoutName.trim() && studentId && selectedExercises.length)} saving={saving} onSave={() => void saveTemplate()} onParameterChange={updateExerciseParameter} onRemove={toggleExercise} />
+          <ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} accessRole={access.role} />
+          <div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>{editingTemplateId ? "Atualizar programa-base" : "Salvar programa-base"}</button><button className="detail-save" type="submit" disabled={saving || !studentId || selectedExercises.length === 0}>{saving ? "Publicando..." : "Enviar para aluno"}</button></div>
+        </form>
+      </article>
+       <article className="workspace-panel training-form-panel exercise-library-panel"><header><div><span>BIBLIOTECA DE EXERCÍCIOS JÁ CADASTRADOS</span><h3>Montar exercício do zero</h3><p className="panel-helper">Preencha os campos, escolha a fase, a região do corpo, a máquina ou equipamento e a demonstração. Ao salvar, o exercício entra automaticamente no grupo correto da biblioteca.</p></div><button className="detail-secondary" type="button" onClick={exportExerciseGifReport}><Download size={14} /> Exportar relatório</button></header><div className="starter-library-box"><p>A biblioteca já reúne musculação, peso corporal, alongamento, mobilidade e cardio. Use o formulário para acrescentar novos movimentos.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Máquina ou equipamento<select value={exerciseEquipment} onChange={(event) => setExerciseEquipment(event.target.value)}><option value="">Sem máquina · peso livre/corporal</option>{stockMachines.map((machine) => <option key={machine.id} value={machine.name}>{machine.name}{machine.machineCode ? ` · ${machine.machineCode}` : ""}</option>)}</select><small>As máquinas vêm do Estoque; o código QR permanece vinculado ao equipamento.</small></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); setSelectedCatalogGif(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O perfil será ajustado automaticamente quando você escolher um GIF na galeria.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => { setGifFile(event.target.files?.[0] ?? null); setSelectedCatalogGif(null); }} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria completa de GIFs</button>{(gifFile || selectedCatalogGif) && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : selectedCatalogGif ? `GIF global selecionado para ${gifProfile}.` : `Selecionado para ${gifProfile}: ${gifFile?.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} /></article>
     </section>
-    <PublishedWorkouts templates={templates} workouts={workouts} onEditTemplate={beginTemplateEdit} onRemoveTemplate={(template) => void removeTemplate(template)} onEditWorkout={beginWorkoutEdit} onRemoveWorkout={(workout) => void removeWorkout(workout)} />
+     <PublishedWorkouts templates={templates} workouts={workouts} onEditTemplate={beginTemplateEdit} onRemoveTemplate={(template) => void removeTemplate(template)} onEditWorkout={beginWorkoutEdit} onRemoveWorkout={(workout) => void removeWorkout(workout)} />
+     {access.accountType === "developer" && <GifLibraryImporter onFeedback={onFeedback} />}
     {editingExerciseId && <button className="gif-catalog-launcher" type="button" onClick={() => setGifCatalogOpen(true)}>Escolher GIF do catálogo</button>}
-    <GifCatalogPicker open={gifCatalogOpen} initialQuery={gifCatalogQuery(exerciseName, muscleGroup)} initialEquipment={gifCatalogFilters(exerciseName, muscleGroup).equipment} initialMuscle={gifCatalogFilters(exerciseName, muscleGroup).muscle} onClose={() => setGifCatalogOpen(false)} onSelect={chooseGifFromCatalog} />
+    <GifCatalogPicker open={gifCatalogOpen} initialQuery={gifCatalogQuery(exerciseName, muscleGroup)} initialEquipment={gifCatalogFilters(exerciseName, muscleGroup).equipment} initialMuscle={gifCatalogFilters(exerciseName, muscleGroup).muscle} usedGifPaths={usedGifPaths} onClose={() => setGifCatalogOpen(false)} onSelect={chooseGifFromCatalog} />
   </div>;
 
   return (
@@ -3183,7 +3362,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       setStudentCharges(snapshot.docs.map((item) => { const data = item.data() as Omit<MonthlyCharge, "id">; return { id: item.id, ...data, amount: Number(data.amount ?? 0), status: (data.status === "paid" ? "paid" : "pending") as MonthlyCharge["status"] }; }).sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
     }) : () => setStudentCharges([]);
     const unsubscribeExecutions = onSnapshot(query(collection(db, "academies", access.academyId, "workoutExecutions"), where("studentId", "==", selectedId)), (snapshot) => {
-      setStudentExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => (b.completedAt?.toDate?.().getTime() ?? 0) - (a.completedAt?.toDate?.().getTime() ?? 0)));
+      setStudentExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)));
     });
     const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
@@ -3566,7 +3745,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="permissions-title">
       <section className="permissions-panel">
-        <header><div><span>{access.accountType === "developer" ? "CENTRAL DE DESENVOLVIMENTO" : "CONFIGURAÇÕES DA ACADEMIA"}</span><h2 id="permissions-title">Configurações</h2><p>{access.accountType === "developer" ? "Libere ambientes isolados para donos de academia e acompanhe a plataforma." : "Organize equipe, permissões e aparência do ambiente."}</p></div><button aria-label="Fechar configurações" onClick={onClose}><X /></button></header>
+        <header><div><span>{access.accountType === "developer" ? "CENTRAL DE DESENVOLVIMENTO" : "CONFIGURAÇÕES DA ACADEMIA"}</span><h2 id="permissions-title">Configurações</h2><p>{access.accountType === "developer" ? "Libere ambientes isolados para donos de academia e acompanhe a plataforma." : "Equipe, funcionamento, aparência e comunicados da academia."}</p></div><button aria-label="Fechar configurações" onClick={onClose}><X /></button></header>
         <section className="settings-section">
           <div className="settings-section-heading"><div><span>CONTROLE DE ACESSO</span><h3>Equipe e permissões</h3></div><small>Quem pode acessar cada área</small></div>
           <div className="permission-roles">
@@ -3579,11 +3758,11 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           <p>Abra a central em uma tela própria para acompanhar academias reais, mensalidades, acessos e auditoria sem apertar as configurações.</p>
           <button className="detail-save" type="button" onClick={() => setDeveloperConsoleOpen(true)}>Abrir Central do Desenvolvedor</button>
         </section>}
+        {access.accountType !== "developer" && <AcademyHoursSettings onFeedback={onFeedback} />}
         <section className="settings-section appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />
         </section>
-        {access.accountType !== "developer" && <AcademyHoursSettings onFeedback={onFeedback} />}
         <section className="settings-section settings-announcement-section">
           <ManagerAnnouncementComposer />
         </section>

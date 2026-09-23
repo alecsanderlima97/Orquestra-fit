@@ -3,8 +3,8 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Orquestra Fit | Dama de Ferro Academia",
-  description: "Plataforma Orquestra Fit para gestão, professores e alunos da Dama de Ferro Academia.",
+  title: "Orquestra Fit | Plataforma de academias",
+  description: "Gestão, treinos e evolução para academias no Orquestra Fit.",
   other: {
     "codex-preview": "development",
   },

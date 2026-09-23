@@ -45,7 +45,10 @@ export function AppGuide({ role }: { role: Role }) {
 
   useEffect(() => {
     const key = `orquestra-fit:guide-seen:${role}`;
-    if (!localStorage.getItem(key)) setOpen(true);
+    const timer = window.setTimeout(() => {
+      if (!localStorage.getItem(key)) setOpen(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [role]);
 
   function close() {

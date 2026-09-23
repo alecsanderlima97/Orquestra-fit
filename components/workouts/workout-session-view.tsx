@@ -84,6 +84,13 @@ export function WorkoutSessionView(props: Props) {
         const hasInstructions = instructions && instructions !== "Orientação objetiva será adicionada pelo professor.";
         const timedReps = /\b(s|seg|segundos|min|minutos)\b/i.test(exercise.reps);
         const panelId = `workout-exercise-${index}`;
+        if (isComplete && !isOpen) return <article className="workout-exercise is-complete is-collapsed" key={`${index}-${exercise.name}`}>
+          <button className="workout-exercise-complete-summary" type="button" aria-expanded="false" aria-controls={panelId} onClick={() => props.onOpen(index)}>
+            <span className="workout-complete-icon"><Check size={17} /></span>
+            <span><small>EXERCÍCIO CONCLUÍDO</small><strong>{exercise.name}</strong></span>
+            <ChevronRight size={18} aria-hidden="true" />
+          </button>
+        </article>;
         return <article className={`workout-exercise ${isOpen ? "is-open" : "is-closed"}${isComplete ? " is-complete" : ""}`} key={`${index}-${exercise.name}`}>
           <button className="workout-exercise-toggle" type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => props.onOpen(isOpen ? null : index)}>
             <span className="workout-exercise-meta"><span className="workout-exercise-number">{isComplete ? <Check size={15} /> : String(index + 1).padStart(2, "0")}</span><span>{exercise.group}</span><span className="workout-exercise-state">{isComplete ? "Concluído" : completed ? `${completed}/${exercise.sets} feitas` : isOpen ? "Em foco" : ""}</span></span>
