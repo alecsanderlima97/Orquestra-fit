@@ -9,11 +9,12 @@ import {
   Activity, ArrowLeft, ArrowRight, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
   ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, Clock3, Dumbbell, Flame, Gauge,
   House, LayoutDashboard, Menu, MoreHorizontal, Palette, Play, Plus, Printer, Search, Settings,
-  Download, Eye, EyeOff, PersonStanding, QrCode, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, Package, X,
+  Download, Eye, EyeOff, PersonStanding, QrCode, Share2, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, Package, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
 import { WorkoutSessionView } from "@/components/workouts/workout-session-view";
+import { WorkoutShareCard } from "@/components/workouts/workout-share-card";
 import { FinanceModule } from "@/components/finance/finance-module-v2";
 import { AppGuide } from "@/components/assistant/app-guide";
 import { StockModule } from "@/components/stock/stock-module";
@@ -1535,10 +1536,16 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
  }
 
 function WorkoutCompletionSummary({ name, summary, onClose }: { name: string; summary: WorkoutCompletionSummary; onClose: () => void }) {
+  const access = useAccess();
+  const profile = useRegisteredProfile();
+  const [sharing, setSharing] = useState(false);
+  const studentName = accountName(profile?.name || profile?.displayName || access.user.displayName, access.user.email);
+  const profilePhoto = profile?.photoUrl || access.user.photoURL || "";
+  if (sharing) return <WorkoutShareCard workoutName={name} studentName={studentName} profilePhoto={profilePhoto} summary={summary} onClose={() => setSharing(false)} />;
   return <div className="workout-completion-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-completion-title">
     <section className="workout-completion-card"><div className="workout-completion-mark"><Trophy size={25} /></div><small>CONQUISTA REGISTRADA</small><h2 id="workout-completion-title">Treino concluído</h2><p>{name} foi salvo no seu progresso pessoal.</p>
       <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Flame size={17} /><small>Calorias</small><strong>≈ {summary.calories} kcal</strong></div><div><Dumbbell size={17} /><small>Maior carga</small><strong>{summary.maxLoad > 0 ? `${summary.maxLoad} kg` : "Peso corporal"}</strong></div><div><Activity size={17} /><small>Maior repetição</small><strong>{summary.maxReps || "—"}</strong></div></div>
-      <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button>
+      <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p><div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
     </section>
   </div>;
 }
