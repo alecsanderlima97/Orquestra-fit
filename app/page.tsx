@@ -26,7 +26,7 @@ type Role = "aluno" | "professor" | "gestao";
 type Theme = "bronze" | "prata";
 type AccountProfile = { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string };
 type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; createdAt?: { toDate?: () => Date } };
-type NotificationItem = { id: string; type: "announcement" | "message" | "workout" | "dueSoon" | "overdue"; title: string; detail: string };
+type NotificationItem = { id: string; type: "announcement" | "message" | "workout" | "dueSoon" | "overdue"; title: string; detail: string; createdAt?: unknown };
 
 const FeedbackContext = createContext<(message: string) => void>(() => undefined);
 
@@ -960,11 +960,16 @@ function useStudentNotificationItems(includeStudentData = true) {
   const items: NotificationItem[] = [
     ...charges.filter((charge) => chargeViewStatus(charge) === "overdue").map((charge) => ({ id: `charge-${charge.id}`, type: "overdue" as const, title: "Mensalidade vencida", detail: `${charge.planName} venceu em ${formatDate(charge.dueDate)}.` })),
     ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: "Vencimento próximo", detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
-    ...announcements.map((item) => ({ id: `announcement-${item.id}`, type: "announcement" as const, title: item.title, detail: item.body })),
-    ...messages.map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body })),
+    ...announcements.map((item) => ({ id: `announcement-${item.id}`, type: "announcement" as const, title: item.title, detail: item.body, createdAt: item.createdAt })),
+    ...messages.map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body, createdAt: item.createdAt })),
     ...workouts.map((item) => ({ id: `workout-${item.id}`, type: "workout" as const, title: "Novo treino disponível", detail: `${item.name} foi publicado para você.` })),
   ];
   return items;
+}
+
+function formatNotificationDate(value: unknown) {
+  const date = firestoreDate(value);
+  return date ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date) : "";
 }
 
 function NotificationBell({ scope, className }: { scope: "student" | "workspace"; className?: string }) {
@@ -985,7 +990,7 @@ function NotificationBell({ scope, className }: { scope: "student" | "workspace"
   };
   return <div className={`notification-anchor ${scope}`}>
     <button aria-label={unread ? `Notificações, ${unread} nova(s)` : "Notificações"} className={className} onClick={toggle}><Bell size={20} />{unread > 0 && <b className="notification-count">{Math.min(unread, 9)}</b>}</button>
-    {open && <aside className="notification-panel" aria-label="Central de notificações"><header><div><span>CENTRAL</span><strong>Notificações</strong></div><button aria-label="Fechar notificações" onClick={() => setOpen(false)}><X /></button></header><div>{items.length ? items.slice(0, 12).map((item) => <article className={item.type} key={item.id}><i /> <div><strong>{item.title}</strong><p>{item.detail}</p></div></article>) : <div className="notification-empty"><Bell /><span>Nenhuma novidade no momento.</span></div>}</div></aside>}
+    {open && <aside className="notification-panel" aria-label="Central de notificações"><header><div><span>CENTRAL</span><strong>Notificações</strong></div><button aria-label="Fechar notificações" onClick={() => setOpen(false)}><X /></button></header><div>{items.length ? items.slice(0, 12).map((item) => <article className={item.type} key={item.id}><i /> <div><strong>{item.title}</strong><p>{item.detail}</p>{formatNotificationDate(item.createdAt) && <time>{formatNotificationDate(item.createdAt)}</time>}</div></article>) : <div className="notification-empty"><Bell /><span>Nenhuma novidade no momento.</span></div>}</div></aside>}
   </div>;
 }
 
@@ -1231,7 +1236,6 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const stateClass = isLocked ? "is-locked" : isInProgress ? "is-in-progress" : isCompleted ? "is-completed" : "is-next";
             const stateLabel = isLocked ? "NÍVEL BLOQUEADO" : isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
             const workoutCode = String.fromCharCode(65 + (index % 26));
-            const recommendedDay = workout.recommendedDay && workout.recommendedDay !== "Flexível" ? workout.recommendedDay : null;
             const level = workout.level ?? "Fundação";
             const focus = workout.focusLabel ?? "Treino personalizado";
             const audience = workout.audience === "Geral" ? "Geral" : "Personalizado";
@@ -1240,10 +1244,9 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const previousLevel = index > 0 ? visibleWorkouts[index - 1].level ?? "Fundação" : null;
             const isCurrentProgram = level === currentProgram;
             return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`}>
-            <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {recommendedDay ?? "Flexível"}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
-            {!isLocked && <button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={16} /> Imprimir</button>}
+            {!isLocked && <details className="workout-card-menu"><summary aria-label="Mais ações"><MoreHorizontal size={18} /></summary><div><button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={15} /> Imprimir ficha</button></div></details>}
           </article></div>;
           })()
         )) : <div className="directory-empty"><Dumbbell /><p>{loading ? "Carregando seus treinos..." : publishedWorkouts.length ? "Nenhum treino encontrado neste nível." : "Nenhum treino publicado ainda."}</p></div>}
@@ -1535,6 +1538,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   const [openPanel, setOpenPanel] = useState<string | null>(null);
   const links = [
     { icon: User, label: "Dados pessoais" },
+    { icon: House, label: "Minha academia" },
     { icon: WalletCards, label: "Plano e mensalidades" },
     { icon: Activity, label: "Avaliações físicas" },
     { icon: ShieldCheck, label: "Privacidade e segurança" },
@@ -1550,7 +1554,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   return (
     <div className="student-view profile-view">
       <div className="profile-identity"><StudentProfilePhoto profile={profile} /><small>ALUNO</small><h1>{accountName(profile?.name || profile?.displayName || access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
-      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email?.endsWith("@accounts.orquestra-fit.local") ? `Login: ${access.user.displayName ?? "usuário da academia"}` : access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>O acesso é protegido pelo Firebase. Sua senha nunca é salva no aplicativo.</span><PasswordUpdateForm /></>}{label === "Aparência" && <><strong>Tema do ambiente</strong><ThemeSwitcher theme={theme} onChange={onThemeChange} /></>}</div>}</div>)}
+      {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email?.endsWith("@accounts.orquestra-fit.local") ? `Login: ${access.user.displayName ?? "usuário da academia"}` : access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Minha academia" && <StudentAcademyPanel />}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>O acesso é protegido pelo Firebase. Sua senha nunca é salva no aplicativo.</span><PasswordUpdateForm /></>}{label === "Aparência" && <><strong>Tema do ambiente</strong><ThemeSwitcher theme={theme} onChange={onThemeChange} /></>}</div>}</div>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
     </div>
@@ -2018,6 +2022,27 @@ function StudentPlanPanel() {
   const start = student?.planStartedAt ? formatDate(student.planStartedAt) : "Ainda não informado";
   const end = student?.planEndsAt ? formatDate(student.planEndsAt) : nextCharge ? formatDate(nextCharge.dueDate) : "Ainda não informado";
   return <div className="student-plan-detail"><strong>{student?.plan || nextCharge?.planName || "Plano ainda não definido"}</strong><div className="student-plan-grid"><div><small>Pago</small><b>R$ {paidTotal.toFixed(2).replace(".", ",")}</b></div><div><small>Dias restantes</small><b>{nextCharge ? Math.max(daysUntil(nextCharge.dueDate), 0) : "—"}</b></div><div><small>Início</small><b>{start}</b></div><div><small>Válido até</small><b>{end}</b></div></div><small>{nextCharge ? `Próximo vencimento: ${formatDate(nextCharge.dueDate)} · ${chargeStatusLabel(chargeViewStatus(nextCharge))}` : "A academia ainda não lançou cobranças para este aluno."}</small></div>;
+}
+
+function StudentAcademyPanel() {
+  const access = useAccess();
+  const [academy, setAcademy] = useState<{ name?: string; phone?: string; address?: string; openingDays?: string[]; openingTime?: string; closingTime?: string }>({});
+  useEffect(() => {
+    function apply(data?: { name?: string; phone?: string; address?: string; openingDays?: unknown; openingTime?: string; closingTime?: string } | null) {
+      setAcademy({ name: data?.name || "Dama de Ferro Academia", phone: data?.phone, address: data?.address, openingDays: Array.isArray(data?.openingDays) ? data.openingDays.filter((item): item is string => typeof item === "string") : [], openingTime: data?.openingTime, closingTime: data?.closingTime });
+    }
+    if (!db) {
+      const syncLocal = () => {
+        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; phone?: string; address?: string; openingDays?: unknown; openingTime?: string; closingTime?: string } | null); } catch { apply(null); }
+      };
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; phone?: string; address?: string; openingDays?: unknown; openingTime?: string; closingTime?: string } | undefined));
+  }, [access.academyId]);
+  const days = (academy.openingDays ?? []).map((day) => academyWeekdayLabels[day] ?? day).join(" · ");
+  return <div className="student-academy-detail"><strong>{academy.name}</strong>{academy.address && <span>{academy.address}</span>}{academy.phone && <span>{academy.phone}</span>}<div><small>Funcionamento</small><b>{academy.openingTime && academy.closingTime ? `${academy.openingTime} – ${academy.closingTime}` : "Horário ainda não informado"}</b><span>{days || "Dias ainda não informados"}</span></div></div>;
 }
 
 type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };

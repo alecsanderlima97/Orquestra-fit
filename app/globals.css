@@ -3697,6 +3697,18 @@ input, select, textarea { border-radius: 10px; }
 .assessment-selector select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #0d1012; color: #ede8df; font: inherit; text-transform: none; }
 .workout-previous-performance { margin: -4px 0 13px; padding: 10px 11px; border-left: 2px solid var(--bronze-400); background: #201914; color: #aeb8b7; font-size: 11px; line-height: 1.45; }
 .workout-previous-performance strong { color: #e8d1a5; font-weight: 700; }
+.workout-card-menu { position: relative; display: flex; justify-content: flex-end; margin: 0 14px 12px; }
+.workout-card-menu summary { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 10px; background: #15191b; color: var(--steel-300); cursor: pointer; list-style: none; }
+.workout-card-menu summary::-webkit-details-marker { display: none; }
+.workout-card-menu[open] summary { border-color: var(--bronze-400); color: var(--bronze-300); }
+.workout-card-menu > div { position: absolute; z-index: 4; right: 0; bottom: 42px; min-width: 150px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: #15191b; box-shadow: 0 12px 26px #0008; }
+.workout-card-menu .workout-print { width: 100%; margin: 0; border: 0; border-radius: 8px; }
+.student-academy-detail { display: grid; gap: 7px; color: var(--steel-300); font-size: 12px; line-height: 1.45; }
+.student-academy-detail > strong { color: #f0e8dc; font-size: 17px; }
+.student-academy-detail > div { display: grid; gap: 3px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.student-academy-detail small { color: var(--bronze-400); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.student-academy-detail b { color: #e7d4ad; font-size: 13px; }
+.notification-panel article time { display: block; margin-top: 5px; color: var(--steel-500); font-size: 9px; }
 .student-program-group { display: grid; gap: 8px; }
 .student-program-heading { display: grid; gap: 3px; margin: 15px 2px 0; }
 .student-program-heading small { color: var(--bronze-400); font-size: 9px; font-weight: 850; letter-spacing: .12em; }
