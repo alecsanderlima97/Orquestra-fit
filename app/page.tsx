@@ -1262,6 +1262,7 @@ function Evolution() {
   const [period, setPeriod] = useState<7 | 30 | 90 | 365>(30);
   const [currentAssessmentId, setCurrentAssessmentId] = useState("");
   const [comparisonAssessmentId, setComparisonAssessmentId] = useState("");
+  const [selectedExercise, setSelectedExercise] = useState("");
   useEffect(() => {
     if (!db) {
       const syncLocalEvolution = () => {
@@ -1324,6 +1325,15 @@ function Evolution() {
     if (!current || load > current.load) records.set(item.exerciseName, { ...item, load });
     return records;
   }, new Map<string, { exerciseName: string; setNumber: number; load: number; reps: string }>()).values()).slice(0, 3);
+  const exerciseNames = Array.from(new Set(executions.flatMap((execution) => (execution.sets ?? []).map((item) => item.exerciseName)))).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  useEffect(() => {
+    if (!selectedExercise && exerciseNames[0]) setSelectedExercise(exerciseNames[0]);
+    if (selectedExercise && !exerciseNames.includes(selectedExercise)) setSelectedExercise(exerciseNames[0] ?? "");
+  }, [exerciseNames, selectedExercise]);
+  const selectedExerciseHistory = executions.filter((execution) => (execution.sets ?? []).some((item) => item.exerciseName === selectedExercise)).map((execution) => {
+    const sets = (execution.sets ?? []).filter((item) => item.exerciseName === selectedExercise);
+    return { id: execution.id, date: workoutExecutionTime(execution.completedAt), load: Math.max(...sets.map((item) => Number(item.load.replace(",", ".")) || 0)), reps: Math.max(...sets.map((item) => Number(item.reps.replace(",", ".")) || 0)) };
+  }).sort((a, b) => b.date - a.date);
   return (
     <div className="student-view">
       <PageIntro kicker="ACOMPANHAMENTO" title="Sua evolução" copy="Consistência que aparece nos números." />
@@ -1349,6 +1359,7 @@ function Evolution() {
       </section>
       <section className="history-panel">
         <div className="section-heading"><div><span>DESEMPENHO</span><h2>Suas melhores cargas</h2><p>Mostra o maior peso registrado em cada exercício concluído.</p></div></div>
+        {exerciseNames.length > 0 && <div className="exercise-history-controls"><label>Ver histórico por exercício<select value={selectedExercise} onChange={(event) => setSelectedExercise(event.target.value)}>{exerciseNames.map((exercise) => <option key={exercise} value={exercise}>{exercise}</option>)}</select></label>{selectedExerciseHistory.length > 0 && <div className="exercise-history-list">{selectedExerciseHistory.map((entry) => <div key={entry.id}><span>{entry.date ? formatDate(new Date(entry.date).toISOString()) : "Data não informada"}</span><strong>{entry.load > 0 ? `${entry.load} kg` : "Sem carga"}</strong><small>{entry.reps > 0 ? `${entry.reps} repetições máximas` : "Repetições não informadas"}</small></div>)}</div>}</div>}
         {bestLoads.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Conclua um treino para ver suas cargas registradas aqui.</p></div> : bestLoads.map((item) => (
           <div className="history-row" key={item.exerciseName}><span>{item.exerciseName}</span><strong>{item.load > 0 ? `${item.load} kg` : "Sem carga"}</strong><small>{item.reps} rep · melhor carga</small></div>
         ))}
@@ -1714,7 +1725,14 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
       const reps = Number(item.reps.replace(",", ".")) || 0;
       return total + load * reps;
     }, 0);
-    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, maxLoad, maxReps, totalVolume, maxMetricLabel: "Maior carga", maxMetricUnit: "kg", completedSets: completedSets.length, totalSets };
+    const previousExecution = previousExecutions.filter((execution) => execution.workoutId === workout?.id).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt))[0];
+    const comparison = previousExecution ? {
+      durationDelta: seconds - previousExecution.durationSeconds,
+      volumeDelta: totalVolume > 0 && (previousExecution.totalVolume ?? 0) > 0 ? totalVolume - (previousExecution.totalVolume ?? 0) : undefined,
+      maxLoadDelta: maxLoad > 0 && (previousExecution.maxLoad ?? 0) > 0 ? maxLoad - (previousExecution.maxLoad ?? 0) : undefined,
+      repsDelta: maxReps > 0 && (previousExecution.maxReps ?? 0) > 0 ? maxReps - (previousExecution.maxReps ?? 0) : undefined,
+    } : undefined;
+    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, maxLoad, maxReps, totalVolume, comparison, maxMetricLabel: "Maior carga", maxMetricUnit: "kg", completedSets: completedSets.length, totalSets };
     if (!workout || !db) {
       if (workout) {
         const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, totalVolume, maxLoad, maxReps, completedAt: new Date().toISOString() };
@@ -1789,7 +1807,7 @@ function WorkoutCompletionSummary({ name, summary, onClose }: { name: string; su
   return <div className="workout-completion-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-completion-title">
     <section className="workout-completion-card"><div className="workout-completion-mark"><Trophy size={25} /></div><small>CONQUISTA REGISTRADA</small><h2 id="workout-completion-title">Treino concluído</h2><p>{displayWorkoutName(name)} foi salvo no seu progresso pessoal.</p>
       <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Activity size={17} /><small>Séries concluídas</small><strong>{summary.completedSets}</strong></div>{summary.totalVolume > 0 && <div><Dumbbell size={17} /><small>Volume total</small><strong>{summary.totalVolume.toLocaleString("pt-BR")} kg</strong></div>}{typeof summary.calories === "number" && summary.calories > 0 && <div><Flame size={17} /><small>Calorias</small><strong>{summary.calories} kcal</strong></div>}{summary.maxLoad > 0 && <div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad}{summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}</strong></div>}</div>
-      <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p><div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
+      <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p>{summary.comparison && <div className="workout-completion-comparison"><small>COMPARAÇÃO COM O ÚLTIMO TREINO</small>{summary.comparison.volumeDelta !== undefined && <span>{summary.comparison.volumeDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.volumeDelta).toLocaleString("pt-BR")} kg de volume</span>}{summary.comparison.maxLoadDelta !== undefined && <span>{summary.comparison.maxLoadDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.maxLoadDelta)} kg na maior carga</span>}{summary.comparison.repsDelta !== undefined && <span>{summary.comparison.repsDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.repsDelta)} repetições máximas</span>}{summary.comparison.durationDelta !== 0 && <span>{summary.comparison.durationDelta > 0 ? "+" : "−"}{formatWorkoutDuration(Math.abs(summary.comparison.durationDelta))} de duração</span>}</div>}<div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
     </section>
   </div>;
 }
@@ -2109,7 +2127,8 @@ function formatWorkoutDuration(seconds: number) {
   return `${Math.floor(safeSeconds / 60)}min ${String(safeSeconds % 60).padStart(2, "0")}s`;
 }
 
-type WorkoutCompletionSummary = { durationSeconds: number; calories?: number; totalVolume: number; maxLoad: number; maxReps: number; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
+type WorkoutSummaryComparison = { durationDelta: number; volumeDelta?: number; maxLoadDelta?: number; repsDelta?: number };
+type WorkoutCompletionSummary = { durationSeconds: number; calories?: number; totalVolume: number; maxLoad: number; maxReps: number; comparison?: WorkoutSummaryComparison; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
 
 type ChargeViewStatus = "paid" | "overdue" | "dueSoon" | "pending";
 

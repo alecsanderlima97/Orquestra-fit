@@ -126,6 +126,9 @@
 .workout-completion-metrics strong { color: #eff4ed; font-size: 15px; }
 .workout-completion-note { margin: 0 4px 18px !important; color: #8e9d99 !important; font-size: 11px !important; }
 .workout-completion-note b { color: #d4bb5f; font-weight: 650; }
+.workout-completion-comparison { display: grid; gap: 5px; margin: -4px 4px 18px; padding: 11px 12px; border: 1px solid #4e4930; border-radius: 12px; background: #211f16; color: #d4c17b; text-align: left; }
+.workout-completion-comparison small { color: #b49a4b; font-size: 8px; font-weight: 800; letter-spacing: .1em; }
+.workout-completion-comparison span { font-size: 10px; }
 .workout-completion-actions { display: grid; gap: 9px; }
 .workout-completion-actions > button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 50px; border-radius: 14px; font-size: 13px; font-weight: 750; }
 .workout-completion-actions > .detail-save { margin: 0; border: 1px solid #e0bf55; background: linear-gradient(110deg, #c29a42, #e0bf67); color: #211a0c; }

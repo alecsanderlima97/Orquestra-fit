@@ -3709,6 +3709,14 @@ input, select, textarea { border-radius: 10px; }
 .student-academy-detail small { color: var(--bronze-400); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .student-academy-detail b { color: #e7d4ad; font-size: 13px; }
 .notification-panel article time { display: block; margin-top: 5px; color: var(--steel-500); font-size: 9px; }
+.exercise-history-controls { display: grid; gap: 12px; margin: 0 0 15px; }
+.exercise-history-controls label { display: grid; gap: 6px; color: var(--steel-400); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.exercise-history-controls select { min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: #0e1113; color: #ede8df; font: inherit; text-transform: none; }
+.exercise-history-list { display: grid; gap: 7px; }
+.exercise-history-list > div { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 10px 11px; border-left: 2px solid var(--bronze-400); background: #151719; }
+.exercise-history-list span { color: var(--steel-500); font-size: 10px; }
+.exercise-history-list strong { color: #ecd39e; font-size: 12px; text-align: right; }
+.exercise-history-list small { grid-column: 1 / -1; color: var(--steel-400); font-size: 10px; }
 .student-program-group { display: grid; gap: 8px; }
 .student-program-heading { display: grid; gap: 3px; margin: 15px 2px 0; }
 .student-program-heading small { color: var(--bronze-400); font-size: 9px; font-weight: 850; letter-spacing: .12em; }
