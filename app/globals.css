@@ -3246,3 +3246,92 @@ input, select, textarea { border-radius: 10px; }
   .permissions-panel .generated-code code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .academy-hours-days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* Login em composição única, seguindo a referência visual da Orquestra Fit. */
+.auth-page {
+  display: grid;
+  min-height: 100svh;
+  background: #021426;
+}
+.auth-page::before {
+  background:
+    linear-gradient(180deg, rgba(2, 17, 37, .28), rgba(2, 17, 37, .84)),
+    radial-gradient(circle at 50% 10%, rgba(25, 191, 255, .28), transparent 28%),
+    radial-gradient(circle at 10% 84%, rgba(22, 93, 255, .3), transparent 36%),
+    url('/branding/orquestra-cs-logo.png') center / cover,
+    linear-gradient(145deg, #020a18, #073d75 55%, #031326);
+  background-blend-mode: normal, screen, screen, soft-light, normal;
+  opacity: .88;
+}
+.auth-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "brand" "form" "modules";
+  align-content: center;
+  width: min(100%, 660px);
+  min-height: 100svh;
+  margin: 0 auto;
+  padding: 34px 18px 28px;
+}
+.auth-visual { display: contents; }
+.auth-score,
+.auth-visual-content { display: none; }
+.auth-platform-brand {
+  grid-area: brand;
+  justify-content: center;
+  margin: 0 0 22px;
+  text-align: left;
+}
+.auth-platform-brand img {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+}
+.auth-platform-brand strong { font-size: 19px; }
+.auth-platform-brand small { font-size: 9px; }
+.auth-form-side {
+  display: contents;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+.auth-panel {
+  grid-area: form;
+  justify-self: center;
+  width: min(100%, 520px);
+  margin: 0;
+  padding: clamp(28px, 5vw, 46px);
+  border-color: rgba(74, 206, 255, .52);
+  border-radius: 30px;
+  background: linear-gradient(150deg, rgba(8, 48, 88, .78), rgba(2, 24, 49, .74));
+  box-shadow: 0 30px 100px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .12), 0 0 34px rgba(0, 160, 255, .12);
+}
+.auth-panel > .auth-brand { display: none; }
+.auth-panel > .auth-kicker { margin-bottom: 14px; }
+.auth-panel h1 { font-size: clamp(34px, 5vw, 49px); line-height: 1.02; }
+.auth-panel > span { max-width: 35ch; font-size: 14px; }
+.auth-module-grid {
+  grid-area: modules;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 520px);
+  margin: 22px auto 0;
+}
+.auth-module-grid span {
+  min-height: 70px;
+  padding: 11px 10px;
+  border-color: rgba(109, 219, 255, .25);
+  background: rgba(2, 21, 43, .38);
+}
+
+/* O dia continua disponível apenas para compatibilidade com registros antigos; a interface deixa de exibi-lo. */
+.template-chip-day { display: none !important; }
+
+@media (max-width: 520px) {
+  .auth-shell { padding: 24px 14px 22px; }
+  .auth-platform-brand { margin-bottom: 17px; }
+  .auth-platform-brand img { width: 62px; height: 62px; }
+  .auth-platform-brand strong { font-size: 16px; }
+  .auth-panel { padding: 28px 20px 24px; border-radius: 26px; }
+  .auth-module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

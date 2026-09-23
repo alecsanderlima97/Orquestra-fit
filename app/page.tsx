@@ -44,7 +44,7 @@ function firstName(displayName: string | null, email: string | null) {
 
 function displayWorkoutName(name: string) {
   const weekday = /^(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)(?:-feira)?$/i;
-  const parts = name.split(/\s*[·•|]\s*/).map((part) => part.trim()).filter(Boolean);
+  const parts = name.split(/\s*[·•|]\s*/).map((part) => part.replace(/\b(?:segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)(?:-feira)?\b/gi, "").replace(/\s{2,}/g, " ").trim()).filter(Boolean);
   const withoutWeekday = parts.filter((part) => !weekday.test(part));
   return withoutWeekday.join(" · ") || name.trim();
 }
@@ -774,7 +774,7 @@ function normalizePublishedWorkout(id: string, data: Omit<WorkoutRecord, "id">):
 }
 
 function normalizeTemplateForStudent(template: WorkoutTemplateRecord, studentId: string, studentName: string): WorkoutRecord {
-  return { id: `general-template-${template.id}`, name: template.name, studentId, studentName, recommendedDay: template.scheduleDay, level: template.level, audience: template.audience, focusLabel: template.focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds ?? [], exerciseDetails: template.exerciseDetails ?? [], status: "published" };
+  return { id: `general-template-${template.id}`, name: template.name, studentId, studentName, recommendedDay: "Flexível", level: template.level, audience: template.audience, focusLabel: template.focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds ?? [], exerciseDetails: template.exerciseDetails ?? [], status: "published" };
 }
 
 function useStudentPublishedWorkouts(enabled = true) {
@@ -972,8 +972,9 @@ function printWorkoutSheet(workout: WorkoutRecord, audienceLabel = "ALUNO") {
     ? exercises.map((exercise, index) => { const metrics = exerciseMetricLabels(exercise); const reps = exercise.reps ? `${exercise.reps} ${metrics.repsUnit}` : "—"; const load = exercise.load ? `${exercise.load}${metrics.loadUnit ? ` ${metrics.loadUnit}` : ""}` : "—"; return `<tr><td><b>${index + 1}. ${escapePrintText(exercise.name)}</b>${exercise.muscleGroup ? `<small>${escapePrintText(exercise.muscleGroup)}</small>` : ""}${exercise.instructions ? `<small>${escapePrintText(exercise.instructions)}</small>` : ""}</td><td>${escapePrintText(exercise.sets)}</td><td>${escapePrintText(reps)}</td><td>${escapePrintText(load)}</td><td>${escapePrintText(exercise.rest)}s</td></tr>`; }).join("")
     : `<tr><td colspan="5">Exercícios vinculados: ${workout.exerciseIds.length}</td></tr>`;
   const printedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date());
+  const printableWorkoutName = displayWorkoutName(workout.name);
   const primaryMetrics = exerciseMetricLabels(exercises[0] ?? { name: "", exerciseType: "Força", equipmentName: "", muscleGroup: "" });
-  printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapePrintText(workout.name)} - ${escapePrintText(workout.studentName)}</title><style>@page{margin:5mm}*{box-sizing:border-box}body{margin:0 auto;max-width:190mm;color:#111;background:#fff;font-family:Arial,sans-serif;font-size:10pt}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}header img{width:48px;height:48px;object-fit:cover;border-radius:10px;display:block;margin:0 auto 5px}header strong{display:block;font-family:Georgia,serif;font-size:16pt}header span{display:block;font-size:8pt;letter-spacing:.18em;margin-top:2px}h1{font-family:Georgia,serif;font-size:15pt;margin:0 0 3px}.student{margin:0 0 12px;font-size:9pt}.student b{display:block;font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #bbb;padding:6px 3px;text-align:center;vertical-align:top}th{font-size:7.5pt;text-transform:uppercase}th:first-child,td:first-child{text-align:left;width:48%}td b,td small{display:block}td small{font-size:7.5pt;line-height:1.3;margin-top:2px;color:#333}footer{margin-top:12px;padding-top:8px;border-top:1px dashed #777;text-align:center;font-size:7.5pt}.no-print{display:block;width:100%;margin:16px 0;padding:10px;border:0;background:#111;color:#fff;font-weight:bold}@media print{.no-print{display:none}}@media(max-width:90mm){body{font-size:8pt}header strong{font-size:13pt}h1{font-size:12pt}th,td{padding:4px 2px}th:first-child,td:first-child{width:44%}}</style></head><body><header><img src="/dama-de-ferro.jpeg" alt="Dama de Ferro Academia"><strong>DAMA DE FERRO</strong><span>ACADEMIA · ORQUESTRA FIT</span></header><main><h1>${escapePrintText(workout.name)}</h1><p class="student"><span>${escapePrintText(audienceLabel)}</span><b>${escapePrintText(workout.studentName)}</b></p><table><thead><tr><th>Exercício</th><th>${escapePrintText(primaryMetrics.sets)}</th><th>${escapePrintText(primaryMetrics.reps)}</th><th>${escapePrintText(primaryMetrics.load)}</th><th>${escapePrintText(primaryMetrics.rest)}</th></tr></thead><tbody>${exerciseRows}</tbody></table></main><footer>Impresso em ${escapePrintText(printedAt)} · Tempos, velocidades e cargas podem ser ajustados pelo professor.</footer><button class="no-print" onclick="window.print()">Imprimir treino</button></body></html>`);
+  printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapePrintText(printableWorkoutName)} - ${escapePrintText(workout.studentName)}</title><style>@page{margin:5mm}*{box-sizing:border-box}body{margin:0 auto;max-width:190mm;color:#111;background:#fff;font-family:Arial,sans-serif;font-size:10pt}header{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}header img{width:48px;height:48px;object-fit:cover;border-radius:10px;display:block;margin:0 auto 5px}header strong{display:block;font-family:Georgia,serif;font-size:16pt}header span{display:block;font-size:8pt;letter-spacing:.18em;margin-top:2px}h1{font-family:Georgia,serif;font-size:15pt;margin:0 0 3px}.student{margin:0 0 12px;font-size:9pt}.student b{display:block;font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #bbb;padding:6px 3px;text-align:center;vertical-align:top}th{font-size:7.5pt;text-transform:uppercase}th:first-child,td:first-child{text-align:left;width:48%}td b,td small{display:block}td small{font-size:7.5pt;line-height:1.3;margin-top:2px;color:#333}footer{margin-top:12px;padding-top:8px;border-top:1px dashed #777;text-align:center;font-size:7.5pt}.no-print{display:block;width:100%;margin:16px 0;padding:10px;border:0;background:#111;color:#fff;font-weight:bold}@media print{.no-print{display:none}}@media(max-width:90mm){body{font-size:8pt}header strong{font-size:13pt}h1{font-size:12pt}th,td{padding:4px 2px}th:first-child,td:first-child{width:44%}}</style></head><body><header><img src="/dama-de-ferro.jpeg" alt="Dama de Ferro Academia"><strong>DAMA DE FERRO</strong><span>ACADEMIA · ORQUESTRA FIT</span></header><main><h1>${escapePrintText(printableWorkoutName)}</h1><p class="student"><span>${escapePrintText(audienceLabel)}</span><b>${escapePrintText(workout.studentName)}</b></p><table><thead><tr><th>Exercício</th><th>${escapePrintText(primaryMetrics.sets)}</th><th>${escapePrintText(primaryMetrics.reps)}</th><th>${escapePrintText(primaryMetrics.load)}</th><th>${escapePrintText(primaryMetrics.rest)}</th></tr></thead><tbody>${exerciseRows}</tbody></table></main><footer>Impresso em ${escapePrintText(printedAt)} · Tempos, velocidades e cargas podem ser ajustados pelo professor.</footer><button class="no-print" onclick="window.print()">Imprimir treino</button></body></html>`);
   printWindow.document.close();
   printWindow.focus();
   window.setTimeout(() => printWindow.print(), 250);
@@ -1007,8 +1008,8 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
       <article className="today-workout">
         <div className="workout-copy">
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
-          <h2>{loading ? "Carregando seu treino" : workout?.name ?? "Nenhum treino publicado"}</h2>
-          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? `Ficha liberada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}. ${workout.recommendedDay && workout.recommendedDay !== "Flexível" ? `Indicada para ${workout.recommendedDay.toLocaleLowerCase("pt-BR")}, mas você pode escolher qualquer treino liberado.` : "Você pode escolher qualquer treino liberado."}` : "Seu professor ainda não liberou um treino."}</p>
+          <h2>{loading ? "Carregando seu treino" : workout ? displayWorkoutName(workout.name) : "Nenhum treino publicado"}</h2>
+          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? `Ficha liberada para você com ${exerciseCount} ${exerciseCount === 1 ? "exercício" : "exercícios"}. Você pode escolher qualquer treino liberado.` : "Seu professor ainda não liberou um treino."}</p>
           <div className="workout-meta">
             <span><Clock3 size={16} /> {workout ? `${totalSets || "—"} séries` : "Aguardando"}</span>
             <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Sem exercícios"}</span>
@@ -1151,14 +1152,12 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
   const orderedWorkouts = [...publishedWorkouts].sort((first, second) => {
     const levelDifference = workoutLevelOrder.indexOf(first.level ?? "Fundação") - workoutLevelOrder.indexOf(second.level ?? "Fundação");
     if (levelDifference !== 0) return levelDifference;
-    const dayDifference = workoutTemplateDayOrder.indexOf(first.recommendedDay ?? "Flexível") - workoutTemplateDayOrder.indexOf(second.recommendedDay ?? "Flexível");
-    if (dayDifference !== 0) return dayDifference;
     return first.name.localeCompare(second.name, "pt-BR");
   });
   const visibleWorkouts = levelFilter === "Todos" ? orderedWorkouts : orderedWorkouts.filter((workout) => (workout.level ?? "Fundação") === levelFilter);
   return (
     <div className="student-view">
-      <PageIntro kicker="PROGRAMA ATUAL" title="Seus treinos" copy="Os dias indicados organizam a semana, mas você pode escolher qualquer treino disponível." />
+      <PageIntro kicker="PROGRAMA ATUAL" title="Seus treinos" copy="Escolha qualquer treino liberado e acompanhe sua evolução." />
       <div className="student-workout-toolbar"><div><small>FICHAS DISPONÍVEIS</small><strong>{publishedWorkouts.length}</strong><span>programas publicados para você</span></div><label>Filtrar por nível<select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as "Todos" | WorkoutLevel)}><option value="Todos">Todos os níveis</option><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label></div>
       <div className="program-summary">
         <div><small>ORIENTAÇÃO DA ACADEMIA</small><strong>Escolha o treino que deseja fazer hoje</strong></div><span>ESCOLHA LIVRE</span>
@@ -1660,7 +1659,7 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
 
   return <>
     <WorkoutSessionView
-      name={workout?.name ?? "Pernas e estabilidade"}
+      name={displayWorkoutName(workout?.name ?? "Pernas e estabilidade")}
       elapsed={elapsed}
       exercises={exercises}
       completedSets={completedSets}
@@ -2529,15 +2528,11 @@ function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTempla
   const letterFromName = (name: string) => name.match(/(?:treino|ficha)\s*([A-G])\b/i)?.[1]?.toUpperCase() ?? null;
   const filteredTemplates = templates.filter((template) => (audienceFilter === "Todos" || (template.audience ?? "Geral") === audienceFilter) && (levelFilter === "Todos" || (template.level ?? "Fundação") === levelFilter));
   const orderedTemplates = [...filteredTemplates].sort((first, second) => {
-    const dayDifference = workoutTemplateDayOrder.indexOf(first.scheduleDay ?? "Flexível") - workoutTemplateDayOrder.indexOf(second.scheduleDay ?? "Flexível");
-    if (dayDifference !== 0) return dayDifference;
     const levelDifference = workoutLevelOrder.indexOf(first.level ?? "Fundação") - workoutLevelOrder.indexOf(second.level ?? "Fundação");
     if (levelDifference !== 0) return levelDifference;
     return first.name.localeCompare(second.name, "pt-BR");
   });
   const orderedVisibleWorkouts = [...visibleWorkouts].sort((first, second) => {
-    const dayDifference = workoutTemplateDayOrder.indexOf(first.recommendedDay ?? "Flexível") - workoutTemplateDayOrder.indexOf(second.recommendedDay ?? "Flexível");
-    if (dayDifference !== 0) return dayDifference;
     const firstLetter = letterFromName(first.name) ?? "Z";
     const secondLetter = letterFromName(second.name) ?? "Z";
     if (firstLetter !== secondLetter) return firstLetter.localeCompare(secondLetter, "pt-BR");
@@ -2720,7 +2715,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [workoutName, setWorkoutName] = useState("");
   const [workoutLevel, setWorkoutLevel] = useState<WorkoutLevel>("Fundação");
   const [templateAudience, setTemplateAudience] = useState<WorkoutTemplateAudience>("Geral");
-  const [templateDay, setTemplateDay] = useState<WorkoutTemplateDay>("Flexível");
   const [studentId, setStudentId] = useState(initialStudentId);
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
   const [exerciseDetails, setExerciseDetails] = useState<Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>>({});
@@ -3109,7 +3103,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     });
     const focusLabel = Array.from(new Set(details.map((detail) => detail.muscleGroup).filter((value): value is string => Boolean(value)))).slice(0, 2).join(" + ") || "Treino personalizado";
     if (!db) {
-      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentRecordId: student.id, studentUserId: student.userId ?? student.id, studentName: student.name, recommendedDay: templateDay, level: workoutLevel, audience: "Personalizado", focusLabel, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
+      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentRecordId: student.id, studentUserId: student.userId ?? student.id, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado", focusLabel, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
       const nextWorkouts = editingWorkoutId ? workouts.map((item) => item.id === editingWorkoutId ? localWorkout : item) : [...workouts, localWorkout];
       setWorkouts(nextWorkouts);
       writeLocalCollection(access.academyId, "workouts", nextWorkouts);
@@ -3120,7 +3114,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     setSaving(true);
     try {
       const studentUserId = student.userId ?? student.id;
-      const workoutData = { name: workoutName.trim(), studentId: studentUserId, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: templateDay, level: workoutLevel, audience: "Personalizado" as const, focusLabel, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const workoutData = { name: workoutName.trim(), studentId: studentUserId, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado" as const, focusLabel, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
       if (editingWorkoutId) {
         await updateDoc(doc(db, "academies", access.academyId, "workouts", editingWorkoutId), workoutData);
         onFeedback("Treino atualizado para o aluno.");
@@ -3148,7 +3142,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     const focusLabel = template.focusLabel ?? "Treino programado";
     if (!db) {
-      const nextWorkout: WorkoutRecord = { id: `local-workout-${Date.now()}`, name: template.name, studentId: student.id, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: template.scheduleDay, level: template.level ?? "Fundação", audience: "Personalizado", focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, status: "published" };
+      const nextWorkout: WorkoutRecord = { id: `local-workout-${Date.now()}`, name: template.name, studentId: student.id, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: "Flexível", level: template.level ?? "Fundação", audience: "Personalizado", focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, status: "published" };
       const nextWorkouts = [...workouts, nextWorkout];
       setWorkouts(nextWorkouts);
       writeLocalCollection(access.academyId, "workouts", nextWorkouts);
@@ -3157,7 +3151,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     setSaving(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: template.name, studentId: studentUserId, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: template.scheduleDay, level: template.level ?? "Fundação", audience: "Personalizado", focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, status: "published" as const, createdBy: access.userId, updatedBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      await addDoc(collection(db, "academies", access.academyId, "workouts"), { name: template.name, studentId: studentUserId, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: "Flexível", level: template.level ?? "Fundação", audience: "Personalizado", focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, status: "published" as const, createdBy: access.userId, updatedBy: access.userId, createdAt: serverTimestamp(), publishedAt: serverTimestamp(), updatedAt: serverTimestamp() });
       onFeedback(`${template.name} adicionado para ${student.name}.`);
     } catch {
       onFeedback("Não foi possível adicionar este modelo ao aluno.");
@@ -3197,7 +3191,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       const rotation = (levelIndex * 2 + dayIndex) % Math.max(fallback.length, 1);
       const rotatedFallback = fallback.length ? [...fallback.slice(rotation), ...fallback.slice(0, rotation)] : [];
       const selected = [...(preparation.length ? [preparation[(levelIndex + dayIndex) % preparation.length]] : []), ...focusMatches, ...rotatedFallback].filter((exercise, index, list) => list.findIndex((item) => item.id === exercise.id) === index).slice(0, 7);
-      createdTemplates.push({ id: `local-template-${seedKey}-${Date.now()}-${levelIndex}-${dayIndex}`, name: day.label, level, audience: "Geral", scheduleDay: day.day, focusLabel: day.label, targetStudentId: null, targetStudentName: null, seedKey, exerciseIds: selected.map((exercise) => exercise.id), exerciseDetails: selected.map(templateExerciseDetails), createdBy: access.userId });
+      createdTemplates.push({ id: `local-template-${seedKey}-${Date.now()}-${levelIndex}-${dayIndex}`, name: day.label, level, audience: "Geral", scheduleDay: "Flexível", focusLabel: day.label, targetStudentId: null, targetStudentName: null, seedKey, exerciseIds: selected.map((exercise) => exercise.id), exerciseDetails: selected.map(templateExerciseDetails), createdBy: access.userId });
     }));
     if (!createdTemplates.length) {
       onFeedback("A grade de 28 programas já foi criada. Nenhum duplicado foi adicionado.");
@@ -3242,7 +3236,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
-      const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, audience: templateAudience, scheduleDay: templateDay, targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
+      const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, audience: templateAudience, scheduleDay: "Flexível", targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
       const nextTemplates = editingTemplateId ? templates.map((item) => item.id === editingTemplateId ? localTemplate : item) : [...templates, localTemplate];
       setTemplates(nextTemplates);
       writeLocalCollection(access.academyId, "workoutTemplates", nextTemplates);
@@ -3253,7 +3247,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     setSaving(true);
     try {
-      const templateData = { name: workoutName.trim(), level: workoutLevel, audience: templateAudience, scheduleDay: templateDay, targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const templateData = { name: workoutName.trim(), level: workoutLevel, audience: templateAudience, scheduleDay: "Flexível", targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details, updatedBy: access.userId, updatedAt: serverTimestamp() };
       if (editingTemplateId) {
         await updateDoc(doc(db, "academies", access.academyId, "workoutTemplates", editingTemplateId), templateData);
         onFeedback("Modelo de treino atualizado.");
@@ -3274,7 +3268,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     setWorkoutName(template.name);
     setWorkoutLevel(template.level ?? "Fundação");
     setTemplateAudience(template.audience ?? "Geral");
-    setTemplateDay(template.scheduleDay ?? "Flexível");
     setStudentId(template.audience === "Personalizado" ? template.targetStudentId ?? "" : "");
     setSelectedExercises(template.exerciseIds);
     setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
@@ -3283,13 +3276,13 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function beginTemplateEdit(template: WorkoutTemplateRecord) {
-    setEditingTemplateId(template.id); setEditingWorkoutId(null); setWorkoutName(template.name); setWorkoutLevel(template.level ?? "Fundação"); setTemplateAudience(template.audience ?? "Geral"); setTemplateDay(template.scheduleDay ?? "Flexível"); setStudentId(template.audience === "Personalizado" ? template.targetStudentId ?? "" : ""); setSelectedExercises(template.exerciseIds);
+    setEditingTemplateId(template.id); setEditingWorkoutId(null); setWorkoutName(template.name); setWorkoutLevel(template.level ?? "Fundação"); setTemplateAudience(template.audience ?? "Geral"); setStudentId(template.audience === "Personalizado" ? template.targetStudentId ?? "" : ""); setSelectedExercises(template.exerciseIds);
     setExerciseDetails(Object.fromEntries(template.exerciseDetails.map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
     openTrainingCard("details.workout-builder-panel"); onFeedback("Modelo carregado para edição.");
   }
 
   function beginWorkoutEdit(workout: WorkoutRecord) {
-    setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setWorkoutLevel(workout.level ?? "Fundação"); setTemplateAudience("Personalizado"); setTemplateDay(workout.recommendedDay ?? "Flexível"); setStudentId(workout.studentRecordId ?? workout.studentId); setSelectedExercises(workout.exerciseIds);
+    setEditingWorkoutId(workout.id); setEditingTemplateId(null); setWorkoutName(workout.name); setWorkoutLevel(workout.level ?? "Fundação"); setTemplateAudience("Personalizado"); setStudentId(workout.studentRecordId ?? workout.studentId); setSelectedExercises(workout.exerciseIds);
     setExerciseDetails(Object.fromEntries((workout.exerciseDetails ?? []).map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])));
     openTrainingCard("details.workout-builder-panel"); onFeedback("Treino carregado para edição.");
   }
@@ -3299,7 +3292,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function previewWorkout(workout: WorkoutRecord) {
-    setWorkoutPreview({ title: workout.name, selectedExercises: workout.exerciseIds, exerciseDetails: Object.fromEntries((workout.exerciseDetails ?? []).map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])) });
+    setWorkoutPreview({ title: displayWorkoutName(workout.name), selectedExercises: workout.exerciseIds, exerciseDetails: Object.fromEntries((workout.exerciseDetails ?? []).map((detail) => [detail.exerciseId, { sets: detail.sets, reps: detail.reps, load: detail.load, rest: detail.rest }])) });
   }
 
   async function removeTemplate(template: WorkoutTemplateRecord) {
@@ -3344,10 +3337,9 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
         <div className="training-card-content">
         <form className="student-detail-form" onSubmit={createWorkout}>
           <div className="workout-builder-fields">
-            <label>Começar com programa-base<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Novo programa do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.audience ?? "Geral"} · {template.level ?? "Fundação"} · {template.name}</option>)}</select></label>
+            <label>Começar com programa-base<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Novo programa do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.audience ?? "Geral"} · {template.level ?? "Fundação"} · {displayWorkoutName(template.name)}</option>)}</select></label>
             <label>Nível do programa<select value={workoutLevel} onChange={(event) => setWorkoutLevel(event.target.value as WorkoutLevel)}><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select><small>Fundação para iniciantes, Evolução para nível médio, Performance e Elite para alunos avançados.</small></label>
             <label>Uso do programa<select value={templateAudience} onChange={(event) => setTemplateAudience(event.target.value as WorkoutTemplateAudience)}><option value="Geral">Geral · vários alunos</option><option value="Personalizado">Personalizado · um aluno</option></select><small>Programas gerais ficam disponíveis para a academia. Personalizados ficam vinculados a uma pessoa.</small></label>
-            <label>Dia do programa<select value={templateDay} onChange={(event) => setTemplateDay(event.target.value as WorkoutTemplateDay)}>{workoutTemplateDayOptions.map((day) => <option key={day} value={day}>{day}</option>)}</select><small>Use um dia da semana para montar a rotina A/B/C ou deixe flexível.</small></label>
             <label>Nome do programa<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Fundamentos · Corpo inteiro A" required /></label>
             <label>{templateAudience === "Personalizado" ? "Aluno do programa personalizado" : "Enviar para aluno"} <span className="optional-label">{templateAudience === "Personalizado" ? "obrigatório" : "opcional ao salvar programa-base"}</span><select value={studentId} required={templateAudience === "Personalizado"} onChange={(event) => setStudentId(event.target.value)}><option value="">{templateAudience === "Personalizado" ? "Selecione o aluno" : "Nenhum aluno · apenas salvar"}</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>
           </div>
@@ -3374,10 +3366,10 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Cadastre exercícios e publique fichas vinculadas aos alunos.</p></div></section>
       <section className="training-layout">
-        <article className="workspace-panel training-form-panel"><header><div><span>FICHA DE TREINO</span><h3>Montar e publicar</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Usar modelo pronto<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Começar do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <div className="exercise-choice" key={exercise.id}><label><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => { const selected = selectedExercises.includes(exercise.id); setSelectedExercises((current) => selected ? current.filter((id) => id !== exercise.id) : [...current, exercise.id]); if (!selected) setExerciseDetails((current) => ({ ...current, [exercise.id]: { sets: "3", reps: "10", load: "0", rest: "60" } })); }} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>{selectedExercises.includes(exercise.id) && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], sets: event.target.value } }))} /></label><label>Reps<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], reps: event.target.value } }))} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], load: event.target.value } }))} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], rest: event.target.value } }))} /></label></div>}</div>)}</fieldset><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar como modelo</button><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></div></form></article>
+        <article className="workspace-panel training-form-panel"><header><div><span>FICHA DE TREINO</span><h3>Montar e publicar</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Usar modelo pronto<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Começar do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{displayWorkoutName(template.name)}</option>)}</select></label><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <div className="exercise-choice" key={exercise.id}><label><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => { const selected = selectedExercises.includes(exercise.id); setSelectedExercises((current) => selected ? current.filter((id) => id !== exercise.id) : [...current, exercise.id]); if (!selected) setExerciseDetails((current) => ({ ...current, [exercise.id]: { sets: "3", reps: "10", load: "0", rest: "60" } })); }} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>{selectedExercises.includes(exercise.id) && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], sets: event.target.value } }))} /></label><label>Reps<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], reps: event.target.value } }))} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], load: event.target.value } }))} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], rest: event.target.value } }))} /></label></div>}</div>)}</fieldset><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar como modelo</button><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></div></form></article>
         <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><div className="starter-library-box"><p>Comece com uma base pronta e personalize os exercícios depois.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.bodyRegion ?? "Não classificado"} · {exercise.phase ?? "Treino principal"} · {exercise.muscleGroup}</small></div><div className="exercise-actions"><button type="button" onClick={() => editExercise(exercise)}>Editar</button>{access.role === "admin" && <button type="button" onClick={() => void removeExercise(exercise)}>Excluir</button>}</div></div>)}</div></article>
       </section>
-      <section className="workspace-panel published-workouts"><header><div><span>BIBLIOTECA E PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{templates.length === 0 && workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha como modelo para reutilizá-la.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{template.name}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><em>Modelo</em></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{workout.name}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
+      <section className="workspace-panel published-workouts"><header><div><span>BIBLIOTECA E PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{templates.length === 0 && workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha como modelo para reutilizá-la.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{displayWorkoutName(template.name)}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><em>Modelo</em></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{displayWorkoutName(workout.name)}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
     </div>
   );
 }
