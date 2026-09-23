@@ -1918,7 +1918,7 @@ type WorkoutTemplateDay = (typeof workoutTemplateDayOptions)[number];
 const workoutTemplateDayOrder: WorkoutTemplateDay[] = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo", "Flexível"];
 const workoutLevelOrder: WorkoutLevel[] = ["Fundação", "Evolução", "Performance", "Elite"];
 type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; scheduleDay?: WorkoutTemplateDay; focusLabel?: string; targetStudentId?: string | null; targetStudentName?: string | null; seedKey?: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
-type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
+type ClassRecord = { id: string; name: string; instructor: string; instructorId?: string | null; date: string; time: string; capacity: number; active: boolean; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
 type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
@@ -2091,11 +2091,12 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   const access = useAccess();
   const [classes, setClasses] = useState<ClassRecord[]>([]);
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
+  const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
   const [reservations, setReservations] = useState<ClassReservation[]>([]);
   const [reservationCounts, setReservationCounts] = useState<Record<string, number>>({});
   const [attendanceCounts, setAttendanceCounts] = useState<Record<string, number>>({});
   const [name, setName] = useState("");
-  const [instructor, setInstructor] = useState("");
+  const [instructorId, setInstructorId] = useState(access.role === "teacher" ? access.userId : "");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [capacity, setCapacity] = useState("10");
@@ -2116,7 +2117,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     return onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
       setClasses(snapshot.docs.map((item) => {
         const data = item.data() as Partial<ClassRecord>;
-        return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] };
+        return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", instructorId: data.instructorId ?? null, date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] };
       }).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)));
     }, (error) => console.error("Não foi possível carregar as aulas.", error));
   }, [access.academyId, access.role, access.userId]);
@@ -2130,6 +2131,22 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
       return { id: item.id, userId: data.userId ?? data.authUid ?? item.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" as const : "masculino" as const, active: data.active !== false };
     }).filter((student) => student.active !== false)), (error) => console.error("Não foi possível carregar alunos para a agenda.", error));
   }, [access.academyId, access.role, access.userId]);
+
+  useEffect(() => {
+    if (!db) {
+      const localTeachers = readLocalCollection<RegisteredTeacher>(access.academyId, "teachers").filter((teacher) => teacher.active !== false);
+      setTeachers(access.role === "teacher" ? localTeachers.filter((teacher) => teacher.id === access.userId || teacher.email === access.user.email) : localTeachers);
+      return;
+    }
+    if (access.role === "teacher") {
+      setTeachers([{ id: access.userId, name: accountName(access.user.displayName, access.user.email), email: access.user.email, active: true }]);
+      return;
+    }
+    return onSnapshot(collection(db, "academies", access.academyId, "teachers"), (snapshot) => setTeachers(snapshot.docs.map((item) => {
+      const data = item.data() as Partial<RegisteredTeacher>;
+      return { id: item.id, name: data.name ?? "Professor sem nome", email: data.email ?? null, active: data.active !== false };
+    }).filter((teacher) => teacher.active !== false)), (error) => console.error("Não foi possível carregar professores para a agenda.", error));
+  }, [access.academyId, access.role, access.user.email, access.user.displayName, access.userId]);
 
   useEffect(() => {
     if (!db) return;
@@ -2190,8 +2207,10 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     event.preventDefault();
     if (!name.trim() || !date || !time) { onFeedback("Informe o nome, a data e o horário da aula."); return; }
     if (visibility === "selected" && selectedStudentIds.length === 0) { onFeedback("Selecione pelo menos um aluno ou deixe a aula aberta para todos."); return; }
+    const selectedInstructor = teachers.find((teacher) => teacher.id === instructorId);
+    const instructorName = selectedInstructor?.name || (access.role === "teacher" ? accountName(access.user.displayName, access.user.email) : "Equipe da academia");
     if (!db) {
-      const localClass: ClassRecord = { id: editingClassId ?? `local-class-${Date.now()}`, name: capitalizeName(name.trim()), instructor: capitalizeName(instructor.trim() || "Equipe da academia"), date, time, capacity: Number(capacity) || 10, active: true, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [] };
+      const localClass: ClassRecord = { id: editingClassId ?? `local-class-${Date.now()}`, name: capitalizeName(name.trim()), instructor: capitalizeName(instructorName), instructorId: instructorId || null, date, time, capacity: Number(capacity) || 10, active: true, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [] };
       const nextClasses = (editingClassId ? classes.map((item) => item.id === editingClassId ? localClass : item) : [...classes, localClass]).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
       setClasses(nextClasses);
       writeLocalCollection(access.academyId, "classes", nextClasses);
@@ -2202,7 +2221,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     }
     setSaving(true);
     try {
-      const data = { name: name.trim(), instructor: instructor.trim() || "Equipe da academia", date, time, capacity: Number(capacity) || 10, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [], updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const data = { name: name.trim(), instructor: instructorName, instructorId: instructorId || null, date, time, capacity: Number(capacity) || 10, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [], updatedBy: access.userId, updatedAt: serverTimestamp() };
       let classId = editingClassId;
       if (editingClassId) {
         await updateDoc(doc(db, "academies", access.academyId, "classes", editingClassId), data);
@@ -2219,14 +2238,14 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   }
 
   function editClass(item: ClassRecord) {
-    setEditingClassId(item.id); setName(item.name); setInstructor(item.instructor); setDate(item.date); setTime(item.time); setCapacity(String(item.capacity));
+    setEditingClassId(item.id); setName(item.name); setInstructorId(item.instructorId ?? teachers.find((teacher) => teacher.name === item.instructor)?.id ?? (access.role === "teacher" ? access.userId : "")); setDate(item.date); setTime(item.time); setCapacity(String(item.capacity));
     setVisibility(item.visibility === "selected" ? "selected" : "open");
     setSelectedStudentIds(reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active" && reservation.source === "staff").map((reservation) => reservation.studentId));
     scrollToContent(".classes-layout .plan-form-panel");
   }
 
   function clearForm() {
-    setEditingClassId(null); setName(""); setInstructor(""); setDate(""); setTime(""); setCapacity("10"); setVisibility("open"); setSelectedStudentIds([]);
+    setEditingClassId(null); setName(""); setInstructorId(access.role === "teacher" ? access.userId : ""); setDate(""); setTime(""); setCapacity("10"); setVisibility("open"); setSelectedStudentIds([]);
   }
 
   async function removeClass(item: ClassRecord) {
@@ -2259,7 +2278,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>AGENDA · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Aulas e reservas</h2><p>Organize horários, vagas e reservas dos alunos.</p></div></section>
-      <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>{editingClassId ? "EDITAR AULA" : "NOVA AULA"}</span><h3>{editingClassId ? "Atualizar turma" : "Criar turma"}</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor<input value={instructor} onChange={(event) => setInstructor(event.target.value)} placeholder="Nome do professor" /></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><fieldset className="class-audience-picker"><legend>Quem pode reservar</legend><label><input type="radio" name="class-visibility" checked={visibility === "open"} onChange={() => { setVisibility("open"); setSelectedStudentIds([]); }} /> Aula aberta para todos os alunos</label><label><input type="radio" name="class-visibility" checked={visibility === "selected"} onChange={() => setVisibility("selected")} /> Somente alunos selecionados</label>{visibility === "selected" && <div className="class-student-options">{students.length === 0 ? <small>Nenhum aluno ativo disponível.</small> : students.map((student) => { const id = studentAccessId(student); return <label key={student.id}><input type="checkbox" checked={selectedStudentIds.includes(id)} onChange={() => setSelectedStudentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} /><span>{student.name}<small>{student.plan}</small></span></label>; })}</div>}</fieldset><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingClassId ? "Salvar alterações" : "Criar aula"}</button>{editingClassId && <button className="secondary-action" type="button" onClick={clearForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{classes.length} {classes.length === 1 ? "aula" : "aulas"}</h3></div></header><div className="plans-list">{classes.length === 0 ? <div className="directory-empty"><CalendarDays /><p>Nenhuma aula cadastrada ainda.</p></div> : classes.map((item) => { const reserved = reservationCounts[item.id] ?? 0; const present = attendanceCounts[item.id] ?? 0; return <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor}</small><small>{item.visibility === "selected" ? `Restrita · ${item.selectedStudentIds?.length ?? reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active" && reservation.source === "staff").length} alunos selecionados` : "Aberta para todos os alunos"}</small><small>{reserved} {reserved === 1 ? "reserva" : "reservas"} de {item.capacity} vagas · {present} {present === 1 ? "presença" : "presenças"}</small></div><div className="row-actions"><button type="button" className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button><button type="button" className="plan-edit" onClick={() => editClass(item)}>Editar</button>{access.role === "admin" && <button type="button" className="plan-delete" onClick={() => removeClass(item)}>Excluir</button>}</div></div>; })}</div></article></section>
+      <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>{editingClassId ? "EDITAR AULA" : "NOVA AULA"}</span><h3>{editingClassId ? "Atualizar turma" : "Criar turma"}</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor cadastrado<select value={instructorId} onChange={(event) => setInstructorId(event.target.value)}><option value="">Equipe da academia</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}{teacher.email ? ` · ${teacher.email}` : ""}</option>)}</select><small>Selecione um professor já cadastrado na academia.</small></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><fieldset className="class-audience-picker"><legend>Quem pode reservar</legend><label><input type="radio" name="class-visibility" checked={visibility === "open"} onChange={() => { setVisibility("open"); setSelectedStudentIds([]); }} /> Aula aberta para todos os alunos</label><label><input type="radio" name="class-visibility" checked={visibility === "selected"} onChange={() => setVisibility("selected")} /> Somente alunos selecionados</label>{visibility === "selected" && <div className="class-student-options">{students.length === 0 ? <small>Nenhum aluno ativo disponível.</small> : students.map((student) => { const id = studentAccessId(student); return <label key={student.id}><input type="checkbox" checked={selectedStudentIds.includes(id)} onChange={() => setSelectedStudentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} /><span>{student.name}<small>{student.plan}</small></span></label>; })}</div>}</fieldset><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingClassId ? "Salvar alterações" : "Criar aula"}</button>{editingClassId && <button className="secondary-action" type="button" onClick={clearForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{classes.length} {classes.length === 1 ? "aula" : "aulas"}</h3></div></header><div className="plans-list">{classes.length === 0 ? <div className="directory-empty"><CalendarDays /><p>Nenhuma aula cadastrada ainda.</p></div> : classes.map((item) => { const reserved = reservationCounts[item.id] ?? 0; const present = attendanceCounts[item.id] ?? 0; return <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor}</small><small>{item.visibility === "selected" ? `Restrita · ${item.selectedStudentIds?.length ?? reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active" && reservation.source === "staff").length} alunos selecionados` : "Aberta para todos os alunos"}</small><small>{reserved} {reserved === 1 ? "reserva" : "reservas"} de {item.capacity} vagas · {present} {present === 1 ? "presença" : "presenças"}</small></div><div className="row-actions"><button type="button" className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button><button type="button" className="plan-edit" onClick={() => editClass(item)}>Editar</button>{access.role === "admin" && <button type="button" className="plan-delete" onClick={() => removeClass(item)}>Excluir</button>}</div></div>; })}</div></article></section>
     </div>
   );
 }
