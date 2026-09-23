@@ -3898,6 +3898,10 @@ function StudentMessagesPanel({ messages, body, sending, onBodyChange, onSend }:
   return <section className="student-profile-messages"><div className="student-profile-message-heading"><span><MessageCircle /> MENSAGEM INTERNA</span><small>{messages.length} enviada(s)</small></div>{messages.length > 0 && <div className="student-message-history">{messages.slice(0, 2).map((message) => <div key={message.id}><strong>{message.senderName}</strong><p>{message.body}</p></div>)}</div>}<div className="student-message-compose"><textarea value={body} onChange={(event) => onBodyChange(event.target.value)} placeholder="Escreva uma orientação ou lembrete para o aluno..." /><button type="button" onClick={onSend} disabled={sending || !body.trim()}>{sending ? "Enviando..." : "Enviar mensagem"}</button></div></section>;
 }
 
+function StudentWorkoutFeedbackPanel({ feedbacks }: { feedbacks: WorkoutFeedbackRecord[] }) {
+  return <section className="student-feedback-history"><header><div><span>RETORNO DO ALUNO</span><h3>Como foram os treinos</h3></div><strong>{feedbacks.length} {feedbacks.length === 1 ? "avaliação" : "avaliações"}</strong></header>{feedbacks.length === 0 ? <p className="student-profile-empty">O aluno ainda não avaliou um treino concluído.</p> : <div>{feedbacks.slice(0, 4).map((item) => <article key={item.id}><div><strong>{displayWorkoutName(item.workoutName)}</strong>{item.comment && <p>{item.comment}</p>}</div><span aria-label={item.rating + " de 5 estrelas"}>{"★".repeat(item.rating)}{"☆".repeat(5 - item.rating)}</span><small>{formatNotificationDate(item.createdAt) || "Data não informada"}</small></article>)}</div>}</section>;
+}
+
 function StudentFrequency({ attendance, executions }: { attendance: AttendanceRecord[]; executions: WorkoutExecution[] }) {
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
@@ -3955,6 +3959,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [financialOpen, setFinancialOpen] = useState(false);
   const [studentExecutions, setStudentExecutions] = useState<WorkoutExecution[]>([]);
   const [studentAttendance, setStudentAttendance] = useState<AttendanceRecord[]>([]);
+  const [studentFeedback, setStudentFeedback] = useState<WorkoutFeedbackRecord[]>([]);
   const [studentMessages, setStudentMessages] = useState<InternalMessage[]>([]);
   const [messageBody, setMessageBody] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -4018,7 +4023,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   useEffect(() => {
     if (!db || !selectedId) {
       if (!selectedId) {
-        setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentAttendance([]); setStudentMessages([]); setFinancialOpen(false);
+        setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentAttendance([]); setStudentFeedback([]); setStudentMessages([]); setFinancialOpen(false);
         return;
       }
       setStudentWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === selectedId && item.status === "published"));
@@ -4026,6 +4031,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       setStudentCharges(access.role === "admin" ? readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === selectedId) : []);
       setStudentExecutions([]);
       setStudentAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance").filter((item) => item.studentId === selectedId));
+      setStudentFeedback(readLocalCollection<WorkoutFeedbackRecord>(access.academyId, "workoutFeedback").filter((item) => item.studentId === selectedId).sort((a, b) => (workoutExecutionTime(a.createdAt as WorkoutExecution["completedAt"]) - workoutExecutionTime(b.createdAt as WorkoutExecution["completedAt"]))).reverse());
       setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
       return;
     }
@@ -4044,10 +4050,13 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const unsubscribeAttendance = onSnapshot(query(collection(db, "academies", access.academyId, "attendance"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentAttendance(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AttendanceRecord, "id">) })).sort((a, b) => b.date.localeCompare(a.date)));
     });
+    const unsubscribeFeedback = onSnapshot(query(collection(db, "academies", access.academyId, "workoutFeedback"), where("studentId", "==", selectedId)), (snapshot) => {
+      setStudentFeedback(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutFeedbackRecord, "id">) })).sort((a, b) => workoutExecutionTime(b.createdAt as WorkoutExecution["completedAt"]) - workoutExecutionTime(a.createdAt as WorkoutExecution["completedAt"])));
+    });
     const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
     });
-    return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeAttendance(); unsubscribeMessages(); };
+    return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeAttendance(); unsubscribeFeedback(); unsubscribeMessages(); };
   }, [access.academyId, access.role, selectedId]);
 
   useEffect(() => {
@@ -4056,6 +4065,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
       setStudentAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance").filter((item) => item.studentId === selectedId));
       setStudentExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions").filter((item) => item.studentId === selectedId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)));
+      setStudentFeedback(readLocalCollection<WorkoutFeedbackRecord>(access.academyId, "workoutFeedback").filter((item) => item.studentId === selectedId).sort((a, b) => workoutExecutionTime(b.createdAt as WorkoutExecution["completedAt"]) - workoutExecutionTime(a.createdAt as WorkoutExecution["completedAt"])));
     };
     window.addEventListener("orquestra-fit:collection-updated", syncLocalStudentDetails);
     return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalStudentDetails);
@@ -4203,6 +4213,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
             <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}><Dumbbell size={15} /> Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}><Activity size={15} /> Nova avaliação</button>{access.role === "admin" && <button type="button" className={financialOpen ? "is-open" : ""} onClick={() => setFinancialOpen((current) => !current)}><WalletCards size={15} /> {financialOpen ? "Ocultar financeiro" : "Ver financeiro"}</button>}</div>
             {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
+            <StudentWorkoutFeedbackPanel feedbacks={studentFeedback} />
             <details className="student-profile-collapse"><summary><span><small>CADASTRO E ACESSO</small><strong>Dados pessoais, plano e permissões</strong></span><ChevronDown /></summary><div className="student-profile-collapse-content">
               {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
             <label>Nome completo<input value={editName} onChange={(event) => setEditName(capitalizeName(event.target.value))} autoComplete="name" required /></label>

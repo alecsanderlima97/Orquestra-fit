@@ -221,6 +221,20 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .student-message-compose textarea { width: 100%; min-height: 54px; resize: vertical; border: 1px solid var(--line); background: #0b0d0e; color: var(--paper); padding: 8px; font-size: 10px; }
 .student-message-compose button { justify-self: start; border: 1px solid var(--bronze-500); background: transparent; color: var(--bronze-300); padding: 7px 9px; font-size: 10px; font-weight: 800; }
 .student-message-compose button:disabled { opacity: .45; cursor: not-allowed; }
+.student-feedback-history { margin: 14px 22px 0; border: 1px solid var(--line); border-radius: 12px; background: #111415; overflow: hidden; }
+.student-feedback-history > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px; border-bottom: 1px solid var(--line); }
+.student-feedback-history > header > div { display: grid; gap: 4px; }
+.student-feedback-history > header span { color: var(--bronze-300); font-size: 9px; font-weight: 900; letter-spacing: .13em; }
+.student-feedback-history > header h3 { margin: 0; color: var(--paper); font-size: 15px; }
+.student-feedback-history > header > strong { color: var(--bronze-300); font-size: 11px; }
+.student-feedback-history > div { display: grid; gap: 0; }
+.student-feedback-history article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 11px 12px; border-bottom: 1px solid rgba(134,116,85,.18); }
+.student-feedback-history article:last-child { border-bottom: 0; }
+.student-feedback-history article > div { min-width: 0; }
+.student-feedback-history article strong { color: var(--paper); font-size: 11px; }
+.student-feedback-history article p { margin: 5px 0 0; color: var(--steel-300); font-size: 10px; line-height: 1.45; }
+.student-feedback-history article > span { color: var(--bronze-300); font-size: 14px; letter-spacing: .06em; white-space: nowrap; }
+.student-feedback-history article > small { grid-column: 1 / -1; color: var(--steel-500); font-size: 9px; }
 .student-message-inbox { display: flex; align-items: flex-start; gap: 12px; margin-top: 18px; border: 1px solid #4b3a29; background: #171411; padding: 14px; }
 .student-message-inbox-icon { flex: 0 0 auto; width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--bronze-500); color: var(--bronze-300); }
 .student-message-inbox-icon svg { width: 17px; }
