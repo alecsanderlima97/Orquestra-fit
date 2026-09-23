@@ -795,6 +795,16 @@ function normalizeTemplateForStudent(template: WorkoutTemplateRecord, studentId:
   return { id: `general-template-${template.id}`, name: template.name, studentId, studentName, recommendedDay: "Flexível", level: template.level, audience: template.audience, focusLabel: template.focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds ?? [], exerciseDetails: template.exerciseDetails ?? [], status: "published" };
 }
 
+function deduplicateStudentWorkouts(workouts: WorkoutRecord[]) {
+  const seen = new Set<string>();
+  return workouts.filter((workout) => {
+    const key = workout.sourceTemplateId || workout.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function useStudentPublishedWorkouts(enabled = true) {
   const access = useAccess();
   const [workouts, setWorkouts] = useState<WorkoutRecord[]>([]);
@@ -822,9 +832,10 @@ function useStudentPublishedWorkouts(enabled = true) {
         const studentName = accountName(access.user.displayName, access.user.email);
         const assigned = readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => (item.studentId === studentId || item.studentRecordId === studentId || item.studentUserId === access.userId) && item.status === "published");
         const availableTemplates = readLocalCollection<WorkoutTemplateRecord>(access.academyId, "workoutTemplates").filter((item) => (item.audience ?? "Geral") === "Geral" || (item.audience === "Personalizado" && item.targetStudentId === studentId)).map((item) => normalizeTemplateForStudent(item, studentId, studentName));
-        const unlockedTemplateIds = new Set(assigned.map((item) => item.sourceTemplateId).filter((item): item is string => Boolean(item)));
-        const visibleTemplates = availableTemplates.filter((item) => item.audience !== "Geral" || !unlockedTemplateIds.has(item.sourceTemplateId ?? ""));
-        setWorkouts([...assigned, ...visibleTemplates].map((item) => item.audience === "Geral" ? { ...item, isLocked: !item.sourceTemplateId || !unlockedTemplateIds.has(item.sourceTemplateId) } : item));
+        const uniqueAssigned = deduplicateStudentWorkouts(assigned);
+        const unlockedTemplateIds = new Set(uniqueAssigned.map((item) => item.sourceTemplateId).filter((item): item is string => Boolean(item)));
+        const visibleTemplates = availableTemplates.filter((item) => !unlockedTemplateIds.has(item.sourceTemplateId ?? ""));
+        setWorkouts(deduplicateStudentWorkouts([...uniqueAssigned, ...visibleTemplates]).map((item) => item.audience === "Geral" ? { ...item, isLocked: !item.sourceTemplateId || !unlockedTemplateIds.has(item.sourceTemplateId) } : item));
         setLoading(false);
       };
       syncLocalWorkouts();
@@ -846,10 +857,10 @@ function useStudentPublishedWorkouts(enabled = true) {
     let generalWorkouts: WorkoutRecord[] = [];
     let personalizedWorkouts: WorkoutRecord[] = [];
     const publishWorkouts = () => {
-      const uniqueAssigned = [...assignedWorkouts, ...assignedWorkoutsByUser].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index);
+      const uniqueAssigned = deduplicateStudentWorkouts([...assignedWorkouts, ...assignedWorkoutsByUser]);
       const unlockedTemplateIds = new Set(uniqueAssigned.map((item) => item.sourceTemplateId).filter((item): item is string => Boolean(item)));
-      const visibleGeneralWorkouts = generalWorkouts.filter((item) => !unlockedTemplateIds.has(item.sourceTemplateId ?? ""));
-      setWorkouts([...uniqueAssigned, ...visibleGeneralWorkouts, ...personalizedWorkouts].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index).map((item) => item.audience === "Geral" ? { ...item, isLocked: !item.sourceTemplateId || !unlockedTemplateIds.has(item.sourceTemplateId) } : item));
+      const visibleTemplateWorkouts = [...generalWorkouts, ...personalizedWorkouts].filter((item) => !unlockedTemplateIds.has(item.sourceTemplateId ?? ""));
+      setWorkouts(deduplicateStudentWorkouts([...uniqueAssigned, ...visibleTemplateWorkouts]).map((item) => item.audience === "Geral" ? { ...item, isLocked: !item.sourceTemplateId || !unlockedTemplateIds.has(item.sourceTemplateId) } : item));
     };
     const unsubscribeWorkouts = onSnapshot(workoutsQuery, (snapshot) => {
       assignedWorkouts = snapshot.docs.filter((workout) => !previewingStudent || [targetStudentId, previewStudent?.id].includes(workout.data().studentId) || [targetStudentId, previewStudent?.id].includes(workout.data().studentUserId) || [targetStudentId, previewStudent?.id].includes(workout.data().studentRecordId)).map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">));
