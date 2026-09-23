@@ -175,7 +175,8 @@ service cloud.firestore {
     match /academies/{academyId}/reservations/{reservationId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
         (isStudent(academyId) && resource.data.studentId == request.auth.uid);
-      allow create: if isStudent(academyId) && request.resource.data.studentId == request.auth.uid;
+      allow create: if (isAdmin(academyId) || isTeacher(academyId)) ||
+        (isStudent(academyId) && request.resource.data.studentId == request.auth.uid);
       allow update: if isAdmin(academyId) || isTeacher(academyId) ||
         (isStudent(academyId) && resource.data.studentId == request.auth.uid && request.resource.data.studentId == request.auth.uid);
       allow delete: if isAdmin(academyId);

@@ -1281,7 +1281,7 @@ function Agenda() {
       return;
     }
     const unsubscribeClasses = onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
-      setClasses(snapshot.docs.map((item) => { const data = item.data() as Partial<ClassRecord>; return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false }; }).filter((item) => item.active));
+      setClasses(snapshot.docs.map((item) => { const data = item.data() as Partial<ClassRecord>; return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] }; }).filter((item) => item.active));
     });
     const reservationQuery = query(collection(db, "academies", access.academyId, "reservations"), where("studentId", "==", access.userId), where("status", "==", "active"));
     const unsubscribeReservations = onSnapshot(reservationQuery, (snapshot) => setReservationIds(snapshot.docs.map((item) => (item.data() as { classId: string }).classId)));
@@ -1340,11 +1340,12 @@ function Agenda() {
     } catch { feedback("Não foi possível registrar sua presença."); }
   }
 
+  const visibleClasses = classes.filter((item) => item.visibility !== "selected" || reservationIds.includes(item.id));
   return (
     <div className="student-view">
       <PageIntro kicker="AULAS E RESERVAS" title="Sua agenda" copy="Organize a semana sem perder o ritmo." />
       <div className="date-selector">{["SEG\n01", "TER\n02", "QUA\n03", "QUI\n04", "SEX\n05", "SÁB\n06", "DOM\n07"].map((day, index) => <button className={selectedDay === index ? "active" : ""} key={day} onClick={() => setSelectedDay(index)}>{day.split("\n").map((part) => <span key={part}>{part}</span>)}</button>)}</div>
-      {classes.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>Nenhuma aula disponível</h3><p>As próximas turmas da academia aparecerão aqui.</p></div> : classes.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><small>{item.name.toUpperCase()}</small><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button onClick={() => reserved ? cancel(item) : reserve(item)}>{reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
+      {visibleClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>Nenhuma aula disponível</h3><p>As próximas turmas da academia aparecerão aqui.</p></div> : visibleClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><small>{item.name.toUpperCase()}</small><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button onClick={() => reserved ? cancel(item) : reserve(item)}>{reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
     </div>
   );
 }
@@ -1662,12 +1663,15 @@ function WorkoutCompletionSummary({ name, summary, onClose }: { name: string; su
 
 type RegisteredStudent = {
   id: string;
+  userId?: string | null;
   name: string;
   email?: string | null;
   phone?: string | null;
   cpf?: string | null;
   birthDate?: string | null;
   plan: string;
+  joinedAt?: string | null;
+  planStartedAt?: string | null;
   teacherId?: string | null;
   anatomyProfile?: "masculino" | "feminino";
   active?: boolean;
@@ -1914,7 +1918,8 @@ type WorkoutTemplateDay = (typeof workoutTemplateDayOptions)[number];
 const workoutTemplateDayOrder: WorkoutTemplateDay[] = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo", "Flexível"];
 const workoutLevelOrder: WorkoutLevel[] = ["Fundação", "Evolução", "Performance", "Elite"];
 type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; scheduleDay?: WorkoutTemplateDay; focusLabel?: string; targetStudentId?: string | null; targetStudentName?: string | null; seedKey?: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
-type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean };
+type ClassRecord = { id: string; name: string; instructor: string; date: string; time: string; capacity: number; active: boolean; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
+type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string }>; calories?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
@@ -2005,6 +2010,13 @@ function formatDate(dateString: string) {
   return `${day}/${month}/${year}`;
 }
 
+function formatMonth(dateString?: string | null) {
+  if (!dateString) return "Não informado";
+  const [year, month] = dateString.split("-").map(Number);
+  if (!year || !month) return "Não informado";
+  return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+}
+
 function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: (message: string) => void; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<BillingStudent[]>([]);
@@ -2078,6 +2090,8 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
 function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [classes, setClasses] = useState<ClassRecord[]>([]);
+  const [students, setStudents] = useState<RegisteredStudent[]>([]);
+  const [reservations, setReservations] = useState<ClassReservation[]>([]);
   const [reservationCounts, setReservationCounts] = useState<Record<string, number>>({});
   const [attendanceCounts, setAttendanceCounts] = useState<Record<string, number>>({});
   const [name, setName] = useState("");
@@ -2085,21 +2099,37 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [capacity, setCapacity] = useState("10");
+  const [visibility, setVisibility] = useState<"open" | "selected">("open");
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!db) {
       setClasses(readLocalCollection<ClassRecord>(access.academyId, "classes"));
+      const localStudents = readLocalCollection<RegisteredStudent>(access.academyId, "students").filter((student) => student.active !== false);
+      setStudents(access.role === "teacher" ? localStudents.filter((student) => !student.teacherId || student.teacherId === access.userId) : localStudents);
+      const localReservations = readLocalCollection<ClassReservation>(access.academyId, "reservations");
+      setReservations(localReservations);
       return;
     }
     return onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
       setClasses(snapshot.docs.map((item) => {
         const data = item.data() as Partial<ClassRecord>;
-        return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false };
+        return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] };
       }).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)));
     }, (error) => console.error("Não foi possível carregar as aulas.", error));
-  }, [access.academyId]);
+  }, [access.academyId, access.role, access.userId]);
+
+  useEffect(() => {
+    if (!db) return;
+    const studentsRef = collection(db, "academies", access.academyId, "students");
+    const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
+    return onSnapshot(studentsQuery, (snapshot) => setStudents(snapshot.docs.map((item) => {
+      const data = item.data() as Partial<RegisteredStudent> & { authUid?: string | null };
+      return { id: item.id, userId: data.userId ?? data.authUid ?? item.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" as const : "masculino" as const, active: data.active !== false };
+    }).filter((student) => student.active !== false)), (error) => console.error("Não foi possível carregar alunos para a agenda.", error));
+  }, [access.academyId, access.role, access.userId]);
 
   useEffect(() => {
     if (!db) return;
@@ -2114,39 +2144,75 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   }, [access.academyId]);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      const localReservations = readLocalCollection<ClassReservation>(access.academyId, "reservations");
+      setReservations(localReservations);
+      const counts: Record<string, number> = {};
+      localReservations.filter((item) => item.status === "active").forEach((item) => { counts[item.classId] = (counts[item.classId] ?? 0) + 1; });
+      setReservationCounts(counts);
+      return;
+    }
     return onSnapshot(query(collection(db, "academies", access.academyId, "reservations"), where("status", "==", "active")), (snapshot) => {
       const counts: Record<string, number> = {};
+      const nextReservations: ClassReservation[] = [];
       snapshot.docs.forEach((item) => {
-        const classId = String(item.data().classId ?? "");
+        const data = item.data();
+        const classId = String(data.classId ?? "");
+        nextReservations.push({ id: item.id, classId, className: data.className, studentId: String(data.studentId ?? ""), studentName: data.studentName, status: "active", source: data.source === "staff" ? "staff" : "student" });
         if (classId) counts[classId] = (counts[classId] ?? 0) + 1;
       });
+      setReservations(nextReservations);
       setReservationCounts(counts);
     }, (error) => console.error("Não foi possível carregar as reservas.", error));
   }, [access.academyId]);
 
+  function studentAccessId(student: RegisteredStudent) { return student.userId || student.id; }
+
+  async function syncStaffReservations(classId: string, className: string, selectedIds: string[]) {
+    const selected = new Set(visibility === "selected" ? selectedIds : []);
+    if (!db) {
+      const current = readLocalCollection<ClassReservation>(access.academyId, "reservations");
+      const next = current.map((reservation) => reservation.classId === classId && reservation.source === "staff" && reservation.status === "active" && !selected.has(reservation.studentId) ? { ...reservation, status: "canceled" as const } : reservation);
+      students.filter((student) => selected.has(studentAccessId(student))).forEach((student) => {
+        const studentId = studentAccessId(student);
+        if (!next.some((reservation) => reservation.classId === classId && reservation.studentId === studentId && reservation.status === "active")) next.push({ id: `local-reservation-${crypto.randomUUID()}`, classId, className, studentId, studentName: student.name, status: "active", source: "staff" });
+      });
+      writeLocalCollection(access.academyId, "reservations", next);
+      setReservations(next);
+      return;
+    }
+    const existing = reservations.filter((reservation) => reservation.classId === classId && reservation.source === "staff" && reservation.status === "active");
+    await Promise.all(existing.filter((reservation) => !selected.has(reservation.studentId)).map((reservation) => updateDoc(doc(db!, "academies", access.academyId, "reservations", reservation.id), { status: "canceled", updatedAt: serverTimestamp(), updatedBy: access.userId })));
+    await Promise.all(students.filter((student) => selected.has(studentAccessId(student)) && !existing.some((reservation) => reservation.studentId === studentAccessId(student))).map((student) => addDoc(collection(db!, "academies", access.academyId, "reservations"), { classId, className, studentId: studentAccessId(student), studentName: student.name, status: "active", source: "staff", createdBy: access.userId, createdAt: serverTimestamp() })));
+  }
+
   async function createClass(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim() || !date || !time) { onFeedback("Informe o nome, a data e o horário da aula."); return; }
+    if (visibility === "selected" && selectedStudentIds.length === 0) { onFeedback("Selecione pelo menos um aluno ou deixe a aula aberta para todos."); return; }
     if (!db) {
-      const localClass: ClassRecord = { id: editingClassId ?? `local-class-${Date.now()}`, name: capitalizeName(name.trim()), instructor: capitalizeName(instructor.trim() || "Equipe da academia"), date, time, capacity: Number(capacity) || 10, active: true };
+      const localClass: ClassRecord = { id: editingClassId ?? `local-class-${Date.now()}`, name: capitalizeName(name.trim()), instructor: capitalizeName(instructor.trim() || "Equipe da academia"), date, time, capacity: Number(capacity) || 10, active: true, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [] };
       const nextClasses = (editingClassId ? classes.map((item) => item.id === editingClassId ? localClass : item) : [...classes, localClass]).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
       setClasses(nextClasses);
       writeLocalCollection(access.academyId, "classes", nextClasses);
+      await syncStaffReservations(localClass.id, localClass.name, selectedStudentIds);
       clearForm();
       onFeedback(editingClassId ? "Aula atualizada no modo local." : "Aula criada no modo local.");
       return;
     }
     setSaving(true);
     try {
-      const data = { name: name.trim(), instructor: instructor.trim() || "Equipe da academia", date, time, capacity: Number(capacity) || 10, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const data = { name: name.trim(), instructor: instructor.trim() || "Equipe da academia", date, time, capacity: Number(capacity) || 10, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [], updatedBy: access.userId, updatedAt: serverTimestamp() };
+      let classId = editingClassId;
       if (editingClassId) {
         await updateDoc(doc(db, "academies", access.academyId, "classes", editingClassId), data);
         onFeedback("Aula atualizada na agenda.");
       } else {
-        await addDoc(collection(db, "academies", access.academyId, "classes"), { ...data, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
+        const created = await addDoc(collection(db, "academies", access.academyId, "classes"), { ...data, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
+        classId = created.id;
         onFeedback("Aula criada na agenda.");
       }
+      if (classId) await syncStaffReservations(classId, name.trim(), selectedStudentIds);
       clearForm();
     } catch { onFeedback("Não foi possível criar a aula."); }
     finally { setSaving(false); }
@@ -2154,11 +2220,13 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
 
   function editClass(item: ClassRecord) {
     setEditingClassId(item.id); setName(item.name); setInstructor(item.instructor); setDate(item.date); setTime(item.time); setCapacity(String(item.capacity));
+    setVisibility(item.visibility === "selected" ? "selected" : "open");
+    setSelectedStudentIds(reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active" && reservation.source === "staff").map((reservation) => reservation.studentId));
     scrollToContent(".classes-layout .plan-form-panel");
   }
 
   function clearForm() {
-    setEditingClassId(null); setName(""); setInstructor(""); setDate(""); setTime(""); setCapacity("10");
+    setEditingClassId(null); setName(""); setInstructor(""); setDate(""); setTime(""); setCapacity("10"); setVisibility("open"); setSelectedStudentIds([]);
   }
 
   async function removeClass(item: ClassRecord) {
@@ -2191,7 +2259,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>AGENDA · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Aulas e reservas</h2><p>Organize horários, vagas e reservas dos alunos.</p></div></section>
-      <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>{editingClassId ? "EDITAR AULA" : "NOVA AULA"}</span><h3>{editingClassId ? "Atualizar turma" : "Criar turma"}</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor<input value={instructor} onChange={(event) => setInstructor(event.target.value)} placeholder="Nome do professor" /></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingClassId ? "Salvar alterações" : "Criar aula"}</button>{editingClassId && <button className="secondary-action" type="button" onClick={clearForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{classes.length} {classes.length === 1 ? "aula" : "aulas"}</h3></div></header><div className="plans-list">{classes.length === 0 ? <div className="directory-empty"><CalendarDays /><p>Nenhuma aula cadastrada ainda.</p></div> : classes.map((item) => { const reserved = reservationCounts[item.id] ?? 0; const present = attendanceCounts[item.id] ?? 0; return <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor}</small><small>{reserved} {reserved === 1 ? "reserva" : "reservas"} de {item.capacity} vagas · {present} {present === 1 ? "presença" : "presenças"}</small></div><div className="row-actions"><button type="button" className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button><button type="button" className="plan-edit" onClick={() => editClass(item)}>Editar</button>{access.role === "admin" && <button type="button" className="plan-delete" onClick={() => removeClass(item)}>Excluir</button>}</div></div>; })}</div></article></section>
+      <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>{editingClassId ? "EDITAR AULA" : "NOVA AULA"}</span><h3>{editingClassId ? "Atualizar turma" : "Criar turma"}</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor<input value={instructor} onChange={(event) => setInstructor(event.target.value)} placeholder="Nome do professor" /></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><fieldset className="class-audience-picker"><legend>Quem pode reservar</legend><label><input type="radio" name="class-visibility" checked={visibility === "open"} onChange={() => { setVisibility("open"); setSelectedStudentIds([]); }} /> Aula aberta para todos os alunos</label><label><input type="radio" name="class-visibility" checked={visibility === "selected"} onChange={() => setVisibility("selected")} /> Somente alunos selecionados</label>{visibility === "selected" && <div className="class-student-options">{students.length === 0 ? <small>Nenhum aluno ativo disponível.</small> : students.map((student) => { const id = studentAccessId(student); return <label key={student.id}><input type="checkbox" checked={selectedStudentIds.includes(id)} onChange={() => setSelectedStudentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} /><span>{student.name}<small>{student.plan}</small></span></label>; })}</div>}</fieldset><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingClassId ? "Salvar alterações" : "Criar aula"}</button>{editingClassId && <button className="secondary-action" type="button" onClick={clearForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{classes.length} {classes.length === 1 ? "aula" : "aulas"}</h3></div></header><div className="plans-list">{classes.length === 0 ? <div className="directory-empty"><CalendarDays /><p>Nenhuma aula cadastrada ainda.</p></div> : classes.map((item) => { const reserved = reservationCounts[item.id] ?? 0; const present = attendanceCounts[item.id] ?? 0; return <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor}</small><small>{item.visibility === "selected" ? `Restrita · ${item.selectedStudentIds?.length ?? reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active" && reservation.source === "staff").length} alunos selecionados` : "Aberta para todos os alunos"}</small><small>{reserved} {reserved === 1 ? "reserva" : "reservas"} de {item.capacity} vagas · {present} {present === 1 ? "presença" : "presenças"}</small></div><div className="row-actions"><button type="button" className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button><button type="button" className="plan-edit" onClick={() => editClass(item)}>Editar</button>{access.role === "admin" && <button type="button" className="plan-delete" onClick={() => removeClass(item)}>Excluir</button>}</div></div>; })}</div></article></section>
     </div>
   );
 }
@@ -3593,6 +3661,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [studentWorkouts, setStudentWorkouts] = useState<WorkoutRecord[]>([]);
   const [studentAssessments, setStudentAssessments] = useState<AssessmentRecord[]>([]);
   const [studentCharges, setStudentCharges] = useState<MonthlyCharge[]>([]);
+  const [financialOpen, setFinancialOpen] = useState(false);
   const [studentExecutions, setStudentExecutions] = useState<WorkoutExecution[]>([]);
   const [studentMessages, setStudentMessages] = useState<InternalMessage[]>([]);
   const [messageBody, setMessageBody] = useState("");
@@ -3618,8 +3687,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
-        return { id: student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
+        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
+        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     if (access.role !== "admin") return unsubscribeStudents;
@@ -3643,6 +3712,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
 
   useEffect(() => {
     if (!selectedStudent) return;
+    setFinancialOpen(false);
     setEditName(selectedStudent.name);
     setEditEmail(selectedStudent.email ?? "");
     setEditPhone(selectedStudent.phone ?? "");
@@ -3656,7 +3726,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   useEffect(() => {
     if (!db || !selectedId) {
       if (!selectedId) {
-        setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentMessages([]);
+        setStudentWorkouts([]); setStudentAssessments([]); setStudentCharges([]); setStudentExecutions([]); setStudentMessages([]); setFinancialOpen(false);
         return;
       }
       setStudentWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.studentId === selectedId && item.status === "published"));
@@ -3799,6 +3869,13 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }
   }
 
+  const orderedCharges = [...studentCharges].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const pendingCharges = orderedCharges.filter((charge) => charge.status !== "paid");
+  const registrationCharge = orderedCharges.find((charge) => charge.chargeType === "registration");
+  const entryDate = selectedStudent?.planStartedAt ?? selectedStudent?.joinedAt ?? orderedCharges[0]?.dueDate;
+  const nextDue = pendingCharges[0] ?? orderedCharges[orderedCharges.length - 1];
+  const financialStatus = pendingCharges.length === 0 && orderedCharges.length > 0 ? "Pagamentos em dia" : pendingCharges.some((charge) => chargeViewStatus(charge) === "overdue") ? "Há vencimento atrasado" : pendingCharges.length > 0 ? "Há cobrança pendente" : "Sem lançamentos";
+
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro">
@@ -3822,7 +3899,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
             <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
             <div className="student-profile-overview"><div><small>STATUS DE ACESSO</small><strong>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</strong></div><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>ÚLTIMO TREINO</small><strong>{studentExecutions[0]?.workoutName ?? "Sem registro"}</strong></div></div>
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{workout.name}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
-            <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}><Dumbbell size={15} /> Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}><Activity size={15} /> Nova avaliação</button>{access.role === "admin" && <button type="button" onClick={() => onNavigate("Financeiro", selectedStudent.id)}><WalletCards size={15} /> Ver financeiro</button>}</div>
+            <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}><Dumbbell size={15} /> Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}><Activity size={15} /> Nova avaliação</button>{access.role === "admin" && <button type="button" className={financialOpen ? "is-open" : ""} onClick={() => setFinancialOpen((current) => !current)}><WalletCards size={15} /> {financialOpen ? "Ocultar financeiro" : "Ver financeiro"}</button>}</div>
+            {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <details className="student-profile-collapse"><summary><span><small>CADASTRO E ACESSO</small><strong>Dados pessoais, plano e permissões</strong></span><ChevronDown /></summary><div className="student-profile-collapse-content">
               {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
