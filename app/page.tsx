@@ -506,6 +506,23 @@ const verifiedExerciseGifs: Record<string, VerifiedExerciseGif> = {
   "remada alta com barra": { maleFile: "EXERCÍCIOS COM BARRAS/OMBROS/Barbell-Upright-Row_shoulder_converted.gif" },
   "supino fechado com barra": { maleFile: "EXERCÍCIOS COM BARRAS/PEITO/Barbell-Close-Grip-Bench-Press_Upper-Arms-FIX__converted.gif" },
   "triceps acima da cabeca na polia": { maleFile: "EXERCÍCIOS NO CABO  OU POLIA/TRICEPS/Cable-Overhead-Triceps-Extension-(rope-attachment)_Upper-Arms-FIX__converted.gif" },
+  "agachamento com peso corporal": { maleFile: "FUNCIONAL/PESO CORPORAL/PERNA/Bodyweight-Squat-(male)_Thighs-FRONT-POV__converted.gif" },
+  "avanco com peso corporal": { maleFile: "FUNCIONAL/PESO CORPORAL/PERNA/Bodyweight-Forward-Lunge-(Smaller-Stance-Upright-Torso)_Thighs__converted.gif" },
+  "alongamento de peitoral": { maleFile: "FUNCIONAL/ALONGAMENTO/Dynamic-Chest-Stretch-(male)_Chest_converted.gif" },
+  "alongamento de quadriceps": { maleFile: "FUNCIONAL/ALONGAMENTO/Double-Lean-Back-Quadriceps-Stretch_Thighs__converted.gif" },
+  "mobilidade de quadril": { maleFile: "FUNCIONAL/MOBILIDADE/QUADRIL/Full-Squat-Mobility_Thighs__converted.gif" },
+  "bicicleta ergometrica": { maleFile: "FUNCIONAL/CARDIO/Stationary-Bike-Run-(version-4)_Cardio_converted.gif" },
+  "esteira": { maleFile: "FUNCIONAL/CARDIO/Walking-on-Treadmill_Cardio_converted.gif" },
+  "abdominal obliquo": { maleFile: "FUNCIONAL/ABDOMINAIS/Alternate-Oblique-Crunch_Waist__converted.gif" },
+  "burpee": { maleFile: "FUNCIONAL/PESO CORPORAL/BURPEE/Burpee_Cardio-FIX__converted.gif" },
+  "corda naval": { maleFile: "FUNCIONAL/CORDA NAVAL/Battling-Ropes_converted.gif" },
+  "escada ergometrica": { maleFile: "FUNCIONAL/CARDIO/Walking-on-Stepmill_Cardio_converted.gif" },
+  "mobilidade de ombros": { maleFile: "FUNCIONAL/MOBILIDADE/OMBRO/Arm-Circles_Shoulders_converted.gif" },
+  "mobilidade de tornozelo": { maleFile: "FUNCIONAL/MOBILIDADE/TORNOZELO/Ankle-Circles_Calves__converted.gif" },
+  "alongamento de posteriores": { maleFile: "FUNCIONAL/MOBILIDADE/QUADRIL/Low-Lunge-to-Hamstring-Stretch-(male)_Stretching__converted.gif" },
+  "alongamento de panturrilha": { maleFile: "FUNCIONAL/ALONGAMENTO/Crouching-Heel-Back-Calf-Stretch_Calves__converted.gif" },
+  "gluteo quatro apoios": { maleFile: "FUNCIONAL/PESO CORPORAL/PERNA/Bent-Leg-Kickback-(kneeling)-(male)_Hips-FIX__converted.gif" },
+  "air bike": { maleFile: "FUNCIONAL/CARDIO/Assault-Bike-Run_Cardio__converted.gif" },
 };
 
 function exerciseGifKey(name: string) {

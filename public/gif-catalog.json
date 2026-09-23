@@ -296,14 +296,6 @@
     "muscle": "BICEPS"
   },
   {
-    "id": "ez-barbell-close-grip-curl-upper-arms-converted-2",
-    "name": "EZ-Barbell-Close-grip-Curl_Upper-Arms__converted 2",
-    "file": "EXERCÍCIOS COM BARRAS/BICEPS/EZ-Barbell-Close-grip-Curl_Upper-Arms__converted 2.gif",
-    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20COM%20BARRAS/BICEPS/EZ-Barbell-Close-grip-Curl_Upper-Arms__converted%202.gif",
-    "equipment": "EXERCÍCIOS COM BARRAS",
-    "muscle": "BICEPS"
-  },
-  {
     "id": "ez-barbell-close-grip-curl-upper-arms-converted",
     "name": "EZ-Barbell-Close-grip-Curl_Upper-Arms__converted",
     "file": "EXERCÍCIOS COM BARRAS/BICEPS/EZ-Barbell-Close-grip-Curl_Upper-Arms__converted.gif",
@@ -312,10 +304,10 @@
     "muscle": "BICEPS"
   },
   {
-    "id": "ez-barbell-close-grip-preacher-curl-upper-arms-converted-2",
-    "name": "EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted 2",
-    "file": "EXERCÍCIOS COM BARRAS/BICEPS/EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted 2.gif",
-    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20COM%20BARRAS/BICEPS/EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted%202.gif",
+    "id": "ez-barbell-close-grip-curl-upper-arms-converted-2",
+    "name": "EZ-Barbell-Close-grip-Curl_Upper-Arms__converted 2",
+    "file": "EXERCÍCIOS COM BARRAS/BICEPS/EZ-Barbell-Close-grip-Curl_Upper-Arms__converted 2.gif",
+    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20COM%20BARRAS/BICEPS/EZ-Barbell-Close-grip-Curl_Upper-Arms__converted%202.gif",
     "equipment": "EXERCÍCIOS COM BARRAS",
     "muscle": "BICEPS"
   },
@@ -324,6 +316,14 @@
     "name": "EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted",
     "file": "EXERCÍCIOS COM BARRAS/BICEPS/EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted.gif",
     "url": "/exercise-gifs/EXERC%C3%8DCIOS%20COM%20BARRAS/BICEPS/EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted.gif",
+    "equipment": "EXERCÍCIOS COM BARRAS",
+    "muscle": "BICEPS"
+  },
+  {
+    "id": "ez-barbell-close-grip-preacher-curl-upper-arms-converted-2",
+    "name": "EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted 2",
+    "file": "EXERCÍCIOS COM BARRAS/BICEPS/EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted 2.gif",
+    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20COM%20BARRAS/BICEPS/EZ-Barbell-Close-Grip-Preacher-Curl_Upper-Arms_converted%202.gif",
     "equipment": "EXERCÍCIOS COM BARRAS",
     "muscle": "BICEPS"
   },
@@ -5192,18 +5192,18 @@
     "muscle": "ABDOMINAIS"
   },
   {
-    "id": "front-lever-waist-converted-2",
-    "name": "Front-Lever_Waist__converted 2",
-    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Front-Lever_Waist__converted 2.gif",
-    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/ABDOMINAIS/Front-Lever_Waist__converted%202.gif",
-    "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
-    "muscle": "ABDOMINAIS"
-  },
-  {
     "id": "front-lever-waist-converted",
     "name": "Front-Lever_Waist__converted",
     "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Front-Lever_Waist__converted.gif",
     "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/ABDOMINAIS/Front-Lever_Waist__converted.gif",
+    "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
+    "muscle": "ABDOMINAIS"
+  },
+  {
+    "id": "front-lever-waist-converted-2",
+    "name": "Front-Lever_Waist__converted 2",
+    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/Front-Lever_Waist__converted 2.gif",
+    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/ABDOMINAIS/Front-Lever_Waist__converted%202.gif",
     "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
     "muscle": "ABDOMINAIS"
   },
@@ -7032,14 +7032,6 @@
     "muscle": "PEITO"
   },
   {
-    "id": "smith-close-grip-bench-press-upper-arms-copy-converted-2",
-    "name": "Smith-Close-Grip-Bench-Press_Upper-Arms_ copy_converted 2",
-    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms_ copy_converted 2.gif",
-    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms_%20copy_converted%202.gif",
-    "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
-    "muscle": "PEITO"
-  },
-  {
     "id": "smith-close-grip-bench-press-upper-arms-copy-converted",
     "name": "Smith-Close-Grip-Bench-Press_Upper-Arms_ copy_converted",
     "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms_ copy_converted.gif",
@@ -7048,10 +7040,10 @@
     "muscle": "PEITO"
   },
   {
-    "id": "smith-close-grip-bench-press-upper-arms-converted-2",
-    "name": "Smith-Close-Grip-Bench-Press_Upper-Arms__converted 2",
-    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms__converted 2.gif",
-    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms__converted%202.gif",
+    "id": "smith-close-grip-bench-press-upper-arms-copy-converted-2",
+    "name": "Smith-Close-Grip-Bench-Press_Upper-Arms_ copy_converted 2",
+    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms_ copy_converted 2.gif",
+    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms_%20copy_converted%202.gif",
     "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
     "muscle": "PEITO"
   },
@@ -7060,6 +7052,14 @@
     "name": "Smith-Close-Grip-Bench-Press_Upper-Arms__converted",
     "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms__converted.gif",
     "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms__converted.gif",
+    "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
+    "muscle": "PEITO"
+  },
+  {
+    "id": "smith-close-grip-bench-press-upper-arms-converted-2",
+    "name": "Smith-Close-Grip-Bench-Press_Upper-Arms__converted 2",
+    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms__converted 2.gif",
+    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PEITO/Smith-Close-Grip-Bench-Press_Upper-Arms__converted%202.gif",
     "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
     "muscle": "PEITO"
   },
@@ -7816,18 +7816,18 @@
     "muscle": "PERNA"
   },
   {
-    "id": "smith-chair-squat-thighs-fix-converted-2",
-    "name": "Smith-Chair-Squat_Thighs-FIX__converted 2",
-    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Smith-Chair-Squat_Thighs-FIX__converted 2.gif",
-    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PERNA/Smith-Chair-Squat_Thighs-FIX__converted%202.gif",
-    "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
-    "muscle": "PERNA"
-  },
-  {
     "id": "smith-chair-squat-thighs-fix-converted",
     "name": "Smith-Chair-Squat_Thighs-FIX__converted",
     "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Smith-Chair-Squat_Thighs-FIX__converted.gif",
     "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PERNA/Smith-Chair-Squat_Thighs-FIX__converted.gif",
+    "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
+    "muscle": "PERNA"
+  },
+  {
+    "id": "smith-chair-squat-thighs-fix-converted-2",
+    "name": "Smith-Chair-Squat_Thighs-FIX__converted 2",
+    "file": "EXERCÍCIOS NA MAQUINA - HACK - BANCO/PERNA/Smith-Chair-Squat_Thighs-FIX__converted 2.gif",
+    "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NA%20MAQUINA%20-%20HACK%20-%20BANCO/PERNA/Smith-Chair-Squat_Thighs-FIX__converted%202.gif",
     "equipment": "EXERCÍCIOS NA MAQUINA - HACK - BANCO",
     "muscle": "PERNA"
   },
@@ -10566,6 +10566,142 @@
     "url": "/exercise-gifs/EXERC%C3%8DCIOS%20NO%20CABO%20%20OU%20POLIA/TRICEPS/Cable-Triceps-Pushdown-on-Floor_Upper-Arms__converted.gif",
     "equipment": "EXERCÍCIOS NO CABO  OU POLIA",
     "muscle": "TRICEPS"
+  },
+  {
+    "id": "funcional-alternate-oblique-crunch-waist-converted",
+    "name": "Alternate-Oblique-Crunch_Waist__converted",
+    "file": "FUNCIONAL/ABDOMINAIS/Alternate-Oblique-Crunch_Waist__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1Cbcc18SfQSeI1RvYRncEB2IGmlCcIinr&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "ABDOMINAIS"
+  },
+  {
+    "id": "funcional-crouching-heel-back-calf-stretch-calves-converted",
+    "name": "Crouching-Heel-Back-Calf-Stretch_Calves__converted",
+    "file": "FUNCIONAL/ALONGAMENTO/Crouching-Heel-Back-Calf-Stretch_Calves__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1qgf2u1VURYeu5Tk4oBFVUIvEk-NPRGsR&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "ALONGAMENTO"
+  },
+  {
+    "id": "funcional-double-lean-back-quadriceps-stretch-thighs-converted",
+    "name": "Double-Lean-Back-Quadriceps-Stretch_Thighs__converted",
+    "file": "FUNCIONAL/ALONGAMENTO/Double-Lean-Back-Quadriceps-Stretch_Thighs__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1NjrlKc1uOY-QMiKxTg0u8A0Dogil8M6z&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "ALONGAMENTO"
+  },
+  {
+    "id": "funcional-dynamic-chest-stretch-male-chest-converted",
+    "name": "Dynamic-Chest-Stretch-(male)_Chest_converted",
+    "file": "FUNCIONAL/ALONGAMENTO/Dynamic-Chest-Stretch-(male)_Chest_converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1j3BlOQ2GPG1iFWbmowiGXILpHlSQ7_n5&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "ALONGAMENTO"
+  },
+  {
+    "id": "funcional-assault-bike-run-cardio-converted",
+    "name": "Assault-Bike-Run_Cardio__converted",
+    "file": "FUNCIONAL/CARDIO/Assault-Bike-Run_Cardio__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1rbigrZ4d3eGwZejGMIxd0na9a5nu05Zx&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "CARDIO"
+  },
+  {
+    "id": "funcional-stationary-bike-run-version-4-cardio-converted",
+    "name": "Stationary-Bike-Run-(version-4)_Cardio_converted",
+    "file": "FUNCIONAL/CARDIO/Stationary-Bike-Run-(version-4)_Cardio_converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1ZNiwj0zcVilnyvkJfFn9QTzRbiIj1hDs&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "CARDIO"
+  },
+  {
+    "id": "funcional-walking-on-stepmill-cardio-converted",
+    "name": "Walking-on-Stepmill_Cardio_converted",
+    "file": "FUNCIONAL/CARDIO/Walking-on-Stepmill_Cardio_converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1XchX6lYS6EZEojOeVcjZ4gx5yWWdJmuu&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "CARDIO"
+  },
+  {
+    "id": "funcional-walking-on-treadmill-cardio-converted",
+    "name": "Walking-on-Treadmill_Cardio_converted",
+    "file": "FUNCIONAL/CARDIO/Walking-on-Treadmill_Cardio_converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1yC6pOVp1829bdqWbY79UTJdFBMgQ7jaV&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "CARDIO"
+  },
+  {
+    "id": "funcional-battling-ropes-converted",
+    "name": "Battling-Ropes_converted",
+    "file": "FUNCIONAL/CORDA NAVAL/Battling-Ropes_converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1bh1aDk3W7FJiHSWRhoaOk8b2gLT1uwQB&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "CORDA NAVAL"
+  },
+  {
+    "id": "funcional-arm-circles-shoulders-converted",
+    "name": "Arm-Circles_Shoulders_converted",
+    "file": "FUNCIONAL/MOBILIDADE/OMBRO/Arm-Circles_Shoulders_converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1-VYHqHVNA-4wiC5mPVrVN2u_s8v7-CLz&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "MOBILIDADE/OMBRO"
+  },
+  {
+    "id": "funcional-full-squat-mobility-thighs-converted",
+    "name": "Full-Squat-Mobility_Thighs__converted",
+    "file": "FUNCIONAL/MOBILIDADE/QUADRIL/Full-Squat-Mobility_Thighs__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1eYQ8IR_rnmVuemQJOECo_JAE60am1BAb&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "MOBILIDADE/QUADRIL"
+  },
+  {
+    "id": "funcional-low-lunge-to-hamstring-stretch-male-stretching-converted",
+    "name": "Low-Lunge-to-Hamstring-Stretch-(male)_Stretching__converted",
+    "file": "FUNCIONAL/MOBILIDADE/QUADRIL/Low-Lunge-to-Hamstring-Stretch-(male)_Stretching__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1icvItNVcAMxgIDOGLdIfNzQHswalCy-H&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "MOBILIDADE/QUADRIL"
+  },
+  {
+    "id": "funcional-ankle-circles-calves-converted",
+    "name": "Ankle-Circles_Calves__converted",
+    "file": "FUNCIONAL/MOBILIDADE/TORNOZELO/Ankle-Circles_Calves__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=10Zwx0eUrzS1EeYbfJvbeYYOEyaNK6Q5y&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "MOBILIDADE/TORNOZELO"
+  },
+  {
+    "id": "funcional-burpee-cardio-fix-converted",
+    "name": "Burpee_Cardio-FIX__converted",
+    "file": "FUNCIONAL/PESO CORPORAL/BURPEE/Burpee_Cardio-FIX__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1oR4gkacsTiaiyUWCTWpZl8VymJ5rO8_1&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "PESO CORPORAL/BURPEE"
+  },
+  {
+    "id": "funcional-bent-leg-kickback-kneeling-male-hips-fix-converted",
+    "name": "Bent-Leg-Kickback-(kneeling)-(male)_Hips-FIX__converted",
+    "file": "FUNCIONAL/PESO CORPORAL/PERNA/Bent-Leg-Kickback-(kneeling)-(male)_Hips-FIX__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1hkRnp51U8kA-OUerfL_CDy78PyluZ_hp&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "PESO CORPORAL/PERNA"
+  },
+  {
+    "id": "funcional-bodyweight-forward-lunge-smaller-stance-upright-torso-thighs-converted",
+    "name": "Bodyweight-Forward-Lunge-(Smaller-Stance-Upright-Torso)_Thighs__converted",
+    "file": "FUNCIONAL/PESO CORPORAL/PERNA/Bodyweight-Forward-Lunge-(Smaller-Stance-Upright-Torso)_Thighs__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1PwA88lbMHQ3rmAzcU2o8BVvG7_o94_wf&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "PESO CORPORAL/PERNA"
+  },
+  {
+    "id": "funcional-bodyweight-squat-male-thighs-front-pov-converted",
+    "name": "Bodyweight-Squat-(male)_Thighs-FRONT-POV__converted",
+    "file": "FUNCIONAL/PESO CORPORAL/PERNA/Bodyweight-Squat-(male)_Thighs-FRONT-POV__converted.gif",
+    "url": "https://drive.usercontent.google.com/download?id=1KxmOtcEaAFj94S4qPw1Nr8dCPFlwmGvd&export=download&confirm=t",
+    "equipment": "FUNCIONAL",
+    "muscle": "PESO CORPORAL/PERNA"
   },
   {
     "id": "kettlebell-advanced-windmill-waist-converted",
