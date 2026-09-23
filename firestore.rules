@@ -215,6 +215,27 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId);
     }
 
+    match /academies/{academyId}/workoutFeedback/{feedbackId} {
+      allow read: if isAdmin(academyId) || isTeacher(academyId) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+      allow create: if isStudent(academyId) &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.workoutId is string &&
+        request.resource.data.rating is int &&
+        request.resource.data.rating >= 1 && request.resource.data.rating <= 5 &&
+        request.resource.data.comment is string &&
+        request.resource.data.comment.size() <= 800;
+      allow update: if isStudent(academyId) &&
+        resource.data.studentId == request.auth.uid &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']) &&
+        request.resource.data.rating is int &&
+        request.resource.data.rating >= 1 && request.resource.data.rating <= 5 &&
+        request.resource.data.comment is string &&
+        request.resource.data.comment.size() <= 800;
+      allow delete: if isAdmin(academyId);
+    }
+
     match /academies/{academyId}/{document=**} {
       allow read: if isDeveloper() || isAdmin(academyId);
       allow write: if isDeveloper() || isAdmin(academyId);

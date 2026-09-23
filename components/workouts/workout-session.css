@@ -129,6 +129,17 @@
 .workout-completion-comparison { display: grid; gap: 5px; margin: -4px 4px 18px; padding: 11px 12px; border: 1px solid #4e4930; border-radius: 12px; background: #211f16; color: #d4c17b; text-align: left; }
 .workout-completion-comparison small { color: #b49a4b; font-size: 8px; font-weight: 800; letter-spacing: .1em; }
 .workout-completion-comparison span { font-size: 10px; }
+.workout-feedback { display: grid; gap: 10px; margin: -3px 4px 18px; padding: 13px; border: 1px solid #34423e; border-radius: 14px; background: #17201e; text-align: left; }
+.workout-feedback > div:first-child { display: grid; gap: 3px; }
+.workout-feedback small { color: #d9bb51; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.workout-feedback span { color: #91a19d; font-size: 11px; }
+.workout-rating { display: flex; gap: 3px; }
+.workout-rating button { padding: 1px 3px; border: 0; background: transparent; color: #62706c; font-size: 25px; line-height: 1; cursor: pointer; }
+.workout-rating button.is-selected { color: #e0bf55; text-shadow: 0 0 14px rgba(224,191,85,.45); }
+.workout-feedback textarea { min-height: 58px; resize: vertical; border: 1px solid #34423e; border-radius: 10px; background: #101615; color: #edf3ee; padding: 9px 10px; font: inherit; font-size: 11px; }
+.workout-feedback-save { min-height: 36px; border: 1px solid #b99742; border-radius: 10px; background: #2c291c; color: #e3c567; font-size: 11px; font-weight: 750; cursor: pointer; }
+.workout-feedback-save:disabled { opacity: .62; cursor: wait; }
+.workout-feedback-saved { display: flex; align-items: center; justify-content: center; gap: 6px; margin: -3px 4px 18px; color: #91d0a3; font-size: 11px; }
 .workout-completion-actions { display: grid; gap: 9px; }
 .workout-completion-actions > button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 50px; border-radius: 14px; font-size: 13px; font-weight: 750; }
 .workout-completion-actions > .detail-save { margin: 0; border: 1px solid #e0bf55; background: linear-gradient(110deg, #c29a42, #e0bf67); color: #211a0c; }

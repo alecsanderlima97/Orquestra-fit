@@ -1798,21 +1798,53 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     />
     {anatomyExercise && <ExerciseAnatomyView exercise={anatomyExercise} onClose={closeAnatomy} />}
      {machineReaderOpen && <MachineQrReader exercises={exercises as SessionExercise[]} onClose={() => setMachineReaderOpen(false)} onSelect={(index) => { setOpenExerciseIndex(index); setMachineReaderOpen(false); window.setTimeout(() => document.querySelectorAll(".workout-exercise")[index]?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }} />}
-     {completionSummary && <WorkoutCompletionSummary name={workout?.name ?? "Treino"} summary={completionSummary} onClose={onCompleted} />}
+     {completionSummary && <WorkoutCompletionSummary workoutId={workout?.id} name={workout?.name ?? "Treino"} summary={completionSummary} onClose={onCompleted} />}
    </>;
  }
 
-function WorkoutCompletionSummary({ name, summary, onClose }: { name: string; summary: WorkoutCompletionSummary; onClose: () => void }) {
+function WorkoutCompletionSummary({ workoutId, name, summary, onClose }: { workoutId?: string; name: string; summary: WorkoutCompletionSummary; onClose: () => void }) {
   const access = useAccess();
   const profile = useRegisteredProfile();
+  const feedback = useFeedback();
   const [sharing, setSharing] = useState(true);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [feedbackSaved, setFeedbackSaved] = useState(false);
+  const [savingFeedback, setSavingFeedback] = useState(false);
   const studentName = accountName(profile?.name || profile?.displayName || access.user.displayName, access.user.email);
   const profilePhoto = profile?.photoUrl || access.user.photoURL || "";
+  async function saveFeedback() {
+    if (!rating) {
+      feedback("Escolha uma nota de 1 a 5 estrelas para salvar sua avaliação.");
+      return;
+    }
+    const trimmedComment = comment.trim();
+    if (trimmedComment.length > 800) {
+      feedback("O comentário pode ter no máximo 800 caracteres.");
+      return;
+    }
+    const record: WorkoutFeedbackRecord = { id: `local-feedback-${Date.now()}`, workoutId: workoutId ?? "unknown", workoutName: name, studentId: access.userId, rating, comment: trimmedComment, createdAt: new Date().toISOString() };
+    setSavingFeedback(true);
+    try {
+      if (!db) {
+        const current = readLocalCollection<WorkoutFeedbackRecord>(access.academyId, "workoutFeedback");
+        writeLocalCollection(access.academyId, "workoutFeedback", [record, ...current]);
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "workoutFeedback"), { workoutId: record.workoutId, workoutName: record.workoutName, studentId: record.studentId, rating: record.rating, comment: record.comment, createdAt: serverTimestamp() });
+      }
+      setFeedbackSaved(true);
+      feedback("Avaliação salva. Obrigado por compartilhar sua evolução.");
+    } catch {
+      feedback("Não foi possível salvar sua avaliação. Tente novamente.");
+    } finally {
+      setSavingFeedback(false);
+    }
+  }
   if (sharing) return <WorkoutShareCard workoutName={displayWorkoutName(name)} studentName={studentName} profilePhoto={profilePhoto} summary={summary} onClose={() => setSharing(false)} />;
   return <div className="workout-completion-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-completion-title">
     <section className="workout-completion-card"><div className="workout-completion-mark"><Trophy size={25} /></div><small>CONQUISTA REGISTRADA</small><h2 id="workout-completion-title">Treino concluído</h2><p>{displayWorkoutName(name)} foi salvo no seu progresso pessoal.</p>
       <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Activity size={17} /><small>Séries concluídas</small><strong>{summary.completedSets}</strong></div>{summary.totalVolume > 0 && <div><Dumbbell size={17} /><small>Volume total</small><strong>{summary.totalVolume.toLocaleString("pt-BR")} kg</strong></div>}{typeof summary.calories === "number" && summary.calories > 0 && <div><Flame size={17} /><small>Calorias</small><strong>{summary.calories} kcal</strong></div>}{summary.maxLoad > 0 && <div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad}{summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}</strong></div>}</div>
-      <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p>{summary.comparison && <div className="workout-completion-comparison"><small>COMPARAÇÃO COM O ÚLTIMO TREINO</small>{summary.comparison.volumeDelta !== undefined && <span>{summary.comparison.volumeDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.volumeDelta).toLocaleString("pt-BR")} kg de volume</span>}{summary.comparison.maxLoadDelta !== undefined && <span>{summary.comparison.maxLoadDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.maxLoadDelta)} kg na maior carga</span>}{summary.comparison.repsDelta !== undefined && <span>{summary.comparison.repsDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.repsDelta)} repetições máximas</span>}{summary.comparison.durationDelta !== 0 && <span>{summary.comparison.durationDelta > 0 ? "+" : "−"}{formatWorkoutDuration(Math.abs(summary.comparison.durationDelta))} de duração</span>}</div>}<div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
+      <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p>{summary.comparison && <div className="workout-completion-comparison"><small>COMPARAÇÃO COM O ÚLTIMO TREINO</small>{summary.comparison.volumeDelta !== undefined && <span>{summary.comparison.volumeDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.volumeDelta).toLocaleString("pt-BR")} kg de volume</span>}{summary.comparison.maxLoadDelta !== undefined && <span>{summary.comparison.maxLoadDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.maxLoadDelta)} kg na maior carga</span>}{summary.comparison.repsDelta !== undefined && <span>{summary.comparison.repsDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.repsDelta)} repetições máximas</span>}{summary.comparison.durationDelta !== 0 && <span>{summary.comparison.durationDelta > 0 ? "+" : "−"}{formatWorkoutDuration(Math.abs(summary.comparison.durationDelta))} de duração</span>}</div>}{feedbackSaved ? <p className="workout-feedback-saved"><Check size={15} /> Avaliação registrada no seu histórico.</p> : <div className="workout-feedback"><div><small>COMO FOI ESTE TREINO?</small><span>Sua avaliação ajuda a acompanhar sua evolução.</span></div><div className="workout-rating" aria-label="Avalie este treino de 1 a 5 estrelas">{[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" className={value <= rating ? "is-selected" : ""} aria-label={`${value} ${value === 1 ? "estrela" : "estrelas"}`} onClick={() => setRating(value)}>★</button>)}</div><textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={800} placeholder="Comentário opcional sobre o treino" /><button type="button" className="workout-feedback-save" onClick={() => void saveFeedback()} disabled={savingFeedback}>{savingFeedback ? "Salvando..." : "Salvar avaliação"}</button></div>}<div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
     </section>
   </div>;
 }
@@ -2111,6 +2143,7 @@ type ClassReservation = { id: string; classId: string; className?: string; stude
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string; metricMode?: ExerciseMetricMode }>; calories?: number; totalVolume?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
+type WorkoutFeedbackRecord = { id: string; workoutId: string; workoutName: string; studentId: string; rating: number; comment: string; createdAt?: unknown };
 
 function workoutExecutionTime(value: WorkoutExecution["completedAt"]) {
   if (value instanceof Date) return value.getTime();
