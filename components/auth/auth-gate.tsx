@@ -2,7 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, updateProfile, User } from "firebase/auth";
-import { Activity, BarChart3, CalendarDays, Dumbbell, LockKeyhole, LogIn, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { Activity, BarChart3, CalendarDays, Dumbbell, Eye, EyeOff, LockKeyhole, LogIn, Mail, ShieldCheck, UserRound } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
 import { AccessProvider } from "./access-context";
@@ -99,6 +99,7 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [status, setStatus] = useState<string | null>(initialStatus ?? null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -200,16 +201,16 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
               <div className="auth-logo" aria-hidden="true"><Dumbbell /></div>
               <div><strong>ORQUESTRA FIT</strong><span>GESTÃO E PERFORMANCE</span></div>
             </div>
-            <p className="auth-kicker"><ShieldCheck size={14} /> AMBIENTE SEGURO</p>
-            <h1 id="login-title">{mode === "signup" ? "Crie seu acesso" : "Boas-vindas"}</h1>
-            <span>{mode === "signup" ? `Cadastre ${accessMode === "username" ? "usuário e senha" : "e-mail e senha"}. Em seguida, valide o código enviado pela academia.` : "Entre para acessar sua academia e continuar de onde parou."}</span>
+            <p className="auth-kicker"><ShieldCheck size={14} /> ACESSO PROTEGIDO</p>
+            <h1 id="login-title">{mode === "signup" ? "Crie seu acesso" : "Bem-vindo de volta!"}</h1>
+            <span>{mode === "signup" ? `Cadastre ${accessMode === "username" ? "usuário e senha" : "e-mail e senha"}. Em seguida, valide o código enviado pela academia.` : "Acesse sua conta e continue sua evolução."}</span>
             <form onSubmit={submit}>
               {accessMode === "email" ? <label><Mail size={17} /> E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" inputMode="email" placeholder="voce@exemplo.com" required /></label> : <label><UserRound size={17} /> Usuário<input value={username} onChange={(event) => setUsername(event.target.value.replace(/\s/g, "."))} autoComplete="username" placeholder="Ex.: maria.silva" required /></label>}
-              <label><LockKeyhole size={17} /> Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={6} placeholder="Mínimo de 6 caracteres" required /></label>
+              <label><LockKeyhole size={17} /> Senha<div className="auth-password-wrap"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={6} placeholder="Mínimo de 6 caracteres" required /><button className="auth-password-toggle" type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
               {status && <p className="auth-status" role="status" aria-live="polite">{status}</p>}
               <button type="submit" disabled={submitting}><LogIn size={18} /> {submitting ? "Aguarde..." : mode === "signup" ? "Criar acesso" : "Entrar na plataforma"}</button>
             </form>
-            {mode === "login" && <><div className="auth-divider"><span>ou continue com</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Google</button>{accessMode === "email" && <button className="auth-link" type="button" onClick={resetPassword}>Esqueci minha senha</button>}</>}
+            {mode === "login" && <><div className="auth-divider"><span>ou continue com</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button>{accessMode === "email" && <button className="auth-link" type="button" onClick={resetPassword}>Esqueci minha senha?</button>}</>}
             <div className="auth-secondary-actions">
               <button className="auth-link" type="button" onClick={() => { setAccessMode((current) => current === "email" ? "username" : "email"); setMode("login"); setStatus(null); }}>{accessMode === "email" ? "Entrar com usuário da academia" : "Entrar com e-mail"}</button>
               <button className="auth-link" type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Já tenho uma conta" : "Primeiro acesso"}</button>
