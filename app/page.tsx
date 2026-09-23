@@ -760,6 +760,20 @@ function useStudentPublishedWorkouts(enabled = true) {
   const access = useAccess();
   const [workouts, setWorkouts] = useState<WorkoutRecord[]>([]);
   const [loading, setLoading] = useState(Boolean(db));
+  const [previewStudent, setPreviewStudent] = useState<{ id: string; userId?: string | null; name: string } | null>(null);
+
+  useEffect(() => {
+    if (!db || access.role === "student") {
+      setPreviewStudent(null);
+      return;
+    }
+    return onSnapshot(query(collection(db, "academies", access.academyId, "students"), where("active", "==", true)), (snapshot) => {
+      const first = snapshot.docs[0];
+      if (!first) { setPreviewStudent(null); return; }
+      const data = first.data() as { name?: string; userId?: string | null; authUid?: string | null; uid?: string | null };
+      setPreviewStudent({ id: first.id, userId: data.userId ?? data.authUid ?? data.uid ?? first.id, name: data.name ?? "Aluno" });
+    }, () => setPreviewStudent(null));
+  }, [access.academyId, access.role]);
 
   useEffect(() => {
     if (!enabled) { setLoading(false); return; }
@@ -776,11 +790,16 @@ function useStudentPublishedWorkouts(enabled = true) {
       window.addEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalWorkouts);
     }
+    const previewingStudent = access.role !== "student" && Boolean(previewStudent);
+    const targetStudentId = previewStudent?.userId ?? previewStudent?.id ?? access.userId;
+    const targetStudentName = previewStudent?.name ?? accountName(access.user.displayName, access.user.email);
     setLoading(true);
-    const workoutsQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
-    const workoutsByUserQuery = query(collection(db, "academies", access.academyId, "workouts"), where("studentUserId", "==", access.userId));
+    const workoutsQuery = previewingStudent
+      ? query(collection(db, "academies", access.academyId, "workouts"), where("status", "==", "published"))
+      : query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published"));
+    const workoutsByUserQuery = previewingStudent ? null : query(collection(db, "academies", access.academyId, "workouts"), where("studentUserId", "==", access.userId));
     const generalTemplatesQuery = query(collection(db, "academies", access.academyId, "workoutTemplates"), where("audience", "==", "Geral"));
-    const personalizedTemplatesQuery = query(collection(db, "academies", access.academyId, "workoutTemplates"), where("targetStudentId", "==", access.userId));
+    const personalizedTemplatesQuery = query(collection(db, "academies", access.academyId, "workoutTemplates"), where("targetStudentId", "==", targetStudentId));
     let assignedWorkouts: WorkoutRecord[] = [];
     let assignedWorkoutsByUser: WorkoutRecord[] = [];
     let generalWorkouts: WorkoutRecord[] = [];
@@ -790,24 +809,23 @@ function useStudentPublishedWorkouts(enabled = true) {
       setWorkouts([...uniqueAssigned, ...generalWorkouts, ...personalizedWorkouts].filter((workout, index, list) => list.findIndex((item) => item.id === workout.id) === index));
     };
     const unsubscribeWorkouts = onSnapshot(workoutsQuery, (snapshot) => {
-      assignedWorkouts = snapshot.docs.map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">));
+      assignedWorkouts = snapshot.docs.filter((workout) => !previewingStudent || [targetStudentId, previewStudent?.id].includes(workout.data().studentId) || [targetStudentId, previewStudent?.id].includes(workout.data().studentUserId) || [targetStudentId, previewStudent?.id].includes(workout.data().studentRecordId)).map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">));
       publishWorkouts();
       setLoading(false);
     }, (error) => {
       console.error("Não foi possível carregar os treinos.", error);
       setLoading(false);
     });
-    const unsubscribeWorkoutsByUser = onSnapshot(workoutsByUserQuery, (snapshot) => {
+    const unsubscribeWorkoutsByUser = workoutsByUserQuery ? onSnapshot(workoutsByUserQuery, (snapshot) => {
       assignedWorkoutsByUser = snapshot.docs.filter((workout) => workout.data().status === "published").map((workout) => normalizePublishedWorkout(workout.id, workout.data() as Omit<WorkoutRecord, "id">));
       publishWorkouts();
       setLoading(false);
     }, (error) => {
       // A consulta é um índice de compatibilidade para fichas antigas. A consulta principal continua funcionando mesmo sem esse campo.
       console.warn("Não foi possível consultar o vínculo alternativo do treino.", error);
-    });
+    }) : () => undefined;
     const unsubscribeGeneralTemplates = onSnapshot(generalTemplatesQuery, (snapshot) => {
-      const studentName = accountName(access.user.displayName, access.user.email);
-      generalWorkouts = snapshot.docs.map((template) => normalizeTemplateForStudent({ id: template.id, ...(template.data() as Omit<WorkoutTemplateRecord, "id">), exerciseIds: (template.data().exerciseIds as string[] | undefined) ?? [], exerciseDetails: (template.data().exerciseDetails as WorkoutExerciseDetail[] | undefined) ?? [] }, access.userId, studentName));
+      generalWorkouts = snapshot.docs.map((template) => normalizeTemplateForStudent({ id: template.id, ...(template.data() as Omit<WorkoutTemplateRecord, "id">), exerciseIds: (template.data().exerciseIds as string[] | undefined) ?? [], exerciseDetails: (template.data().exerciseDetails as WorkoutExerciseDetail[] | undefined) ?? [] }, targetStudentId, targetStudentName));
       publishWorkouts();
       setLoading(false);
     }, (error) => {
@@ -815,8 +833,7 @@ function useStudentPublishedWorkouts(enabled = true) {
       setLoading(false);
     });
     const unsubscribePersonalizedTemplates = onSnapshot(personalizedTemplatesQuery, (snapshot) => {
-      const studentName = accountName(access.user.displayName, access.user.email);
-      personalizedWorkouts = snapshot.docs.filter((template) => (template.data().audience as string | undefined) === "Personalizado").map((template) => normalizeTemplateForStudent({ id: template.id, ...(template.data() as Omit<WorkoutTemplateRecord, "id">), exerciseIds: (template.data().exerciseIds as string[] | undefined) ?? [], exerciseDetails: (template.data().exerciseDetails as WorkoutExerciseDetail[] | undefined) ?? [] }, access.userId, studentName));
+      personalizedWorkouts = snapshot.docs.filter((template) => (template.data().audience as string | undefined) === "Personalizado").map((template) => normalizeTemplateForStudent({ id: template.id, ...(template.data() as Omit<WorkoutTemplateRecord, "id">), exerciseIds: (template.data().exerciseIds as string[] | undefined) ?? [], exerciseDetails: (template.data().exerciseDetails as WorkoutExerciseDetail[] | undefined) ?? [] }, targetStudentId, targetStudentName));
       publishWorkouts();
       setLoading(false);
     }, (error) => {
@@ -824,7 +841,7 @@ function useStudentPublishedWorkouts(enabled = true) {
       setLoading(false);
     });
     return () => { unsubscribeWorkouts(); unsubscribeWorkoutsByUser(); unsubscribeGeneralTemplates(); unsubscribePersonalizedTemplates(); };
-  }, [access.academyId, access.userId, enabled]);
+  }, [access.academyId, access.role, access.userId, enabled, previewStudent]);
 
   return { workouts, loading };
 }
