@@ -852,7 +852,7 @@ function normalizePublishedWorkout(id: string, data: Omit<WorkoutRecord, "id">):
 }
 
 function normalizeTemplateForStudent(template: WorkoutTemplateRecord, studentId: string, studentName: string): WorkoutRecord {
-  return { id: `general-template-${template.id}`, name: template.name, studentId, studentName, recommendedDay: "Flexível", level: template.level, audience: template.audience, focusLabel: template.focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds ?? [], exerciseDetails: template.exerciseDetails ?? [], status: "published" };
+  return { id: `general-template-${template.id}`, name: template.name, studentId, studentName, recommendedDay: "Flexível", level: template.level, audience: template.audience, focusLabel: template.focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds ?? [], exerciseDetails: template.exerciseDetails ?? [], createdAt: template.createdAt ?? template.updatedAt, status: "published" };
 }
 
 function deduplicateStudentWorkouts(workouts: WorkoutRecord[]) {
@@ -1022,9 +1022,9 @@ function useStudentNotificationItems(includeStudentData = true) {
     ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: "Vencimento próximo", detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
     ...announcements.map((item) => ({ id: `announcement-${item.id}`, type: "announcement" as const, title: item.title, detail: item.body, createdAt: item.createdAt })),
     ...messages.map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body, createdAt: item.createdAt })),
-    ...workouts.map((item) => ({ id: `workout-${item.id}`, type: "workout" as const, title: "Novo treino disponível", detail: `${item.name} foi publicado para você.` })),
+    ...workouts.map((item) => ({ id: `workout-${item.id}`, type: "workout" as const, title: "Novo treino disponível", detail: `${item.name} foi publicado para você.`, createdAt: item.createdAt ?? item.publishedAt ?? item.updatedAt })),
   ];
-  return items;
+  return items.sort((first, second) => (firestoreDate(second.createdAt)?.getTime() ?? 0) - (firestoreDate(first.createdAt)?.getTime() ?? 0));
 }
 
 function formatNotificationDate(value: unknown) {
@@ -1334,6 +1334,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
 
 function Evolution() {
   const access = useAccess();
+  const { workouts: publishedWorkouts } = useStudentPublishedWorkouts();
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
   const [period, setPeriod] = useState<7 | 30 | 90 | 365>(30);
@@ -1421,9 +1422,21 @@ function Evolution() {
     const sets = (execution.sets ?? []).filter((item) => item.exerciseName === selectedExercise);
     return { id: execution.id, date: workoutExecutionTime(execution.completedAt), load: Math.max(...sets.map((item) => Number(item.load.replace(",", ".")) || 0)), reps: Math.max(...sets.map((item) => Number(item.reps.replace(",", ".")) || 0)) };
   }).sort((a, b) => b.date - a.date);
+  const accessibleLevels = Array.from(new Set(publishedWorkouts.filter((workout) => !workout.isLocked).map((workout) => workout.level ?? "Fundação")));
+  const orderedAccessibleLevels = accessibleLevels.sort((first, second) => workoutLevelOrder.indexOf(first) - workoutLevelOrder.indexOf(second));
+  const currentLevel = orderedAccessibleLevels[orderedAccessibleLevels.length - 1] ?? "Fundação";
+  const currentLevelIndex = workoutLevelOrder.indexOf(currentLevel);
+  const nextLevel = workoutLevelOrder[currentLevelIndex + 1];
+  const levelTier = currentLevel === "Fundação" ? "Bronze" : currentLevel === "Evolução" ? "Prata" : currentLevel === "Performance" ? "Dourado" : "Diamante";
+  const levelProgress = ((currentLevelIndex + 1) / workoutLevelOrder.length) * 100;
   return (
     <div className="student-view">
       <PageIntro kicker="ACOMPANHAMENTO" title="Sua evolução" copy="Consistência que aparece nos números." />
+      <section className={`evolution-level-card level-${machineCode(currentLevel)}`} aria-label={`Nível atual ${levelTier}`}>
+        <div className="evolution-level-copy"><span>NÍVEL DEFINIDO PELA EQUIPE</span><h2>{levelTier}</h2><strong>Programa {currentLevel}</strong><p>O professor libera novos níveis conforme sua evolução e preparo.</p></div>
+        <div className="evolution-level-medal"><Trophy size={28} /><small>{currentLevelIndex + 1}/{workoutLevelOrder.length}</small></div>
+        <div className="evolution-level-progress"><div><span>Progresso da jornada</span><strong>{nextLevel ? `Próximo: ${nextLevel}` : "Nível máximo alcançado"}</strong></div><i><b style={{ width: `${levelProgress}%` }} /></i></div>
+      </section>
       <div className="evolution-period" role="group" aria-label="Período da evolução">{([7, 30, 90, 365] as const).map((days) => <button type="button" key={days} className={period === days ? "active" : ""} onClick={() => setPeriod(days)}>{days === 7 ? "7 dias" : days === 30 ? "30 dias" : days === 90 ? "3 meses" : "1 ano"}</button>)}</div>
       <div className="evolution-hero"><span>TREINOS CONCLUÍDOS</span><strong>{periodExecutions.length}</strong><p>{workoutDelta === null ? "Ainda não há período anterior para comparação." : `${workoutDelta >= 0 ? "↑" : "↓"} ${Math.abs(workoutDelta)}% em relação ao período anterior`}</p><div><i style={{ width: `${Math.min(periodExecutions.length * 16, 100)}%` }} /></div></div>
       <section className="evolution-grid">
@@ -2304,14 +2317,14 @@ function estimatedWorkoutDurationLabel(details: WorkoutExerciseDetail[], exercis
   return minutes >= 60 ? `≈ ${Math.floor(minutes / 60)}h ${minutes % 60}min` : `≈ ${minutes}min`;
 }
 
-type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; studentRecordId?: string | null; studentUserId?: string | null; recommendedDay?: WorkoutTemplateDay; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; focusLabel?: string; sourceTemplateId?: string | null; isLocked?: boolean; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; status: "draft" | "published" };
+type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; studentRecordId?: string | null; studentUserId?: string | null; recommendedDay?: WorkoutTemplateDay; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; focusLabel?: string; sourceTemplateId?: string | null; isLocked?: boolean; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; createdAt?: unknown; publishedAt?: unknown; updatedAt?: unknown; status: "draft" | "published" };
 type WorkoutLevel = "Fundação" | "Evolução" | "Performance" | "Elite";
 type WorkoutTemplateAudience = "Geral" | "Personalizado";
 const workoutTemplateDayOptions = ["Flexível", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"] as const;
 type WorkoutTemplateDay = (typeof workoutTemplateDayOptions)[number];
 const workoutTemplateDayOrder: WorkoutTemplateDay[] = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo", "Flexível"];
 const workoutLevelOrder: WorkoutLevel[] = ["Fundação", "Evolução", "Performance", "Elite"];
-type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; scheduleDay?: WorkoutTemplateDay; focusLabel?: string; targetStudentId?: string | null; targetStudentName?: string | null; seedKey?: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
+type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; scheduleDay?: WorkoutTemplateDay; focusLabel?: string; targetStudentId?: string | null; targetStudentName?: string | null; seedKey?: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string; createdAt?: unknown; updatedAt?: unknown };
 type ClassRecord = { id: string; name: string; instructor: string; instructorId?: string | null; date: string; time: string; capacity: number; reservedCount?: number; active: boolean; status?: "scheduled" | "cancelled"; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
 type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
@@ -3501,7 +3514,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     });
     const focusLabel = Array.from(new Set(details.map((detail) => detail.muscleGroup).filter((value): value is string => Boolean(value)))).slice(0, 2).join(" + ") || "Treino personalizado";
     if (!db) {
-      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentRecordId: student.id, studentUserId: student.userId ?? student.id, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado", focusLabel, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], status: "published" };
+      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentRecordId: student.id, studentUserId: student.userId ?? student.id, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado", focusLabel, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdAt: editingWorkoutId ? workouts.find((item) => item.id === editingWorkoutId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), updatedAt: new Date().toISOString(), status: "published" };
       const nextWorkouts = editingWorkoutId ? workouts.map((item) => item.id === editingWorkoutId ? localWorkout : item) : [...workouts, localWorkout];
       setWorkouts(nextWorkouts);
       writeLocalCollection(access.academyId, "workouts", nextWorkouts);
@@ -3540,7 +3553,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     const focusLabel = template.focusLabel ?? "Treino programado";
     if (!db) {
-      const nextWorkout: WorkoutRecord = { id: `local-workout-${Date.now()}`, name: template.name, studentId: student.id, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: "Flexível", level: template.level ?? "Fundação", audience: "Personalizado", focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, status: "published" };
+      const nextWorkout: WorkoutRecord = { id: `local-workout-${Date.now()}`, name: template.name, studentId: student.id, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: "Flexível", level: template.level ?? "Fundação", audience: "Personalizado", focusLabel, sourceTemplateId: template.id, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "published" };
       const nextWorkouts = [...workouts, nextWorkout];
       setWorkouts(nextWorkouts);
       writeLocalCollection(access.academyId, "workouts", nextWorkouts);
@@ -3609,7 +3622,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       const current = existingByKey.get(seedKey);
       const needsRefresh = !current || current.exerciseIds.length !== 11 || current.exerciseDetails.filter((detail) => detail.phase === "Preparação").length !== 2 || current.exerciseDetails.filter((detail) => detail.phase === "Finalização" || detail.exerciseType === "Cardio").length !== 1 || current.scheduleDay !== day.day;
       if (!needsRefresh) return;
-      const nextTemplate: WorkoutTemplateRecord = { id: current?.id ?? `local-template-${seedKey}-${Date.now()}-${levelIndex}-${dayIndex}`, name: day.label, level, audience: "Geral", scheduleDay: day.day, focusLabel: day.label, targetStudentId: null, targetStudentName: null, seedKey, exerciseIds: selected.map((exercise) => exercise.id), exerciseDetails: selected.map(templateExerciseDetails), createdBy: current?.createdBy ?? access.userId };
+      const nextTemplate: WorkoutTemplateRecord = { id: current?.id ?? `local-template-${seedKey}-${Date.now()}-${levelIndex}-${dayIndex}`, name: day.label, level, audience: "Geral", scheduleDay: day.day, focusLabel: day.label, targetStudentId: null, targetStudentName: null, seedKey, exerciseIds: selected.map((exercise) => exercise.id), exerciseDetails: selected.map(templateExerciseDetails), createdBy: current?.createdBy ?? access.userId, createdAt: current?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString() };
       if (current) updatedTemplates.push(nextTemplate); else createdTemplates.push(nextTemplate);
     }));
     if (!createdTemplates.length && !updatedTemplates.length) {
@@ -3659,7 +3672,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
-      const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, audience: templateAudience, scheduleDay: "Flexível", targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId };
+      const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, audience: templateAudience, scheduleDay: "Flexível", targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId, createdAt: editingTemplateId ? templates.find((item) => item.id === editingTemplateId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), updatedAt: new Date().toISOString() };
       const nextTemplates = editingTemplateId ? templates.map((item) => item.id === editingTemplateId ? localTemplate : item) : [...templates, localTemplate];
       setTemplates(nextTemplates);
       writeLocalCollection(access.academyId, "workoutTemplates", nextTemplates);

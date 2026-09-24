@@ -1147,6 +1147,35 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .evolution-hero p { color: var(--steel-500); font-size: 12px; margin: 0 0 20px; }
 .evolution-hero > div { height: 5px; background: #2b2b29; }
 .evolution-hero > div i { display: block; width: 75%; height: 100%; background: var(--bronze-400); }
+.evolution-level-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 18px; margin: 0 0 12px; padding: 19px; overflow: hidden; border: 1px solid rgba(205, 150, 82, .48); border-radius: 14px; background: linear-gradient(135deg, rgba(55, 36, 21, .72), rgba(15, 18, 19, .96) 68%); }
+.evolution-level-card::after { content: ""; position: absolute; inset: auto -40px -70px auto; width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, rgba(229, 174, 95, .16), transparent 68%); pointer-events: none; }
+.evolution-level-copy { position: relative; z-index: 1; min-width: 0; }
+.evolution-level-copy > span { color: var(--bronze-300); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.evolution-level-copy h2 { margin: 5px 0 0; color: var(--paper); font: 500 28px Georgia, serif; }
+.evolution-level-copy strong { display: block; margin-top: 2px; color: var(--bronze-200); font-size: 12px; }
+.evolution-level-copy p { max-width: 420px; margin: 7px 0 0; color: var(--steel-400); font-size: 10px; line-height: 1.45; }
+.evolution-level-medal { position: relative; z-index: 1; display: grid; align-content: center; justify-items: center; min-width: 76px; min-height: 76px; border: 1px solid rgba(205, 150, 82, .62); border-radius: 50%; color: #f1c95d; background: rgba(108, 75, 28, .26); box-shadow: 0 0 22px rgba(229, 174, 95, .12); }
+.evolution-level-medal small { margin-top: 2px; color: var(--bronze-300); font-size: 9px; font-weight: 900; }
+.evolution-level-progress { position: relative; z-index: 1; grid-column: 1 / -1; display: grid; gap: 7px; }
+.evolution-level-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--steel-500); font-size: 9px; }
+.evolution-level-progress strong { color: var(--paper); font-size: 9px; }
+.evolution-level-progress > i { display: block; height: 5px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.1); }
+.evolution-level-progress > i b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--bronze-400), #f1c95d); }
+.evolution-level-card.level-evolucao { border-color: rgba(201, 211, 220, .5); background: linear-gradient(135deg, rgba(109, 124, 135, .28), rgba(15, 18, 19, .96) 68%); }
+.evolution-level-card.level-evolucao .evolution-level-copy > span, .evolution-level-card.level-evolucao .evolution-level-copy strong { color: #dce5ec; }
+.evolution-level-card.level-evolucao .evolution-level-medal { border-color: rgba(201, 211, 220, .68); color: #edf5fa; background: rgba(147, 162, 174, .18); box-shadow: 0 0 22px rgba(204, 222, 232, .1); }
+.evolution-level-card.level-evolucao .evolution-level-medal small { color: #dce5ec; }
+.evolution-level-card.level-evolucao .evolution-level-progress > i b { background: linear-gradient(90deg, #9caeb9, #edf5fa); }
+.evolution-level-card.level-performance { border-color: rgba(239, 201, 95, .62); background: linear-gradient(135deg, rgba(106, 73, 24, .44), rgba(15, 18, 19, .96) 68%); }
+.evolution-level-card.level-performance .evolution-level-copy > span, .evolution-level-card.level-performance .evolution-level-copy strong { color: #ffe18a; }
+.evolution-level-card.level-performance .evolution-level-medal { border-color: rgba(239, 201, 95, .75); color: #ffe18a; background: rgba(142, 99, 22, .3); box-shadow: 0 0 22px rgba(239, 201, 95, .14); }
+.evolution-level-card.level-performance .evolution-level-medal small { color: #ffe18a; }
+.evolution-level-card.level-performance .evolution-level-progress > i b { background: linear-gradient(90deg, #d99a50, #ffe18a); }
+.evolution-level-card.level-elite { border-color: rgba(168, 233, 250, .72); background: linear-gradient(135deg, rgba(62, 126, 151, .34), rgba(15, 18, 19, .96) 68%); box-shadow: 0 0 24px rgba(120, 221, 245, .08); }
+.evolution-level-card.level-elite .evolution-level-copy > span, .evolution-level-card.level-elite .evolution-level-copy strong { color: #c8f5ff; }
+.evolution-level-card.level-elite .evolution-level-medal { border-color: rgba(168, 233, 250, .84); color: #e9fbff; background: linear-gradient(135deg, rgba(101, 181, 208, .28), rgba(210, 250, 255, .1)); box-shadow: 0 0 24px rgba(139, 229, 255, .2); }
+.evolution-level-card.level-elite .evolution-level-medal small { color: #c8f5ff; }
+.evolution-level-card.level-elite .evolution-level-progress > i b { background: linear-gradient(90deg, #75cfe8, #e9fbff); }
 .evolution-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 30px; }
 .evolution-grid article { min-height: 140px; border: 1px solid var(--line); background: #111315; padding: 17px; display: grid; align-content: start; }
 .evolution-grid svg { color: var(--bronze-400); width: 21px; margin-bottom: 16px; }
@@ -2274,6 +2303,10 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
   .student-finance-history > div { grid-template-columns: minmax(0, 1fr) auto; }
   .student-finance-history em { grid-column: 1 / -1; justify-self: start; }
   .student-profile-collapse { margin-left: 16px; margin-right: 16px; }
+  .evolution-level-card { padding: 16px; gap: 12px; }
+  .evolution-level-copy h2 { font-size: 25px; }
+  .evolution-level-medal { min-width: 66px; min-height: 66px; }
+  .evolution-level-progress > div { align-items: flex-start; flex-direction: column; gap: 3px; }
   .student-workout-toolbar { align-items: stretch; flex-direction: column; gap: 10px; }
   .student-workout-toolbar select { width: 100%; }
   .workout-open { grid-template-columns: 32px minmax(0, 1fr) 34px; gap: 9px; padding: 12px; }
