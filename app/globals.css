@@ -1158,11 +1158,13 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .agenda-class-status.completed { border-color: rgba(137,148,154,.36); color: #aeb8bc; background: rgba(118,130,137,.14); }
 .agenda-class-status.full { border-color: rgba(209,103,77,.5); color: #f0a18b; background: rgba(119,45,32,.24); }
 .agenda-class-status.waitlist { border-color: rgba(224,178,92,.58); color: #f0c87f; background: rgba(116,79,30,.25); }
+.agenda-class-status.cancelled { border-color: rgba(224,125,109,.54); color: #f1aaa0; background: rgba(119,45,32,.2); }
 .class-card h2 { font-family: Georgia, serif; font-size: 18px; margin: 4px 0; }
 .class-card p { color: var(--steel-500); font-size: 9px; margin: 0; }
 .class-card-actions { grid-column: 1/-1; display: grid; gap: 7px; margin-top: 7px; }
 .class-card-actions > button { width: 100%; min-height: 42px; border: 0; background: var(--bronze-400); color: #19110b; font-weight: 900; }
 .class-card-actions > .secondary-action { border: 1px solid var(--line); background: transparent; color: var(--steel-300); }
+.class-waitlist-inline { color: var(--bronze-300) !important; }
 .empty-agenda { padding: 54px 24px; text-align: center; color: #555b5f; }
 .empty-agenda svg { width: 35px; height: 35px; }
 .empty-agenda h3 { color: #a8acae; font-size: 15px; margin: 15px 0 6px; }
