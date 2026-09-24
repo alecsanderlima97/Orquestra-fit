@@ -1496,6 +1496,12 @@ function Agenda() {
   const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   const selectedClasses = selectedDate ? visibleClasses.filter((item) => item.date === selectedDate) : visibleClasses;
   const selectedDateLabel = selectedDate ? new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long" }).format(new Date(`${selectedDate}T12:00:00`)) : "Todas as aulas";
+  function classStatus(item: ClassRecord, reserved: boolean) {
+    const timestamp = Date.parse(`${item.date}T${item.time || "23:59"}`);
+    if (Number.isFinite(timestamp) && timestamp < Date.now()) return { key: "completed", label: "CONCLUÍDA" };
+    if (reserved) return { key: "reserved", label: "RESERVADA" };
+    return { key: "available", label: "DISPONÍVEL" };
+  }
   return (
     <div className="student-view">
       <PageIntro kicker="AULAS E RESERVAS" title="Sua agenda" copy="Organize a semana sem perder o ritmo." />
@@ -1518,7 +1524,7 @@ function Agenda() {
         <div className="agenda-calendar-legend"><span><i className="legend-today" /> Hoje</span><span><i className="legend-class" /> Aula disponível</span></div>
       </section>
       <div className="agenda-selected-heading"><small>AULAS DO DIA</small><strong>{selectedDateLabel}</strong></div>
-      {selectedClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>{visibleClasses.length === 0 ? "Nenhuma aula disponível" : "Nenhuma aula neste dia"}</h3><p>{visibleClasses.length === 0 ? "As próximas turmas da academia aparecerão aqui." : "Escolha outra data no calendário para consultar as aulas."}</p></div> : selectedClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><small>{item.name.toUpperCase()}</small><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button onClick={() => reserved ? cancel(item) : reserve(item)}>{reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
+      {selectedClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>{visibleClasses.length === 0 ? "Nenhuma aula disponível" : "Nenhuma aula neste dia"}</h3><p>{visibleClasses.length === 0 ? "As próximas turmas da academia aparecerão aqui." : "Escolha outra data no calendário para consultar as aulas."}</p></div> : selectedClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); const status = classStatus(item, reserved); const isCompleted = status.key === "completed"; return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><div className="class-card-heading"><small>{item.name.toUpperCase()}</small><span className={`agenda-class-status ${status.key}`}>{status.label}</span></div><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button disabled={isCompleted} onClick={() => { if (!isCompleted) void (reserved ? cancel(item) : reserve(item)); }}>{isCompleted ? "Aula encerrada" : reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && !isCompleted && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
     </div>
   );
 }
