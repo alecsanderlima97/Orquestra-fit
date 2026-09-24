@@ -1,0 +1,18 @@
+{
+  "brand": "Orquestra.cs",
+  "sourcePackage": "Orquestra_CS_Alta_Qualidade.zip",
+  "basePath": "/branding/orquestra-cs",
+  "assets": [
+    {"id":"portal-cover","file":"portal-cover.png","type":"cover","dimensions":"5016x2088","recommendedFor":["hero institucional","capa horizontal","portal"],"keywords":["capa do portal","capa orquestra"]},
+    {"id":"system-icon","file":"system-icon.png","type":"app-icon","dimensions":"1208x932","recommendedFor":["ícone do sistema","PWA","atalho do celular"],"keywords":["ícone quadrado","ícone do app"]},
+    {"id":"symbol-o","file":"symbol-o.png","type":"symbol","dimensions":"1164x932","recommendedFor":["assistente","avatar","botão flutuante","marca compacta"],"keywords":["símbolo O","O azul da Orquestra"]},
+    {"id":"logo-primary","file":"logo-primary.png","type":"logo","dimensions":"2076x932","recommendedFor":["cabeçalho","rodapé","assinatura institucional"],"keywords":["logo principal","logo completa"]},
+    {"id":"login-art","file":"login-art.png","type":"login-art","dimensions":"2180x1520","recommendedFor":["login","portal de acesso","fundo da autenticação"],"keywords":["arte de login","tela de login"]},
+    {"id":"app-icon-art","file":"app-icon-art.png","type":"app-art","dimensions":"948x1520","recommendedFor":["splash","apresentação do app","arte vertical"],"keywords":["ícone do app","favicon vertical"]},
+    {"id":"symbol-detail","file":"symbol-detail.png","type":"detail","dimensions":"1880x1520","recommendedFor":["decoração","textura","destaque visual"],"keywords":["detalhe do símbolo"]},
+    {"id":"portal-cover-square-a","file":"portal-cover-square-a.jpg","type":"social-cover","dimensions":"1536x1536","recommendedFor":["redes sociais","cards","compartilhamento"],"keywords":["capa quadrada A"]},
+    {"id":"portal-cover-square-b","file":"portal-cover-square-b.jpg","type":"social-cover","dimensions":"1536x1536","recommendedFor":["redes sociais","cards","compartilhamento"],"keywords":["capa quadrada B"]},
+    {"id":"portal-background-original","file":"portal-background-original.jpg","type":"background","dimensions":"1536x1536","recommendedFor":["fundo azul","composição de portal"],"keywords":["fundo original"]},
+    {"id":"symbol-o-original","file":"symbol-o-original.jpg","type":"symbol-background","dimensions":"1536x1536","recommendedFor":["textura","arte de apoio","composição quadrada"],"keywords":["símbolo O original"]}
+  ]
+}
