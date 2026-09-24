@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#08090a" />
+    <title>Orquestra Fit sem conexão</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, Arial, sans-serif; background: #050606; color: #f2f0eb; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; text-align: center; }
+      main { width: min(420px, 100%); border: 1px solid #8f653e; border-radius: 18px; background: #111315; padding: 32px 24px; box-shadow: 0 20px 60px #0009; }
+      img { width: 68px; height: 68px; border-radius: 18px; margin-bottom: 18px; }
+      h1 { margin: 0 0 10px; font-size: 24px; }
+      p { margin: 0; color: #a7abad; line-height: 1.55; }
+      button { margin-top: 24px; border: 0; border-radius: 10px; background: #d09a5c; color: #17110b; padding: 12px 18px; font-weight: 800; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/branding/orquestra-assistant-icon.png" alt="Orquestra Fit" />
+      <h1>Você está sem conexão</h1>
+      <p>Verifique a internet e tente novamente. Seus dados continuam protegidos e não são armazenados offline.</p>
+      <button type="button" onclick="location.reload()">Tentar novamente</button>
+    </main>
+  </body>
+</html>
