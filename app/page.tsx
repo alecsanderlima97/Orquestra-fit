@@ -4364,6 +4364,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [releasingAccess, setReleasingAccess] = useState(false);
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
 
   useEffect(() => setSearch(initialSearch), [initialSearch]);
@@ -4539,6 +4540,27 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }
   }
 
+  async function releaseFinancialAccess() {
+    if (!selectedStudent || access.role !== "admin") return;
+    setReleasingAccess(true);
+    try {
+      if (!db) {
+        const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, accessBlocked: false } : student);
+        setStudents(nextStudents);
+        writeLocalCollection(access.academyId, "students", nextStudents);
+      } else {
+        const batch = writeBatch(db);
+        batch.update(doc(db, "academies", access.academyId, "students", selectedStudent.id), { accessBlocked: false, accessBlockReason: null, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() });
+        const memberId = selectedStudent.userId || selectedStudent.id;
+        batch.set(doc(db, "academies", access.academyId, "members", memberId), { accessBlocked: false, accessBlockReason: null, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() }, { merge: true });
+        await batch.commit();
+      }
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "financial_access_released", label: "Acesso liberado manualmente", details: selectedStudent.name });
+      onFeedback("Acesso liberado manualmente. A próxima rotina automática poderá bloquear novamente se houver atraso.");
+    } catch { onFeedback("Não foi possível liberar o acesso agora."); }
+    finally { setReleasingAccess(false); }
+  }
+
   async function sendInternalMessage() {
     if (!selectedStudent || !messageBody.trim()) {
       onFeedback("Escreva uma mensagem antes de enviar.");
@@ -4626,7 +4648,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         </article>
         <aside className="workspace-panel student-detail-panel">
           {selectedStudent ? <>
-            <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</span></header>
+            <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false || selectedStudent.accessBlocked ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : selectedStudent.accessBlocked ? "Financeiro bloqueado" : "Ativo"}</span></header>
             <div className="student-profile-overview"><div><small>STATUS DE ACESSO</small><strong>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</strong></div><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>ÚLTIMO TREINO</small><strong>{studentExecutions[0] ? displayWorkoutName(studentExecutions[0].workoutName) : "Sem registro"}</strong></div></div>
             <StudentFrequency attendance={studentAttendance} executions={studentExecutions} />
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{displayWorkoutName(workout.name)}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
@@ -4634,6 +4656,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
             {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <StudentWhatsAppPanel student={selectedStudent} onFeedback={onFeedback} />
+            {access.role === "admin" && selectedStudent.accessBlocked && <button className="detail-toggle" type="button" onClick={() => void releaseFinancialAccess()} disabled={releasingAccess}>{releasingAccess ? "Liberando..." : "Liberar acesso manualmente"}</button>}
             <StudentWorkoutFeedbackPanel feedbacks={studentFeedback} />
             <details className="student-profile-collapse"><summary><span><small>CADASTRO E ACESSO</small><strong>Dados pessoais, plano e permissões</strong></span><ChevronDown /></summary><div className="student-profile-collapse-content">
               {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
