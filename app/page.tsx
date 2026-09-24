@@ -100,6 +100,31 @@ function writeLocalCollection<T>(academyId: string, collectionName: string, reco
   window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
 }
 
+type AuditEventInput = {
+  academyId: string;
+  userId: string;
+  userName?: string | null;
+  userEmail?: string | null;
+  role?: string | null;
+  action: string;
+  label: string;
+  details?: string | null;
+};
+
+async function recordAuditEvent(event: AuditEventInput) {
+  const payload = { ...event, createdAt: db ? serverTimestamp() : new Date().toISOString() };
+  if (!db) {
+    const current = readLocalCollection<AuditEventInput & { id: string; createdAt: unknown }>(event.academyId, "auditLogs");
+    writeLocalCollection(event.academyId, "auditLogs", [{ id: `local-audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, ...payload }, ...current].slice(0, 200));
+    return;
+  }
+  try {
+    await addDoc(collection(db, "auditLogs"), payload);
+  } catch (error) {
+    console.warn("Não foi possível registrar a auditoria.", error);
+  }
+}
+
 function navigateWorkspace(module: string, studentId?: string, search?: string) {
   window.dispatchEvent(new CustomEvent("orquestra-fit:navigate", { detail: { module, studentId, search } }));
 }
@@ -4091,12 +4116,14 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
       const nextTeachers = teachers.map((teacher) => teacher.id === selectedTeacher.id ? { ...teacher, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone || null, cpf: editCpf || null, birthDate: editBirthDate || null, cref: editCref.trim() || null, specialty: capitalizeName(editSpecialty.trim()) || null } : teacher);
       setTeachers(nextTeachers);
       writeLocalCollection(access.academyId, "teachers", nextTeachers);
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "teacher_updated", label: "Cadastro de professor atualizado", details: selectedTeacher.name });
       onFeedback("Dados do professor atualizados no modo local.");
       return;
     }
     setSaving(true);
     try {
       await updateDoc(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone || null, cpf: editCpf || null, birthDate: editBirthDate || null, cref: editCref.trim() || null, specialty: capitalizeName(editSpecialty.trim()) || null });
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "teacher_updated", label: "Cadastro de professor atualizado", details: selectedTeacher.name });
       onFeedback("Dados do professor atualizados.");
     } catch {
       onFeedback("Não foi possível atualizar este professor.");
@@ -4111,6 +4138,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
       const nextTeachers = teachers.map((teacher) => teacher.id === selectedTeacher.id ? { ...teacher, active: selectedTeacher.active === false } : teacher);
       setTeachers(nextTeachers);
       writeLocalCollection(access.academyId, "teachers", nextTeachers);
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "teacher_access_updated", label: selectedTeacher.active === false ? "Acesso do professor reativado" : "Acesso do professor suspenso", details: selectedTeacher.name });
       onFeedback(selectedTeacher.active === false ? "Acesso do professor ativado no modo local." : "Acesso do professor suspenso no modo local.");
       return;
     }
@@ -4119,6 +4147,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
       batch.update(doc(db, "academies", access.academyId, "teachers", selectedTeacher.id), { active: selectedTeacher.active === false });
       batch.update(doc(db, "academies", access.academyId, "members", selectedTeacher.id), { active: selectedTeacher.active === false });
       await batch.commit();
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "teacher_access_updated", label: selectedTeacher.active === false ? "Acesso do professor reativado" : "Acesso do professor suspenso", details: selectedTeacher.name });
       onFeedback(selectedTeacher.active === false ? "Acesso do professor ativado." : "Acesso do professor suspenso.");
     } catch {
       onFeedback("Não foi possível alterar o acesso do professor.");
@@ -4207,6 +4236,7 @@ function StudentFrequency({ attendance, executions }: { attendance: AttendanceRe
 function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = "", initialStudentId = "" }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void; initialSearch?: string; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
+  const [studentPresence, setStudentPresence] = useState<DeveloperMember[]>([]);
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [search, setSearch] = useState("");
@@ -4233,19 +4263,29 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [presenceNow, setPresenceNow] = useState(() => Date.now());
 
   useEffect(() => setSearch(initialSearch), [initialSearch]);
   useEffect(() => { if (initialStudentId) { setSelectedId(initialStudentId); scrollToContent(".student-detail-panel"); } }, [initialStudentId]);
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setPresenceNow(Date.now()), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     if (!db) {
-      const localStudents = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-      setStudents(localStudents.map((student) => ({ ...student, active: student.active !== false, plan: student.plan ?? "Sem plano" })));
+      const syncLocalDirectory = () => {
+        const localStudents = readLocalCollection<RegisteredStudent>(access.academyId, "students");
+        setStudents(localStudents.map((student) => ({ ...student, active: student.active !== false, plan: student.plan ?? "Sem plano" })));
+        setStudentPresence(readLocalCollection<DeveloperMember>(access.academyId, "members"));
+      };
+      syncLocalDirectory();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalDirectory);
       if (access.role === "admin") {
         setTeachers(readLocalCollection<RegisteredTeacher>(access.academyId, "teachers"));
         setPlans(readLocalCollection<BillingPlan>(access.academyId, "plans"));
       }
-      return;
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalDirectory);
     }
     const studentsRef = collection(db, "academies", access.academyId, "students");
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
@@ -4256,6 +4296,9 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     if (access.role !== "admin") return unsubscribeStudents;
+    const unsubscribeMembers = onSnapshot(collection(db, "academies", access.academyId, "members"), (snapshot) => {
+      setStudentPresence(snapshot.docs.map((member) => ({ id: member.id, ...(member.data() as Omit<DeveloperMember, "id">) })));
+    }, (error) => console.error("Não foi possível atualizar o status online dos alunos.", error));
     const unsubscribeTeachers = onSnapshot(collection(db, "academies", access.academyId, "teachers"), (snapshot) => {
       setTeachers(snapshot.docs.map((teacher) => {
         const data = teacher.data() as { name?: string; email?: string | null; active?: boolean };
@@ -4268,11 +4311,16 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os planos.", error));
-    return () => { unsubscribeStudents(); unsubscribeTeachers(); unsubscribePlans(); };
+    return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeTeachers(); unsubscribePlans(); };
   }, [access.academyId, access.role, access.userId]);
 
   const filteredStudents = students.filter((student) => `${student.name} ${student.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
+  const isStudentOnline = (student: RegisteredStudent) => {
+    const member = studentPresence.find((item) => item.id === student.userId || item.id === student.id || item.userId === student.userId);
+    const lastSeen = member ? firestoreDate(member.lastSeenAt) : null;
+    return Boolean(student.active !== false && member?.active !== false && lastSeen && lastSeen.getTime() >= presenceNow - 5 * 60 * 1000);
+  };
 
   useEffect(() => {
     if (!selectedStudent) return;
@@ -4348,6 +4396,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, birthDate: editBirthDate || null, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : student);
       setStudents(nextStudents);
       writeLocalCollection(access.academyId, "students", nextStudents);
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_updated", label: "Cadastro de aluno atualizado", details: selectedStudent.name });
       onFeedback("Dados do aluno atualizados no modo local.");
       return;
     }
@@ -4361,6 +4410,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         birthDate: editBirthDate || null,
       };
       await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), access.role === "admin" ? { ...personalData, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : personalData);
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_updated", label: "Cadastro de aluno atualizado", details: selectedStudent.name });
       onFeedback("Dados do aluno atualizados.");
     } catch {
       onFeedback("Não foi possível atualizar este aluno.");
@@ -4375,11 +4425,13 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, active: selectedStudent.active === false } : student);
       setStudents(nextStudents);
       writeLocalCollection(access.academyId, "students", nextStudents);
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_access_updated", label: selectedStudent.active === false ? "Acesso do aluno reativado" : "Acesso do aluno suspenso", details: selectedStudent.name });
       onFeedback(selectedStudent.active === false ? "Acesso do aluno ativado no modo local." : "Acesso do aluno suspenso no modo local.");
       return;
     }
     try {
       await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), { active: selectedStudent.active === false });
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_access_updated", label: selectedStudent.active === false ? "Acesso do aluno reativado" : "Acesso do aluno suspenso", details: selectedStudent.name });
       onFeedback(selectedStudent.active === false ? "Acesso do aluno ativado." : "Acesso do aluno suspenso.");
     } catch {
       onFeedback("Não foi possível alterar o acesso do aluno.");
@@ -4466,7 +4518,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
           <div className="directory-list">
             {filteredStudents.length === 0 ? <div className="directory-empty"><Users /><p>{students.length === 0 ? "Nenhum aluno cadastrado ainda." : "Nenhum aluno encontrado."}</p></div> : filteredStudents.map((student) => (
               <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => { setSelectedId(student.id); scrollToContent(".student-detail-panel"); }}>
-                <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small></span><em className={student.active === false ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.plan}</em><ChevronRight />
+                <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small></span><span className="directory-row-meta"><em className={student.active === false ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.plan}</em><small className={isStudentOnline(student) ? "directory-online online" : "directory-online"}><i aria-hidden="true" />{isStudentOnline(student) ? "Online agora" : "Offline"}</small></span><ChevronRight />
               </button>
             ))}
           </div>
@@ -4553,6 +4605,7 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
         await setDoc(doc(db, "users", access.userId), { ...normalized, updatedAt: serverTimestamp() }, { merge: true });
         await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, updatedAt: serverTimestamp() }, { merge: true });
       }
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "profile_updated", label: isManager ? "Perfil da academia atualizado" : "Perfil profissional atualizado" });
       onFeedback("Perfil atualizado.");
       onClose();
     } catch {
@@ -4632,6 +4685,7 @@ function AcademyHoursSettings({ onFeedback }: { onFeedback: (message: string) =>
         window.localStorage.setItem(`orquestra-fit:${access.academyId}:academy-settings`, JSON.stringify(settings));
         window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
       } else await setDoc(doc(db, "academies", access.academyId), { ...settings, updatedAt: serverTimestamp(), updatedBy: access.userId }, { merge: true });
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "academy_hours_updated", label: "Funcionamento da academia atualizado", details: `${settings.openingDays.length} dias · ${openingTime}–${closingTime}` });
       onFeedback("Funcionamento da academia atualizado.");
     } catch { onFeedback("Não foi possível salvar o funcionamento agora."); }
     finally { setSaving(false); }
@@ -4752,9 +4806,10 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />
         </section>
-         <section className="settings-section settings-card settings-announcement-section">
+        <section className="settings-section settings-card settings-announcement-section">
           <ManagerAnnouncementComposer />
         </section>
+        {access.accountType !== "developer" && <AcademyAuditPanel />}
         <div className="permissions-note"><ShieldCheck size={18} /><span>O acesso é protegido pelo Firebase. Usuários sem vínculo ativo com esta academia não conseguem abrir os dados.</span></div>
       </section>
       {access.accountType === "developer" && developerConsoleOpen && <DeveloperConsolePanel fullScreen onClose={() => setDeveloperConsoleOpen(false)} onFeedback={onFeedback} />}
@@ -4776,6 +4831,7 @@ type DeveloperAcademy = {
 
 type DeveloperMember = {
   id: string;
+  userId?: string | null;
   displayName?: string | null;
   email?: string | null;
   role?: string | null;
@@ -4792,7 +4848,40 @@ type DeveloperAudit = {
   action?: string | null;
   label?: string | null;
   createdAt?: unknown;
+  details?: string | null;
 };
+
+function AcademyAuditPanel() {
+  const access = useAccess();
+  const [logs, setLogs] = useState<DeveloperAudit[]>([]);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (!db) {
+      const syncLocal = () => setLogs(readLocalCollection<DeveloperAudit>(access.academyId, "auditLogs").sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)).slice(0, 80));
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+    const auditQuery = query(collection(db, "auditLogs"), where("academyId", "==", access.academyId));
+    return onSnapshot(auditQuery, (snapshot) => {
+      setLogs(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<DeveloperAudit, "id">) })).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)).slice(0, 80));
+    }, () => setLogs([]));
+  }, [access.academyId]);
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleLogs = normalizedSearch
+    ? logs.filter((item) => `${item.label ?? ""} ${item.action ?? ""} ${item.userName ?? ""} ${item.userEmail ?? ""} ${item.details ?? ""}`.toLowerCase().includes(normalizedSearch))
+    : logs;
+
+  return <details className="settings-audit-card">
+    <summary><span><small>HISTÓRICO E AUDITORIA</small><strong>Alterações do sistema</strong><em>Veja quem fez cada alteração e quando.</em></span><ChevronDown /></summary>
+    <div className="settings-audit-content">
+      <div className="settings-audit-toolbar"><span>{logs.length} {logs.length === 1 ? "registro" : "registros"}</span><label><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filtrar histórico" aria-label="Filtrar histórico" /></label></div>
+      {visibleLogs.length === 0 ? <p className="settings-audit-empty">Nenhum evento encontrado ainda. As próximas alterações importantes aparecerão aqui.</p> : <div className="settings-audit-list">{visibleLogs.map((item) => <article key={item.id}><span className="settings-audit-icon"><Activity size={14} /></span><div><strong>{item.label || item.action || "Alteração registrada"}</strong><small>{item.userName || item.userEmail || "Usuário"}{item.details ? ` · ${item.details}` : ""}</small></div><time>{dateTimeLabel(item.createdAt)}</time></article>)}</div>}
+    </div>
+  </details>;
+}
 
 function firestoreDate(value: unknown) {
   if (!value) return null;

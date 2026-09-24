@@ -256,7 +256,7 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
-      allow read: if isDeveloper();
+      allow read: if isDeveloper() || (resource.data.academyId is string && isAdmin(resource.data.academyId));
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid &&
         belongsToAcademy(request.resource.data.academyId);
       allow update, delete: if false;
