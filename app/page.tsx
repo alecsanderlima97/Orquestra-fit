@@ -2346,6 +2346,7 @@ function defaultExerciseDetails(exercise: ExerciseMetricSource) {
 
 function StudentAcademyWhatsAppCard() {
   const access = useAccess();
+  const profile = useRegisteredProfile();
   const [settings, setSettings] = useState<{ name?: string; phone?: string; whatsappUrl?: string }>({});
   useEffect(() => {
     function apply(data?: { name?: string; phone?: string; whatsappUrl?: string } | null) {
@@ -2361,7 +2362,8 @@ function StudentAcademyWhatsAppCard() {
     }
     return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; phone?: string; whatsappUrl?: string } | undefined));
   }, [access.academyId]);
-  const phoneDigits = (settings.phone ?? "").replace(/\D/g, "");
+  const academyPhone = settings.phone || (access.role === "admin" ? profile?.phone : "") || "";
+  const phoneDigits = academyPhone.replace(/\D/g, "");
   const phoneHref = phoneDigits.length >= 10 ? `https://wa.me/${phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`}` : "";
   const href = normalizeWhatsappLink(settings.whatsappUrl) || phoneHref;
   if (!href) return null;
