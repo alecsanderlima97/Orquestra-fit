@@ -1156,6 +1156,7 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .agenda-class-status { flex: 0 0 auto; padding: 4px 7px; border: 1px solid rgba(219,166,91,.34); border-radius: 999px; color: var(--bronze-300); background: rgba(91,54,25,.24); font-size: 8px; font-weight: 850; letter-spacing: .08em; }
 .agenda-class-status.reserved { border-color: rgba(143,207,133,.42); color: #a9df9e; background: rgba(55,104,57,.2); }
 .agenda-class-status.completed { border-color: rgba(137,148,154,.36); color: #aeb8bc; background: rgba(118,130,137,.14); }
+.agenda-class-status.full { border-color: rgba(209,103,77,.5); color: #f0a18b; background: rgba(119,45,32,.24); }
 .class-card h2 { font-family: Georgia, serif; font-size: 18px; margin: 4px 0; }
 .class-card p { color: var(--steel-500); font-size: 9px; margin: 0; }
 .class-card-actions { grid-column: 1/-1; display: grid; gap: 7px; margin-top: 7px; }

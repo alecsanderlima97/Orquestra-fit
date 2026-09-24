@@ -1424,7 +1424,7 @@ function Agenda() {
       return;
     }
     const unsubscribeClasses = onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
-      setClasses(snapshot.docs.map((item) => { const data = item.data() as Partial<ClassRecord>; return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] }; }).filter((item) => item.active));
+      setClasses(snapshot.docs.map((item) => { const data = item.data() as Partial<ClassRecord>; return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), reservedCount: typeof data.reservedCount === "number" ? Math.max(0, data.reservedCount) : undefined, active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] }; }).filter((item) => item.active));
     });
     const reservationQuery = query(collection(db, "academies", access.academyId, "reservations"), where("studentId", "==", access.userId), where("status", "==", "active"));
     const unsubscribeReservations = onSnapshot(reservationQuery, (snapshot) => setReservationIds(snapshot.docs.map((item) => (item.data() as { classId: string }).classId)));
@@ -1437,32 +1437,43 @@ function Agenda() {
     if (!db) {
       const studentId = localStudentId(access.academyId, access.userId);
       const reservations = readLocalCollection<{ id: string; classId: string; studentId: string; status: string }>(access.academyId, "reservations");
+      const reservedCount = reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active").length;
+      if (reservedCount >= item.capacity) { feedback("Essa aula está lotada."); return; }
       writeLocalCollection(access.academyId, "reservations", [...reservations, { id: `local-reservation-${Date.now()}`, classId: item.id, studentId, status: "active" }]);
+      const nextClasses = readLocalCollection<ClassRecord>(access.academyId, "classes").map((current) => current.id === item.id ? { ...current, reservedCount: reservedCount + 1 } : current);
+      writeLocalCollection(access.academyId, "classes", nextClasses);
       setReservationIds((current) => [...current, item.id]);
       feedback("Reserva confirmada no modo local.");
       return;
     }
     try {
-      await addDoc(collection(db, "academies", access.academyId, "reservations"), { classId: item.id, className: item.name, studentId: access.userId, studentName: accountName(access.user.displayName, access.user.email), status: "active", createdAt: serverTimestamp() });
+      if (!functions) throw new Error("Função de reservas indisponível.");
+      const reserveClass = httpsCallable(functions, "reserveClass");
+      const result = await reserveClass({ academyId: access.academyId, classId: item.id });
+      const payload = result.data as { alreadyReserved?: boolean };
+      if (payload.alreadyReserved) { feedback("Você já está inscrito nesta aula."); return; }
       feedback("Reserva confirmada.");
-    } catch { feedback("Não foi possível reservar esta aula."); }
+    } catch (error) { feedback(error instanceof Error && error.message.includes("lotada") ? "Essa aula está lotada." : "Não foi possível reservar esta aula."); }
   }
 
   async function cancel(item: ClassRecord) {
     if (!db) {
       const studentId = localStudentId(access.academyId, access.userId);
-      const reservations = readLocalCollection<{ id: string; classId: string; studentId: string; status: string }>(access.academyId, "reservations").map((reservation) => reservation.classId === item.id && reservation.studentId === studentId && reservation.status === "active" ? { ...reservation, status: "canceled" } : reservation);
-      writeLocalCollection(access.academyId, "reservations", reservations);
+      const reservations = readLocalCollection<{ id: string; classId: string; studentId: string; status: string }>(access.academyId, "reservations");
+      const canceled = reservations.some((reservation) => reservation.classId === item.id && reservation.studentId === studentId && reservation.status === "active");
+      const nextReservations = reservations.map((reservation) => reservation.classId === item.id && reservation.studentId === studentId && reservation.status === "active" ? { ...reservation, status: "canceled" } : reservation);
+      const reservedCount = nextReservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active").length;
+      writeLocalCollection(access.academyId, "reservations", nextReservations);
+      const nextClasses = readLocalCollection<ClassRecord>(access.academyId, "classes").map((current) => current.id === item.id ? { ...current, reservedCount } : current);
+      writeLocalCollection(access.academyId, "classes", nextClasses);
       setReservationIds((current) => current.filter((id) => id !== item.id));
-      feedback("Reserva cancelada no modo local.");
+      feedback(canceled ? "Reserva cancelada no modo local." : "Essa reserva já estava cancelada.");
       return;
     }
-    const firestore = db;
     try {
-      const reservationSnapshot = await new Promise<string | null>((resolve) => {
-        const unsubscribe = onSnapshot(query(collection(firestore, "academies", access.academyId, "reservations"), where("classId", "==", item.id), where("studentId", "==", access.userId), where("status", "==", "active")), (snapshot) => { unsubscribe(); resolve(snapshot.docs[0]?.id ?? null); });
-      });
-      if (reservationSnapshot) await updateDoc(doc(firestore, "academies", access.academyId, "reservations", reservationSnapshot), { status: "canceled" });
+      if (!functions) throw new Error("Função de reservas indisponível.");
+      const cancelClassReservation = httpsCallable(functions, "cancelClassReservation");
+      await cancelClassReservation({ academyId: access.academyId, classId: item.id });
       feedback("Reserva cancelada.");
     } catch { feedback("Não foi possível cancelar a reserva."); }
   }
@@ -1500,6 +1511,7 @@ function Agenda() {
     const timestamp = Date.parse(`${item.date}T${item.time || "23:59"}`);
     if (Number.isFinite(timestamp) && timestamp < Date.now()) return { key: "completed", label: "CONCLUÍDA" };
     if (reserved) return { key: "reserved", label: "RESERVADA" };
+    if (typeof item.reservedCount === "number" && item.reservedCount >= item.capacity) return { key: "full", label: "LOTADA" };
     return { key: "available", label: "DISPONÍVEL" };
   }
   return (
@@ -1524,7 +1536,7 @@ function Agenda() {
         <div className="agenda-calendar-legend"><span><i className="legend-today" /> Hoje</span><span><i className="legend-class" /> Aula disponível</span></div>
       </section>
       <div className="agenda-selected-heading"><small>AULAS DO DIA</small><strong>{selectedDateLabel}</strong></div>
-      {selectedClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>{visibleClasses.length === 0 ? "Nenhuma aula disponível" : "Nenhuma aula neste dia"}</h3><p>{visibleClasses.length === 0 ? "As próximas turmas da academia aparecerão aqui." : "Escolha outra data no calendário para consultar as aulas."}</p></div> : selectedClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); const status = classStatus(item, reserved); const isCompleted = status.key === "completed"; return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{item.capacity} vagas</span></div><div><div className="class-card-heading"><small>{item.name.toUpperCase()}</small><span className={`agenda-class-status ${status.key}`}>{status.label}</span></div><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button disabled={isCompleted} onClick={() => { if (!isCompleted) void (reserved ? cancel(item) : reserve(item)); }}>{isCompleted ? "Aula encerrada" : reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && !isCompleted && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
+      {selectedClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>{visibleClasses.length === 0 ? "Nenhuma aula disponível" : "Nenhuma aula neste dia"}</h3><p>{visibleClasses.length === 0 ? "As próximas turmas da academia aparecerão aqui." : "Escolha outra data no calendário para consultar as aulas."}</p></div> : selectedClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); const status = classStatus(item, reserved); const isCompleted = status.key === "completed"; const isFull = status.key === "full"; const spotsLeft = typeof item.reservedCount === "number" ? Math.max(0, item.capacity - item.reservedCount) : item.capacity; return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{spotsLeft} {spotsLeft === 1 ? "vaga" : "vagas"}</span></div><div><div className="class-card-heading"><small>{item.name.toUpperCase()}</small><span className={`agenda-class-status ${status.key}`}>{status.label}</span></div><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button disabled={isCompleted || isFull} onClick={() => { if (!isCompleted && !isFull) void (reserved ? cancel(item) : reserve(item)); }}>{isCompleted ? "Aula encerrada" : isFull ? "Turma lotada" : reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && !isCompleted && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
     </div>
   );
 }
@@ -2174,7 +2186,7 @@ type WorkoutTemplateDay = (typeof workoutTemplateDayOptions)[number];
 const workoutTemplateDayOrder: WorkoutTemplateDay[] = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo", "Flexível"];
 const workoutLevelOrder: WorkoutLevel[] = ["Fundação", "Evolução", "Performance", "Elite"];
 type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; scheduleDay?: WorkoutTemplateDay; focusLabel?: string; targetStudentId?: string | null; targetStudentName?: string | null; seedKey?: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
-type ClassRecord = { id: string; name: string; instructor: string; instructorId?: string | null; date: string; time: string; capacity: number; active: boolean; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
+type ClassRecord = { id: string; name: string; instructor: string; instructorId?: string | null; date: string; time: string; capacity: number; reservedCount?: number; active: boolean; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
 type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
@@ -2384,7 +2396,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     return onSnapshot(collection(db, "academies", access.academyId, "classes"), (snapshot) => {
       setClasses(snapshot.docs.map((item) => {
         const data = item.data() as Partial<ClassRecord>;
-        return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", instructorId: data.instructorId ?? null, date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] };
+        return { id: item.id, name: data.name ?? "Aula", instructor: data.instructor ?? "Equipe", instructorId: data.instructorId ?? null, date: data.date ?? "", time: data.time ?? "", capacity: Number(data.capacity ?? 10), reservedCount: typeof data.reservedCount === "number" ? Math.max(0, data.reservedCount) : undefined, active: data.active !== false, visibility: data.visibility === "selected" ? "selected" as const : "open" as const, selectedStudentIds: Array.isArray(data.selectedStudentIds) ? data.selectedStudentIds : [] };
       }).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)));
     }, (error) => console.error("Não foi possível carregar as aulas.", error));
   }, [access.academyId, access.role, access.userId]);
@@ -2477,7 +2489,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     const selectedInstructor = teachers.find((teacher) => teacher.id === instructorId);
     const instructorName = selectedInstructor?.name || (access.role === "teacher" ? accountName(access.user.displayName, access.user.email) : "Equipe da academia");
     if (!db) {
-      const localClass: ClassRecord = { id: editingClassId ?? `local-class-${Date.now()}`, name: capitalizeName(name.trim()), instructor: capitalizeName(instructorName), instructorId: instructorId || null, date, time, capacity: Number(capacity) || 10, active: true, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [] };
+      const localClass: ClassRecord = { id: editingClassId ?? `local-class-${Date.now()}`, name: capitalizeName(name.trim()), instructor: capitalizeName(instructorName), instructorId: instructorId || null, date, time, capacity: Number(capacity) || 10, reservedCount: editingClassId ? (classes.find((item) => item.id === editingClassId)?.reservedCount ?? 0) : 0, active: true, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [] };
       const nextClasses = (editingClassId ? classes.map((item) => item.id === editingClassId ? localClass : item) : [...classes, localClass]).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
       setClasses(nextClasses);
       writeLocalCollection(access.academyId, "classes", nextClasses);
@@ -2488,7 +2500,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     }
     setSaving(true);
     try {
-      const data = { name: name.trim(), instructor: instructorName, instructorId: instructorId || null, date, time, capacity: Number(capacity) || 10, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [], updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const data = { name: name.trim(), instructor: instructorName, instructorId: instructorId || null, date, time, capacity: Number(capacity) || 10, reservedCount: editingClassId ? (classes.find((item) => item.id === editingClassId)?.reservedCount ?? 0) : 0, visibility, selectedStudentIds: visibility === "selected" ? selectedStudentIds : [], updatedBy: access.userId, updatedAt: serverTimestamp() };
       let classId = editingClassId;
       if (editingClassId) {
         await updateDoc(doc(db, "academies", access.academyId, "classes", editingClassId), data);

@@ -21,6 +21,7 @@ type ExerciseGifPayload = {
   base64?: unknown;
   profile?: unknown;
 };
+type ClassReservationPayload = { academyId?: unknown; classId?: unknown };
 
 function readString(value: unknown, field: string) {
   if (typeof value !== "string" || !value.trim()) {
@@ -108,6 +109,85 @@ export const changeOwnPassword = onCall({ region }, async (request) => {
   await setPasswordChangeRequired(request.auth.uid, false);
   await audit(academyId, request.auth.uid, "own_password_changed", request.auth.uid);
   return { ok: true };
+});
+
+export const reserveClass = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para reservar uma aula.");
+  const data = request.data as ClassReservationPayload;
+  const academyId = readString(data.academyId, "a academia");
+  const classId = readString(data.classId, "a aula");
+  const uid = request.auth.uid;
+  const studentName = request.auth.token.name ?? request.auth.token.email ?? "Aluno";
+  const membership = await activeMembership(academyId, uid);
+  if (membership.data()?.role !== "student") throw new HttpsError("permission-denied", "Somente alunos podem reservar aulas.");
+  const [studentByUid, studentByRecord] = await Promise.all([
+    firestore.collection(`academies/${academyId}/students`).where("userId", "==", uid).limit(1).get(),
+    firestore.doc(`academies/${academyId}/students/${uid}`).get(),
+  ]);
+  const studentIds = new Set([uid, studentByUid.docs[0]?.id, studentByRecord.exists ? studentByRecord.id : undefined].filter((item): item is string => Boolean(item)));
+
+  const classRef = firestore.doc(`academies/${academyId}/classes/${classId}`);
+  const reservationCollection = firestore.collection(`academies/${academyId}/reservations`);
+  const reservationQuery = reservationCollection.where("classId", "==", classId).where("status", "==", "active");
+  let alreadyReserved = false;
+  let reservedCount = 0;
+
+  await firestore.runTransaction(async (transaction) => {
+    const classSnapshot = await transaction.get(classRef);
+    if (!classSnapshot.exists) throw new HttpsError("not-found", "A aula não foi encontrada.");
+    const classData = classSnapshot.data() ?? {};
+    if (classData.active === false) throw new HttpsError("failed-precondition", "Essa aula está inativa.");
+    if (classData.visibility === "selected" && !Array.isArray(classData.selectedStudentIds)) throw new HttpsError("failed-precondition", "Essa aula ainda não está disponível para seleção.");
+    if (classData.visibility === "selected" && !(classData.selectedStudentIds as unknown[]).some((item) => typeof item === "string" && studentIds.has(item))) throw new HttpsError("permission-denied", "Essa aula é restrita aos alunos selecionados.");
+
+    const reservationsSnapshot = await transaction.get(reservationQuery);
+    const activeReservations = reservationsSnapshot.docs;
+    alreadyReserved = activeReservations.some((item) => item.data().studentId === uid);
+    reservedCount = activeReservations.length;
+    if (alreadyReserved) return;
+    const capacity = Math.max(1, Number(classData.capacity ?? 10));
+    if (reservedCount >= capacity) throw new HttpsError("resource-exhausted", "Essa aula está lotada.");
+
+    const reservationRef = reservationCollection.doc();
+    transaction.create(reservationRef, {
+      classId,
+      className: String(classData.name ?? "Aula"),
+      studentId: uid,
+      studentName,
+      status: "active",
+      source: "student",
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    transaction.set(classRef, { reservedCount: reservedCount + 1, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    reservedCount += 1;
+  });
+
+  return { ok: true, alreadyReserved, reservedCount };
+});
+
+export const cancelClassReservation = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para cancelar a reserva.");
+  const data = request.data as ClassReservationPayload;
+  const academyId = readString(data.academyId, "a academia");
+  const classId = readString(data.classId, "a aula");
+  const uid = request.auth.uid;
+  const membership = await activeMembership(academyId, uid);
+  if (membership.data()?.role !== "student") throw new HttpsError("permission-denied", "Somente alunos podem cancelar suas reservas.");
+
+  const classRef = firestore.doc(`academies/${academyId}/classes/${classId}`);
+  const reservationQuery = firestore.collection(`academies/${academyId}/reservations`).where("classId", "==", classId).where("studentId", "==", uid).where("status", "==", "active");
+  let canceled = false;
+  await firestore.runTransaction(async (transaction) => {
+    const [classSnapshot, reservationSnapshot] = await Promise.all([transaction.get(classRef), transaction.get(reservationQuery)]);
+    if (!classSnapshot.exists) throw new HttpsError("not-found", "A aula não foi encontrada.");
+    const reservation = reservationSnapshot.docs[0];
+    if (!reservation) return;
+    transaction.update(reservation.ref, { status: "canceled", canceledAt: FieldValue.serverTimestamp(), canceledBy: uid });
+    const currentCount = Math.max(0, Number(classSnapshot.data()?.reservedCount ?? 1));
+    transaction.set(classRef, { reservedCount: Math.max(0, currentCount - 1), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    canceled = true;
+  });
+  return { ok: true, canceled };
 });
 
 export const uploadExerciseGif = onCall({ region, timeoutSeconds: 120, memory: "512MiB" }, async (request) => {

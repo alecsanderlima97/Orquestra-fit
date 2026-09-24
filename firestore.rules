@@ -175,10 +175,9 @@ service cloud.firestore {
     match /academies/{academyId}/reservations/{reservationId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
         (isStudent(academyId) && resource.data.studentId == request.auth.uid);
-      allow create: if (isAdmin(academyId) || isTeacher(academyId)) ||
-        (isStudent(academyId) && request.resource.data.studentId == request.auth.uid);
-      allow update: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && resource.data.studentId == request.auth.uid && request.resource.data.studentId == request.auth.uid);
+      // Reservas de alunos passam pela callable reserveClass/cancelClassReservation,
+      // que valida lotação e atualiza o contador da turma em uma transação.
+      allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId);
     }
 
