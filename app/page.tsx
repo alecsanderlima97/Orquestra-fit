@@ -837,8 +837,8 @@ export default function Home() {
 
 function ThemeSwitcher({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
   const themes: { id: Theme; label: string }[] = [
-    { id: "bronze", label: "Bronze" },
-    { id: "prata", label: "Prata" },
+    { id: "bronze", label: "Escuro" },
+    { id: "prata", label: "Claro" },
   ];
   return (
     <div className="theme-switcher" aria-label="Escolher tema">
