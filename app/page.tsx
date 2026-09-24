@@ -4931,16 +4931,24 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const registeredProfile = useRegisteredProfile();
   const [newMemberRole, setNewMemberRole] = useState<"student" | "teacher" | null>(null);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
+  const [academyMembers, setAcademyMembers] = useState<DeveloperMember[]>([]);
   const [dashboardCharges, setDashboardCharges] = useState<MonthlyCharge[]>([]);
   const [dashboardAttendance, setDashboardAttendance] = useState<AttendanceRecord[]>([]);
   const [dashboardExecutions, setDashboardExecutions] = useState<WorkoutExecution[]>([]);
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [metricsVisible, setMetricsVisible] = useState(true);
+  const [presenceNow, setPresenceNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setPresenceNow(Date.now()), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     if (!db) {
       const syncLocalDashboard = () => {
         setRegisteredStudents(readLocalCollection<RegisteredStudent>(access.academyId, "students"));
+        setAcademyMembers(readLocalCollection<DeveloperMember>(access.academyId, "members"));
         setDashboardCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges"));
         setDashboardAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance"));
         setDashboardExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions"));
@@ -4955,6 +4963,9 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
         return { id: student.id, name: data.name ?? "Aluno sem nome", plan: data.plan ?? "Sem plano", birthDate: data.birthDate ?? null, active: data.active };
       }));
     }, (error) => console.error("Não foi possível atualizar a lista de alunos.", error));
+    const unsubscribeMembers = onSnapshot(collection(db, "academies", access.academyId, "members"), (snapshot) => {
+      setAcademyMembers(snapshot.docs.map((member) => ({ id: member.id, ...(member.data() as Omit<DeveloperMember, "id">) })));
+    }, (error) => console.error("Não foi possível atualizar a presença dos alunos.", error));
     const unsubscribeCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
       setDashboardCharges(snapshot.docs.map((charge) => {
         const data = charge.data() as Omit<MonthlyCharge, "id">;
@@ -4968,7 +4979,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
     const unsubscribeExecutions = onSnapshot(collection(db, "academies", access.academyId, "workoutExecutions"), (snapshot) => {
       setDashboardExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })));
     }, (error) => console.error("Não foi possível atualizar os treinos concluídos.", error));
-    return () => { unsubscribeStudents(); unsubscribeCharges(); unsubscribeAttendance(); unsubscribeExecutions(); };
+    return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeCharges(); unsubscribeAttendance(); unsubscribeExecutions(); };
   }, [access.academyId]);
 
   const visitDatesByStudent = useMemo(() => {
@@ -5000,6 +5011,12 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const dashboardPercent = dashboardTotal ? Math.round((dashboardReceived / dashboardTotal) * 100) : 0;
   const resolveStudentId = (studentId: string) => registeredStudents.find((student) => student.id === studentId || student.userId === studentId)?.id ?? studentId;
   const todayVisits = new Set([...dashboardAttendance.filter((item) => item.status !== "absent" && item.date === todayIso()).map((item) => resolveStudentId(item.studentId)), ...dashboardExecutions.filter((item) => dateKeyFromValue(item.completedAt) === todayIso()).map((item) => resolveStudentId(item.studentId))]);
+  const onlineLimit = presenceNow - 5 * 60 * 1000;
+  const onlineStudentCount = academyMembers.filter((member) => {
+    if (member.role !== "student" || member.active === false) return false;
+    const lastSeen = firestoreDate(member.lastSeenAt);
+    return Boolean(lastSeen && lastSeen.getTime() >= onlineLimit);
+  }).length;
   const today = new Date();
   const birthdayStudents = registeredStudents.filter((student) => { const parts = student.birthDate?.split("-").map(Number); return parts?.[1] === today.getMonth() + 1 && parts?.[2] === today.getDate(); });
   const money = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
@@ -5007,7 +5024,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange} onNewStudent={() => setNewMemberRole("student")}>
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>{brazilLongDate()}</span><h2>{brazilGreeting()}, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p></div>
+          <div><span>{brazilLongDate()}</span><h2>{brazilGreeting()}, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p><div className="manager-online-indicator" title="Alunos com atividade no sistema nos últimos 5 minutos"><i aria-hidden="true" /><span>Alunos online agora</span><strong>{onlineStudentCount}</strong></div></div>
           <button onClick={() => setNewMemberRole("student")}><Plus /> Novo aluno</button>
         </section>
         <div className="dashboard-metrics-heading"><span>INDICADORES</span><button type="button" onClick={() => setMetricsVisible((visible) => !visible)} aria-label={metricsVisible ? "Ocultar indicadores" : "Mostrar indicadores"}>{metricsVisible ? <EyeOff /> : <Eye />}<span>{metricsVisible ? "Ocultar valores" : "Mostrar valores"}</span></button></div>

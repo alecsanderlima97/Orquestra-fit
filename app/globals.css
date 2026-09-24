@@ -1888,6 +1888,14 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .workspace-intro > div > span { color: var(--bronze-400); font-size: 8px; letter-spacing: 1.4px; font-weight: 900; }
 .workspace-intro h2 { font-family: Georgia, serif; font-size: 31px; font-weight: 500; margin: 7px 0 5px; }
 .workspace-intro p { color: var(--steel-500); font-size: 12px; margin: 0; }
+.manager-online-indicator {
+  width: fit-content; margin-top: 11px; padding: 6px 9px; border: 1px solid rgba(125, 151, 137, .34);
+  border-radius: 999px; background: rgba(25, 43, 35, .42); color: #aeb8b3; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 9px; line-height: 1; letter-spacing: .02em;
+}
+.manager-online-indicator i { width: 6px; height: 6px; border-radius: 50%; background: #8fc69b; box-shadow: 0 0 0 3px rgba(143, 198, 155, .12), 0 0 10px rgba(143, 198, 155, .42); }
+.manager-online-indicator span { color: #aeb8b3; }
+.manager-online-indicator strong { color: #dfe8e1; font-size: 10px; font-weight: 800; }
 .workspace-intro > button {
   height: 44px; border: 0; background: var(--bronze-400); color: #18100a;
   padding: 0 17px; display: flex; align-items: center; gap: 9px; font-size: 11px; font-weight: 900;
