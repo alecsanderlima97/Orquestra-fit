@@ -1326,6 +1326,8 @@ function Evolution() {
   const totalWorkoutSeconds = periodExecutions.reduce((total, item) => total + (item.durationSeconds || 0), 0);
   const totalVolume = periodExecutions.reduce((total, item) => total + (item.totalVolume || 0), 0);
   const previousVolume = previousPeriodExecutions.reduce((total, item) => total + (item.totalVolume || 0), 0);
+  const activeDays = new Set(periodExecutions.map((item) => new Date(workoutExecutionTime(item.completedAt)).toDateString())).size;
+  const frequencyPercentage = Math.round(activeDays / Math.max(1, period) * 100);
   const workoutDelta = previousPeriodExecutions.length ? Math.round((periodExecutions.length - previousPeriodExecutions.length) / previousPeriodExecutions.length * 100) : null;
   const comparisonMetrics: Array<{ label: string; key: "weight" | "bodyFat" | "biceps" | "waist" | "chest" | "thigh"; unit: string }> = [
     { label: "Peso", key: "weight", unit: "kg" },
@@ -1378,6 +1380,7 @@ function Evolution() {
         <article><Activity /><small>Séries concluídas</small><strong>{periodExecutions.reduce((total, item) => total + item.completedSets, 0)}</strong><p>Registradas no período selecionado</p></article>
         <article><Clock3 /><small>Tempo acumulado</small><strong>{formatWorkoutDuration(totalWorkoutSeconds)}</strong><p>Somado nas execuções salvas</p></article>
         <article><Dumbbell /><small>Volume total</small><strong>{totalVolume > 0 ? `${totalVolume.toLocaleString("pt-BR")} kg` : "—"}</strong><p>{previousVolume > 0 && totalVolume > previousVolume ? `+${(totalVolume - previousVolume).toLocaleString("pt-BR")} kg no período` : "Calculado pelas cargas registradas"}</p></article>
+        <article><CalendarDays /><small>Frequência</small><strong>{frequencyPercentage}%</strong><p>{activeDays} {activeDays === 1 ? "dia" : "dias"} com treino no período</p></article>
       </section>
       <section className="assessment-comparison">
         <div className="section-heading"><div><span>AVALIAÇÃO FÍSICA</span><h2>Seu progresso</h2></div><small>{latestAssessment ? formatDate(latestAssessment.date) : "Sem avaliação"}</small></div>
