@@ -7,7 +7,7 @@
 .student-app .home-view .workout-copy h2 { max-width: 90%; font-family: inherit; font-size: 30px; line-height: 1.15; letter-spacing: -.7px; overflow-wrap: anywhere; }
 .student-app .home-view .workout-copy p { max-width: 90%; line-height: 1.6; }
 .student-app .home-view .workout-copy button { border-radius: 14px; min-height: 50px; width: 100%; margin-top: 22px; }
-.student-app .home-view .workout-art { opacity: .28; pointer-events: none; }
+.student-app .home-view .workout-art { opacity: .48; pointer-events: none; filter: saturate(1.08) contrast(1.08); }
 .student-app .home-view .steel-number { display: none; }
 .student-app .home-view .status-grid { gap: 12px; margin-top: 16px; margin-bottom: 28px; }
 .student-app .home-view .status-grid article { border-radius: 18px; min-height: 124px; padding: 16px; }
@@ -18,9 +18,24 @@
 .student-app .home-view .weekly-card { border-radius: 20px; padding: 20px; }
 .student-app .home-view .academy-note,
 .student-app .home-view .student-message-inbox { border-radius: 18px; padding: 20px 16px; margin-top: 16px; gap: 12px; }
+.student-app .home-view .academy-whatsapp-card { border-radius: 18px; }
 .student-app .home-view .academy-note p,
 .student-app .home-view .student-message-inbox p { line-height: 1.6; font-size: 13px; overflow-wrap: anywhere; }
 .student-app .home-view .note-mark { border-radius: 12px; }
+.student-app .home-view .academy-whatsapp-card {
+  display: grid; grid-template-columns: 43px 1fr auto; gap: 12px; align-items: center;
+  margin-top: 16px; padding: 17px 14px; border: 1px solid rgba(73, 174, 118, .46);
+  background: linear-gradient(115deg, rgba(28, 79, 57, .4), #151719 72%); color: inherit;
+  text-decoration: none; transition: border-color .2s ease, transform .2s ease, background .2s ease;
+}
+.student-app .home-view .academy-whatsapp-card:hover,
+.student-app .home-view .academy-whatsapp-card:focus-visible { border-color: #72d49a; background: linear-gradient(115deg, rgba(35, 104, 72, .52), #151719 72%); transform: translateY(-1px); }
+.academy-whatsapp-mark { width: 43px; height: 43px; display: grid; place-items: center; border: 1px solid rgba(105, 210, 147, .6); color: #80e2a7; }
+.academy-whatsapp-card > span:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
+.academy-whatsapp-card small { color: #87d9a5; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
+.academy-whatsapp-card strong { color: #eaf8ef; font-size: 15px; }
+.academy-whatsapp-card p { color: #a3b8ab; font-size: 10px; line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
+.academy-whatsapp-card > svg { color: #80e2a7; }
 .student-app .home-view button:focus-visible,
 .student-app .home-view [role="button"]:focus-visible { outline: 2px solid var(--bronze-400); outline-offset: 4px; }
 .student-app .home-view button:disabled { opacity: .55; cursor: not-allowed; }

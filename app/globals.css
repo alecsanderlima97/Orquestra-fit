@@ -1142,7 +1142,7 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .workout-list .student-workout-meta .template-chip { min-height: 22px; padding: 4px 6px; font-size: 8px; letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .workout-list .student-workout-meta .template-chip svg { width: 11px; height: 11px; }
 .workout-print { min-height: 36px; width: calc(100% - 28px); margin: 0 14px 12px; border: 1px solid var(--line); background: transparent; color: var(--bronze-300); display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 10px; font-weight: 800; }
-.workout-index { color: #4e5356; font-family: Georgia, serif; font-size: 22px; }
+.workout-index { color: #b9aa95; font-family: Georgia, serif; font-size: 22px; font-weight: 600; text-shadow: 0 0 10px rgba(194, 151, 91, .16); }
 .workout-list button div { display: grid; gap: 3px; }
 .workout-list small { color: var(--bronze-400); font-size: 8px; font-weight: 900; letter-spacing: 1px; }
 .workout-list strong { font-family: Georgia, serif; font-size: 20px; font-weight: 500; }
@@ -1312,8 +1312,9 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .student-nav {
   position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 480px);
   height: 78px; z-index: 40; border-top: 1px solid var(--line); background: rgba(14,16,18,.97);
-  display: grid; grid-template-columns: repeat(5, 1fr); backdrop-filter: blur(16px);
+  display: grid; grid-template-columns: repeat(5, 1fr); backdrop-filter: blur(16px); transition: transform .28s ease, opacity .28s ease;
 }
+.student-nav.is-hidden { transform: translate(-50%, 110%); opacity: 0; pointer-events: none; }
 .student-nav button { border: 0; background: transparent; color: #686e72; display: grid; place-content: center; justify-items: center; gap: 5px; position: relative; font-size: 9px; }
 .student-nav svg { width: 20px; height: 20px; }
 .student-nav button.active { color: var(--bronze-300); }

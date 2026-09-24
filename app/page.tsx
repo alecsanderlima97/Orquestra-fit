@@ -24,7 +24,7 @@ import { verifiedFemaleGifUrls } from "@/lib/workouts/verified-female-gifs";
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
 type Theme = "bronze" | "prata";
-type AccountProfile = { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string };
+type AccountProfile = { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string; whatsappUrl?: string };
 type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; createdAt?: { toDate?: () => Date } };
 type NotificationItem = { id: string; type: "announcement" | "message" | "workout" | "dueSoon" | "overdue"; title: string; detail: string; createdAt?: unknown };
 
@@ -98,6 +98,19 @@ function readLocalCollection<T>(academyId: string, collectionName: string): T[] 
 function writeLocalCollection<T>(academyId: string, collectionName: string, records: T[]) {
   window.localStorage.setItem(localCollectionKey(academyId, collectionName), JSON.stringify(records));
   window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
+}
+
+function normalizeWhatsappLink(value?: string) {
+  const raw = value?.trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:" || !(host === "wa.me" || host.endsWith(".whatsapp.com") || host === "whatsapp.com")) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
 }
 
 type AuditEventInput = {
@@ -1145,6 +1158,7 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
     return date.getTime();
   }, []);
   const weekExecutions = executions.filter((execution) => workoutExecutionTime(execution.completedAt) >= weekStart);
+  const streakDays = currentWorkoutStreak(executions);
   const weeklyGoal = Math.max(1, Math.min(5, workouts.filter((item) => !item.isLocked).length || 4));
   const weeklyPercentage = Math.min(100, Math.round(weekExecutions.length / weeklyGoal * 100));
   const completedToday = weekExecutions.filter((execution) => new Date(workoutExecutionTime(execution.completedAt)).toDateString() === new Date().toDateString()).length;
@@ -1152,7 +1166,7 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
     <div className="student-view home-view">
       <section className="welcome-row">
         <div><p>{brazilLongDate()}</p><h1>{brazilGreeting()}, {firstName(access.user.displayName, access.user.email)}.</h1><span>Seu ritmo começa aqui.</span></div>
-        <div className="streak" aria-label="Sequência de treinos"><Flame size={20} /><strong>—</strong><small>sem histórico</small></div>
+        <div className="streak" aria-label="Sequência de treinos"><Flame size={20} /><strong>{executions.length ? streakDays : "—"}</strong><small>{executions.length ? `${streakDays === 1 ? "dia" : "dias"} de sequência` : "sem histórico"}</small></div>
       </section>
 
       <article className="today-workout">
@@ -1203,6 +1217,7 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
       <StudentMessagesInbox />
 
       <StudentAnnouncementCard />
+      <StudentAcademyWhatsAppCard />
       <AcademyHoursCard />
     </div>
   );
@@ -1339,14 +1354,14 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const stateLabel = isLocked ? "NÍVEL BLOQUEADO" : isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
             const workoutCode = String.fromCharCode(65 + (index % 26));
             const level = workout.level ?? "Fundação";
-            const focus = workout.focusLabel ?? "Treino personalizado";
+            const estimatedDuration = estimatedWorkoutDurationLabel(workout.exerciseDetails ?? [], workout.exerciseIds.length);
             const audience = workout.audience === "Geral" ? "Geral" : "Personalizado";
             const durationDelta = previous ? latest.durationSeconds - previous.durationSeconds : null;
             const stars = latest ? previous ? Math.max(1, Math.min(5, 3 + (durationDelta !== null && durationDelta <= 0 ? 1 : 0) + ((latest.maxLoad ?? 0) > (previous.maxLoad ?? 0) || (latest.maxReps ?? 0) > (previous.maxReps ?? 0) ? 1 : 0))) : 1 : 0;
             const previousLevel = index > 0 ? visibleWorkouts[index - 1].level ?? "Fundação" : null;
             const isCurrentProgram = level === currentProgram;
             return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`}>
-            <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-focus"><Dumbbell size={12} /> {focus}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutCardName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
+            <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-duration"><Clock3 size={12} /> {estimatedDuration}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutCardName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             {!isLocked && <details className="workout-card-menu"><summary aria-label="Mais ações"><MoreHorizontal size={18} /></summary><div><button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={15} /> Imprimir ficha</button></div></details>}
           </article></div>;
@@ -2329,6 +2344,28 @@ function defaultExerciseDetails(exercise: ExerciseMetricSource) {
   return labels.mode === "cardio" ? { sets: "1", reps: "20", load: "6", rest: "60" } : labels.mode === "timed" ? { sets: "3", reps: "30", load: "0", rest: "60" } : { sets: "3", reps: "10", load: "0", rest: "60" };
 }
 
+function StudentAcademyWhatsAppCard() {
+  const access = useAccess();
+  const [settings, setSettings] = useState<{ name?: string; whatsappUrl?: string }>({});
+  useEffect(() => {
+    function apply(data?: { name?: string; whatsappUrl?: string } | null) {
+      setSettings({ name: data?.name, whatsappUrl: data?.whatsappUrl });
+    }
+    if (!db) {
+      const syncLocal = () => {
+        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; whatsappUrl?: string } | null); } catch { apply(null); }
+      };
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; whatsappUrl?: string } | undefined));
+  }, [access.academyId]);
+  const href = normalizeWhatsappLink(settings.whatsappUrl);
+  if (!href) return null;
+  return <a className="academy-whatsapp-card" href={href} target="_blank" rel="noreferrer"><span className="academy-whatsapp-mark"><MessageCircle size={19} /></span><span><small>COMUNIDADE DA ACADEMIA</small><strong>Entrar no WhatsApp</strong><p>{settings.name || "Receba avisos, novidades e orientações da academia."}</p></span><ArrowRight size={18} /></a>;
+}
+
 function estimatedWorkoutDurationLabel(details: WorkoutExerciseDetail[], exerciseCount: number) {
   const estimatedSeconds = details.length ? details.reduce((total, exercise) => {
     const metrics = exerciseMetricLabels(exercise);
@@ -2371,6 +2408,19 @@ function localDateKey(date: Date) {
 function dateKeyFromValue(value: unknown) {
   const date = firestoreDate(value);
   return date ? localDateKey(date) : null;
+}
+
+function currentWorkoutStreak(executions: WorkoutExecution[]) {
+  const days = new Set(executions.map((execution) => dateKeyFromValue(execution.completedAt)).filter((value): value is string => Boolean(value)));
+  const cursor = new Date();
+  const today = localDateKey(cursor);
+  if (!days.has(today)) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (days.has(localDateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 
 function formatWorkoutDuration(seconds: number) {
@@ -4596,14 +4646,25 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
       phone: maskPhone(form.phone ?? ""),
       cnpj: maskCnpj(form.cnpj ?? ""),
       cpf: maskCpf(form.cpf ?? ""),
+      whatsappUrl: normalizeWhatsappLink(form.whatsappUrl),
     };
+    if (form.whatsappUrl?.trim() && !normalized.whatsappUrl) {
+      onFeedback("Use um link HTTPS do WhatsApp ou do grupo da academia.");
+      setSaving(false);
+      return;
+    }
     try {
       if (!db) {
         window.localStorage.setItem(profileStorageKey(access.userId), JSON.stringify(normalized));
+        const settingsKey = `orquestra-fit:${access.academyId}:academy-settings`;
+        let currentSettings: Record<string, unknown> = {};
+        try { currentSettings = JSON.parse(window.localStorage.getItem(settingsKey) ?? "{}") as Record<string, unknown>; } catch { currentSettings = {}; }
+        window.localStorage.setItem(settingsKey, JSON.stringify({ ...currentSettings, name: normalized.name, phone: normalized.phone, instagramUrl: normalized.instagramUrl, siteUrl: normalized.siteUrl, whatsappUrl: normalized.whatsappUrl }));
         window.dispatchEvent(new Event("orquestra-fit:profile-updated"));
+        window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
       } else {
         await setDoc(doc(db, "users", access.userId), { ...normalized, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, whatsappUrl: normalized.whatsappUrl || null, updatedAt: serverTimestamp() }, { merge: true });
       }
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "profile_updated", label: isManager ? "Perfil da academia atualizado" : "Perfil profissional atualizado" });
       onFeedback("Perfil atualizado.");
@@ -4631,7 +4692,7 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
       <form className="student-detail-form" onSubmit={save}>
         {form.photoUrl && <img className="manager-profile-photo" src={form.photoUrl} alt="Foto do gestor" />}
         <label>Foto do perfil<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importPhoto} disabled={photoSaving} /><small>{photoSaving ? "Importando..." : "Importe uma imagem do dispositivo."}</small></label>
-        {(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl"] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site" } as Record<string, string>)[key]}<input value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}
+        {(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl", ...(isManager ? ["whatsappUrl" as const] : [])] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site", whatsappUrl: "WhatsApp ou grupo da academia" } as Record<string, string>)[key]}<input type={key === "whatsappUrl" ? "url" : undefined} value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} placeholder={key === "whatsappUrl" ? "https://chat.whatsapp.com/..." : undefined} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}
         <div className="form-actions"><button className="detail-save" type="submit" disabled={saving || photoSaving}>{saving ? "Salvando..." : "Salvar perfil"}</button><button className="secondary-action" type="button" onClick={() => void logout()}>Sair da conta</button></div>
       </form>
       {isManager && <div className="manager-profile-hours"><AcademyHoursSettings onFeedback={onFeedback} /></div>}
@@ -5305,7 +5366,36 @@ function PageIntro({ kicker, title, copy }: { kicker: string; title: string; cop
 }
 
 function StudentNav({ activeTab, onChange }: { activeTab: StudentTab; onChange: (tab: StudentTab) => void }) {
-  return <nav className="student-nav">{navItems.map(([id, Icon, label]) => <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onChange(id)}><Icon /><span>{label}</span></button>)}</nav>;
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let hideTimer = window.setTimeout(() => setHidden(true), 3200);
+    let lastScrollY = window.scrollY;
+    const scheduleHide = () => {
+      window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => setHidden(true), 3200);
+    };
+    const reveal = () => {
+      setHidden(false);
+      scheduleHide();
+    };
+    const onScroll = () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY < lastScrollY - 4) setHidden(false);
+      else if (currentScrollY > lastScrollY + 4) setHidden(true);
+      lastScrollY = currentScrollY;
+      scheduleHide();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("pointerdown", reveal, { passive: true });
+    window.addEventListener("touchstart", reveal, { passive: true });
+    return () => {
+      window.clearTimeout(hideTimer);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("pointerdown", reveal);
+      window.removeEventListener("touchstart", reveal);
+    };
+  }, []);
+  return <nav className={`student-nav${hidden ? " is-hidden" : ""}`}>{navItems.map(([id, Icon, label]) => <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onChange(id)}><Icon /><span>{label}</span></button>)}</nav>;
 }
 
 function StudentDrawer({ onClose, onChange }: { onClose: () => void; onChange: (tab: StudentTab) => void }) {
