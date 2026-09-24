@@ -7,7 +7,15 @@
 .student-app .home-view .workout-copy h2 { max-width: 90%; font-family: inherit; font-size: 30px; line-height: 1.15; letter-spacing: -.7px; overflow-wrap: anywhere; }
 .student-app .home-view .workout-copy p { max-width: 90%; line-height: 1.6; }
 .student-app .home-view .workout-copy button { border-radius: 14px; min-height: 50px; width: 100%; margin-top: 22px; }
-.student-app .home-view .workout-art { opacity: .48; pointer-events: none; filter: saturate(1.08) contrast(1.08); }
+.student-app .home-view .workout-art {
+  opacity: .76;
+  pointer-events: none;
+  filter: saturate(1.12) contrast(1.1) brightness(1.04);
+}
+.student-app .home-view .workout-art img {
+  opacity: .96;
+  filter: grayscale(.24) contrast(1.14) brightness(.8);
+}
 .student-app .home-view .steel-number { display: none; }
 .student-app .home-view .status-grid { gap: 12px; margin-top: 16px; margin-bottom: 28px; }
 .student-app .home-view .status-grid article { border-radius: 18px; min-height: 124px; padding: 16px; }
