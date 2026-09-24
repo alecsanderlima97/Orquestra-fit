@@ -371,6 +371,41 @@ function starterClassification(name: string, muscleGroup: string): { bodyRegion:
   return { bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: normalizedName.includes("peso corporal") ? "Peso corporal" : "Força" };
 }
 
+type GifLibraryExpansionSeed = {
+  name: string;
+  muscleGroup: string;
+  secondaryMuscles: string;
+  anatomyRegion: string;
+  file: string;
+  bodyRegion: BodyRegion;
+  phase: ExercisePhase;
+  exerciseType: ExerciseType;
+};
+
+// Expansão curada a partir do catálogo local. Cada movimento aponta para um arquivo
+// existente no pacote, com tradução e classificação revisadas para evitar vínculos
+// automáticos ambíguos.
+const gifLibraryExpansionSeeds: GifLibraryExpansionSeed[] = [
+  { name: "Rotação sentada com barra", muscleGroup: "Core", secondaryMuscles: "Oblíquos", anatomyRegion: "Região central", file: "EXERCÍCIOS COM BARRAS/ABDOMINAIS/Barbell-Seated-Twist_Waist_converted.gif", bodyRegion: "Região central", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Inclinação lateral no cabo", muscleGroup: "Core", secondaryMuscles: "Oblíquos", anatomyRegion: "Região central lateral", file: "EXERCÍCIOS NO CABO  OU POLIA/ABDOMINAIS/Cable-Side-Bend_Waist_converted.gif", bodyRegion: "Região central", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Encolhimento com barra", muscleGroup: "Trapézio", secondaryMuscles: "Ombros", anatomyRegion: "Trapézio", file: "EXERCÍCIOS COM BARRAS/TRAPÉZIO/Barbell-Shrug_Back_converted.gif", bodyRegion: "Tronco posterior", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Elevação frontal sentada com barra", muscleGroup: "Ombros", secondaryMuscles: "Peitoral superior", anatomyRegion: "Ombro anterior", file: "EXERCÍCIOS COM BARRAS/OMBROS/Barbell-Seated-Front-Raise_Shoulders__converted.gif", bodyRegion: "Membros superiores", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Step-up lateral com halter", muscleGroup: "Quadríceps", secondaryMuscles: "Glúteos, posteriores", anatomyRegion: "Coxas e glúteos", file: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Lateral-Step-up-(male)_Thighs__converted.gif", bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Good morning sentado com barra", muscleGroup: "Posteriores", secondaryMuscles: "Glúteos, lombar", anatomyRegion: "Posteriores da coxa", file: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Seated-Good-morning_Hips_converted.gif", bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Swing com kettlebell", muscleGroup: "Cardio", secondaryMuscles: "Glúteos, posteriores", anatomyRegion: "Condicionamento cardiovascular", file: "KETTLEBELL/PERNA/Kettlebell-Swing_Hips-FIX2__converted.gif", bodyRegion: "Membros inferiores", phase: "Finalização", exerciseType: "Cardio" },
+  { name: "Agachamento dividido com barra", muscleGroup: "Quadríceps", secondaryMuscles: "Glúteos, posteriores", anatomyRegion: "Coxas e glúteos", file: "EXERCÍCIOS COM BARRAS/PERNA/Barbell-Split-Squat_Thighs__converted.gif", bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Crucifixo inverso no cabo", muscleGroup: "Ombros", secondaryMuscles: "Costas", anatomyRegion: "Ombro posterior", file: "EXERCÍCIOS NO CABO  OU POLIA/COSTAS/Cable-One-Arm-Reverse-Fly-(male)_Shoulders__converted.gif", bodyRegion: "Tronco posterior", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Abdominal lateral na máquina", muscleGroup: "Abdômen", secondaryMuscles: "Oblíquos", anatomyRegion: "Região central lateral", file: "EXERCÍCIOS NA MAQUINA - HACK - BANCO/ABDOMINAIS/45-degree-Side-Bend_Waist-FIX__converted.gif", bodyRegion: "Região central", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Elevação frontal com halter", muscleGroup: "Ombros", secondaryMuscles: "Peitoral superior", anatomyRegion: "Ombro anterior", file: "EXERCÍCIOS COM HALTERES/OMBRO/Dumbbell-Learning-Front-Raise-(male)_Shoulders__converted.gif", bodyRegion: "Membros superiores", phase: "Treino principal", exerciseType: "Força" },
+  { name: "Step-up com halteres (variação 2)", muscleGroup: "Quadríceps", secondaryMuscles: "Glúteos, posteriores", anatomyRegion: "Coxas e glúteos", file: "EXERCÍCIOS COM HALTERES/PERNA/Dumbbell-Step-up-(VERSION-2)-(male)_Thighs__converted.gif", bodyRegion: "Membros inferiores", phase: "Treino principal", exerciseType: "Força" },
+];
+
+type StarterExerciseSeed = readonly [string, string, string, string];
+const allStarterExerciseSeeds: readonly StarterExerciseSeed[] = [
+  ...starterExercises,
+  ...gifLibraryExpansionSeeds.map((seed) => [seed.name, seed.muscleGroup, seed.secondaryMuscles, seed.anatomyRegion] as const),
+];
+
 function exerciseArtwork(name: string, group: string, bodyRegion?: BodyRegion) {
   const normalized = name.toLocaleLowerCase("pt-BR");
   if (normalized.includes("rosca martelo")) return "/exercise-art/hammer-curl-anatomy-v1.png";
@@ -590,6 +625,17 @@ function exerciseGifKey(name: string) {
 function packagedGifUrl(file: string) {
   if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) return "";
   return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+}
+
+function catalogGifStaticUrl(file: string) {
+  return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+}
+
+function expansionGifMedia(name: string) {
+  const seed = gifLibraryExpansionSeeds.find((item) => item.name === name);
+  if (!seed) return {};
+  const url = catalogGifStaticUrl(seed.file);
+  return { gifUrl: url, gifMaleUrl: url, gifMalePath: seed.file, gifMatch: "exact" as const };
 }
 
 function verifiedExerciseGif(name: string, profile: "masculino" | "feminino" = "masculino") {
@@ -3294,16 +3340,18 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function seedStarterExercises() {
     if (!db) {
-      const seeded = starterExercises.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => { const equipmentName = equipmentForExercise(name); return { id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...starterClassification(name, muscleGroup) }; });
-      const nextExercises = exercises.length ? exercises : seeded;
+      const existingNames = new Set(exercises.map((exercise) => exercise.name.trim().toLocaleLowerCase("pt-BR")));
+      const seeded = allStarterExerciseSeeds.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => { const equipmentName = equipmentForExercise(name); const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name); return { id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...(expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType, ...expansionGifMedia(name) } : starterClassification(name, muscleGroup)) }; });
+      const missing = seeded.filter((exercise) => !existingNames.has(exercise.name.toLocaleLowerCase("pt-BR")));
+      const nextExercises = exercises.length ? [...exercises, ...missing] : seeded;
       setExercises(nextExercises);
       writeLocalCollection(access.academyId, "exercises", nextExercises);
-      onFeedback(exercises.length ? "A biblioteca inicial já foi carregada." : `${seeded.length} exercícios adicionados no modo local.`);
+      onFeedback(missing.length ? `${missing.length} exercícios novos adicionados no modo local.` : "A biblioteca inicial já está atualizada.");
       return;
     }
     const firestore = db;
     const existingNames = new Set(exercises.map((exercise) => exercise.name.trim().toLocaleLowerCase("pt-BR")));
-    const pending = starterExercises.filter(([name]) => !existingNames.has(name.toLocaleLowerCase("pt-BR")));
+    const pending = allStarterExerciseSeeds.filter(([name]) => !existingNames.has(name.toLocaleLowerCase("pt-BR")));
     const batch = writeBatch(firestore);
     exercises.forEach((exercise) => {
       const equipmentName = exercise.equipmentName || equipmentForExercise(exercise.name);
@@ -3311,9 +3359,10 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     });
     pending.forEach(([name, primary, secondary, region]) => {
       const exerciseRef = doc(collection(firestore, "academies", access.academyId, "exercises"));
-      const classification = starterClassification(name, primary);
+      const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name);
+      const classification = expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType } : starterClassification(name, primary);
       const equipmentName = equipmentForExercise(name);
-      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, createdBy: access.userId, createdAt: serverTimestamp(), source: "starter-library" });
+      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, ...expansionGifMedia(name), createdBy: access.userId, createdAt: serverTimestamp(), source: expansion ? "gif-library-expansion" : "starter-library" });
     });
     try {
       await batch.commit();
@@ -3487,13 +3536,14 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     ];
     const levels: WorkoutLevel[] = ["Fundação", "Evolução", "Performance", "Elite"];
     const preparation = exercises.filter((exercise) => exercise.phase === "Preparação");
-    const mainExercises = exercises.filter((exercise) => exercise.phase !== "Preparação");
-    const existingKeys = new Set(templates.map((template) => template.seedKey).filter((key): key is string => Boolean(key)));
+    const finisherExercises = exercises.filter((exercise) => exercise.phase === "Finalização" || exercise.phase === "Cardio");
+    const mainExercises = exercises.filter((exercise) => exercise.phase !== "Preparação" && exercise.phase !== "Finalização" && exercise.phase !== "Cardio");
+    const existingByKey = new Map(templates.filter((template) => template.seedKey).map((template) => [template.seedKey as string, template]));
     const templateExerciseDetails = (exercise: ExerciseRecord): WorkoutExerciseDetail => ({ exerciseId: exercise.id, name: exercise.name, muscleGroup: exercise.muscleGroup, secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exercise.gifUrl, gifPath: exercise.gifPath, gifMaleUrl: exercise.gifMaleUrl, gifMalePath: exercise.gifMalePath, gifFemaleUrl: exercise.gifFemaleUrl, gifFemalePath: exercise.gifFemalePath, equipmentName: exercise.equipmentName, machineCode: exercise.machineCode, bodyRegion: exercise.bodyRegion, phase: exercise.phase, exerciseType: exercise.exerciseType, ...defaultExerciseDetails(exercise) });
     const createdTemplates: WorkoutTemplateRecord[] = [];
+    const updatedTemplates: WorkoutTemplateRecord[] = [];
     levels.forEach((level, levelIndex) => dayFocus.forEach((day, dayIndex) => {
       const seedKey = `grade-geral-${machineCode(level)}-${machineCode(day.day)}`;
-      if (existingKeys.has(seedKey)) return;
       const focusMatches = mainExercises.filter((exercise) => {
         const text = `${exercise.name} ${exercise.muscleGroup} ${exercise.secondaryMuscles ?? ""}`.toLocaleLowerCase("pt-BR");
         return day.focus.some((term) => text.includes(term));
@@ -3501,24 +3551,36 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       const fallback = mainExercises.filter((exercise) => !focusMatches.some((item) => item.id === exercise.id));
       const rotation = (levelIndex * 2 + dayIndex) % Math.max(fallback.length, 1);
       const rotatedFallback = fallback.length ? [...fallback.slice(rotation), ...fallback.slice(0, rotation)] : [];
-      const selected = [...(preparation.length ? [preparation[(levelIndex + dayIndex) % preparation.length]] : []), ...focusMatches, ...rotatedFallback].filter((exercise, index, list) => list.findIndex((item) => item.id === exercise.id) === index).slice(0, 7);
-      createdTemplates.push({ id: `local-template-${seedKey}-${Date.now()}-${levelIndex}-${dayIndex}`, name: day.label, level, audience: "Geral", scheduleDay: "Flexível", focusLabel: day.label, targetStudentId: null, targetStudentName: null, seedKey, exerciseIds: selected.map((exercise) => exercise.id), exerciseDetails: selected.map(templateExerciseDetails), createdBy: access.userId });
+      const selectedMain = [...focusMatches, ...rotatedFallback].filter((exercise, index, list) => list.findIndex((item) => item.id === exercise.id) === index).slice(0, 5);
+      const selectedPreparation = preparation.length ? [preparation[(levelIndex + dayIndex) % preparation.length], preparation[(levelIndex + dayIndex + 1) % preparation.length]].filter((exercise, index, list) => list.findIndex((item) => item.id === exercise.id) === index) : [];
+      const selectedFinisher = finisherExercises.length ? [finisherExercises[(levelIndex + dayIndex) % finisherExercises.length]] : [];
+      const selected = [...selectedPreparation, ...selectedMain, ...selectedFinisher];
+      if (selected.length < 8) return;
+      const current = existingByKey.get(seedKey);
+      const needsRefresh = !current || current.exerciseIds.length !== 8 || current.exerciseDetails.filter((detail) => detail.phase === "Preparação").length !== 2 || current.exerciseDetails.filter((detail) => detail.phase === "Finalização" || detail.exerciseType === "Cardio").length !== 1 || current.scheduleDay !== day.day;
+      if (!needsRefresh) return;
+      const nextTemplate: WorkoutTemplateRecord = { id: current?.id ?? `local-template-${seedKey}-${Date.now()}-${levelIndex}-${dayIndex}`, name: day.label, level, audience: "Geral", scheduleDay: day.day, focusLabel: day.label, targetStudentId: null, targetStudentName: null, seedKey, exerciseIds: selected.map((exercise) => exercise.id), exerciseDetails: selected.map(templateExerciseDetails), createdBy: current?.createdBy ?? access.userId };
+      if (current) updatedTemplates.push(nextTemplate); else createdTemplates.push(nextTemplate);
     }));
-    if (!createdTemplates.length) {
+    if (!createdTemplates.length && !updatedTemplates.length) {
       onFeedback("A grade de 28 programas já foi criada. Nenhum duplicado foi adicionado.");
       return;
     }
     if (!db) {
-      const nextTemplates = [...templates, ...createdTemplates];
+      const updatesById = new Map(updatedTemplates.map((template) => [template.id, template]));
+      const nextTemplates = [...templates.map((template) => updatesById.get(template.id) ?? template), ...createdTemplates];
       setTemplates(nextTemplates);
       writeLocalCollection(access.academyId, "workoutTemplates", nextTemplates);
-      onFeedback(`${createdTemplates.length} programas gerais criados no modo local.`);
+      onFeedback(`${createdTemplates.length} programas criados e ${updatedTemplates.length} atualizados no modo local.`);
       return;
     }
     setSaving(true);
     try {
-      await Promise.all(createdTemplates.map((template) => addDoc(collection(db!, "academies", access.academyId, "workoutTemplates"), { name: template.name, level: template.level, audience: template.audience, scheduleDay: template.scheduleDay, focusLabel: template.focusLabel, targetStudentId: null, targetStudentName: null, seedKey: template.seedKey, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, createdBy: access.userId, updatedBy: access.userId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })));
-      onFeedback(`${createdTemplates.length} programas gerais criados na biblioteca.`);
+      await Promise.all([
+        ...createdTemplates.map((template) => addDoc(collection(db!, "academies", access.academyId, "workoutTemplates"), { name: template.name, level: template.level, audience: template.audience, scheduleDay: template.scheduleDay, focusLabel: template.focusLabel, targetStudentId: null, targetStudentName: null, seedKey: template.seedKey, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, createdBy: access.userId, updatedBy: access.userId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })),
+        ...updatedTemplates.map((template) => updateDoc(doc(db!, "academies", access.academyId, "workoutTemplates", template.id), { name: template.name, level: template.level, audience: template.audience, scheduleDay: template.scheduleDay, focusLabel: template.focusLabel, targetStudentId: null, targetStudentName: null, seedKey: template.seedKey, exerciseIds: template.exerciseIds, exerciseDetails: template.exerciseDetails, updatedBy: access.userId, updatedAt: serverTimestamp() })),
+      ]);
+      onFeedback(`${createdTemplates.length} programas criados e ${updatedTemplates.length} atualizados na biblioteca.`);
     } catch {
       onFeedback("Não foi possível criar toda a grade de programas. Tente novamente.");
     } finally {
