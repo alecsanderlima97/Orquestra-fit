@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { signOut, type User } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
-import { addDoc, collection, doc, getDoc, getDocFromServer, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocFromServer, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
 import { auth, db, functions } from "@/lib/firebase/client";
 import { AccessProvider, AccessRole } from "./access-context";
@@ -251,6 +251,10 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         invitedName?: string;
         invitedEmail?: string;
         plan?: string;
+        planId?: string | null;
+        planInterval?: string | null;
+        planPrice?: number | null;
+        initialDueDate?: string | null;
         anatomyProfile?: "masculino" | "feminino";
         birthDate?: string | null;
         phone?: string | null;
@@ -291,6 +295,11 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           email: invitation.invitedEmail ?? (user.email?.endsWith("@accounts.orquestra-fit.local") ? null : user.email) ?? null,
           username: user.email?.endsWith("@accounts.orquestra-fit.local") ? user.displayName ?? null : null,
           plan: invitation.plan ?? null,
+          planId: invitation.planId ?? null,
+          planInterval: invitation.planInterval ?? null,
+          planPrice: invitation.planPrice ?? null,
+          planStartedAt: new Date().toISOString(),
+          joinedAt: new Date().toISOString(),
           anatomyProfile: invitation.anatomyProfile === "feminino" ? "feminino" : "masculino",
           birthDate: invitation.birthDate ?? null,
           phone: invitation.phone ?? null,
@@ -327,6 +336,17 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
       };
       batch.set(userRef, userData, { merge: true });
       await batch.commit();
+      if (invitation.role === "student" && invitation.planId && invitation.initialDueDate) {
+        try {
+          await updateDoc(doc(firestore, "academies", invitation.academyId, "monthlyCharges", `registration-${normalizedCode}`), {
+            studentId: user.uid,
+            studentName: invitation.invitedName ?? user.displayName ?? user.email ?? "Aluno",
+            updatedAt: serverTimestamp(),
+          });
+        } catch {
+          // O cadastro continua válido mesmo se a cobrança pendente não puder ser vinculada.
+        }
+      }
       onActivated(
         { activeAcademyId: invitation.academyId, accountType: invitation.role === "admin" ? "academy_admin" : undefined },
         { role: invitation.role, active: true },

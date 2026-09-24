@@ -8,6 +8,7 @@ import {
   onSnapshot,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import {
   AlertTriangle,
@@ -133,6 +134,7 @@ export function StockModule({
   const [purchasePayment, setPurchasePayment] = useState<"paid" | "pending">(
     "paid",
   );
+  const [movementSaving, setMovementSaving] = useState(false);
   const [purchaseDueDate, setPurchaseDueDate] = useState(today());
   const [purchaseInstallments, setPurchaseInstallments] = useState("1");
   const [qrItem, setQrItem] = useState<StockItem | null>(null);
@@ -360,6 +362,7 @@ export function StockModule({
   async function registerMovement(event: React.FormEvent) {
     event.preventDefault();
     if (!selected) return;
+    if (movementSaving) return;
     const quantity = Number(movementQuantity);
     if (!Number.isInteger(quantity) || quantity <= 0) {
       onFeedback("Informe uma quantidade inteira maior que zero.");
@@ -398,6 +401,8 @@ export function StockModule({
         ? { buyerName: buyerName.trim(), paymentMethod, totalAmount }
         : {}),
     };
+    setMovementSaving(true);
+    try {
     if (!db) {
       const nextItems = items.map((item) =>
         item.id === selected.id
@@ -472,12 +477,14 @@ export function StockModule({
         window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
       }
     } else {
-      await updateDoc(
-        doc(db, "academies", access.academyId, "stockItems", selected.id),
+      const firestore = db;
+      const batch = writeBatch(firestore);
+      batch.update(
+        doc(firestore, "academies", access.academyId, "stockItems", selected.id),
         updated,
       );
-      await addDoc(
-        collection(db, "academies", access.academyId, "stockMovements"),
+      batch.set(
+        doc(collection(firestore, "academies", access.academyId, "stockMovements")),
         { ...movement, createdBy: access.userId, createdAt: serverTimestamp() },
       );
       if (
@@ -486,8 +493,8 @@ export function StockModule({
         buyerName.trim() &&
         totalAmount > 0
       )
-        await addDoc(
-          collection(db, "academies", access.academyId, "financialSales"),
+        batch.set(
+          doc(collection(firestore, "academies", access.academyId, "financialSales")),
           {
             description: `Venda · ${selected.name}`,
             studentName: buyerName.trim(),
@@ -504,8 +511,8 @@ export function StockModule({
           index < (purchasePayment === "pending" ? purchaseCount : 1);
           index += 1
         )
-          await addDoc(
-            collection(db, "academies", access.academyId, "financialExpenses"),
+          batch.set(
+            doc(collection(firestore, "academies", access.academyId, "financialExpenses")),
             {
               kind: "payable",
               description: `Compra para ${selected.kind === "product" ? "estoque" : "patrimônio"} · ${selected.name}${purchaseCount > 1 ? ` (${index + 1}/${purchaseCount})` : ""}`,
@@ -527,11 +534,17 @@ export function StockModule({
               createdAt: serverTimestamp(),
             },
           );
+      await batch.commit();
     }
     setSelected(null);
     onFeedback(
       `${movementType === "entrada" ? "Entrada" : "Saída"} registrada. Saldo atualizado: ${balance}.`,
     );
+    } catch {
+      onFeedback("Não foi possível registrar a movimentação e os lançamentos financeiros.");
+    } finally {
+      setMovementSaving(false);
+    }
   }
   async function showQr(item: StockItem) {
     const { default: QRCode } = await import("qrcode");
@@ -1076,8 +1089,8 @@ export function StockModule({
               <p>
                 Saldo atual: <strong>{selected.quantity}</strong>
               </p>
-              <button className="detail-save" type="submit">
-                Registrar {movementType}
+              <button className="detail-save" type="submit" disabled={movementSaving}>
+                {movementSaving ? "Registrando..." : `Registrar ${movementType}`}
               </button>
             </form>
           </section>

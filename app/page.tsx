@@ -2082,6 +2082,7 @@ type RegisteredStudent = {
   cpf?: string | null;
   birthDate?: string | null;
   plan: string;
+  planId?: string | null;
   joinedAt?: string | null;
   planStartedAt?: string | null;
   teacherId?: string | null;
@@ -2318,7 +2319,7 @@ type BillingStudent = { id: string; name: string; active: boolean; userId?: stri
 type BillingPlan = { id: string; name: string; price: number; active: boolean };
 type PaymentMethod = "pix" | "cartao_credito" | "cartao_debito" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
-type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod; chargeType?: ChargeType };
+type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod; chargeType?: ChargeType; planId?: string | null; accessCodeId?: string | null; origin?: string };
 function paymentMethodLabel(method?: PaymentMethod) { return method === "cartao_credito" ? "Cartão de crédito" : method === "cartao_debito" ? "Cartão de débito" : method === "maquininha" ? "Cartão (registro antigo)" : method === "pix" ? "Pix" : method === "dinheiro" ? "Dinheiro" : method === "transferencia" ? "Transferência" : method === "boleto" ? "Boleto" : method || ""; }
 type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
 type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
@@ -4346,8 +4347,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
-        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
+        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
+        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     if (access.role !== "admin") return unsubscribeStudents;
@@ -5241,11 +5242,30 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
   const [cref, setCref] = useState("");
   const [specialty, setSpecialty] = useState("");
   const [plan, setPlan] = useState("Mensal");
+  const [planId, setPlanId] = useState("");
+  const [availablePlans, setAvailablePlans] = useState<AcademyPlan[]>([]);
+  const [firstDueDate, setFirstDueDate] = useState(() => todayIso());
   const [birthDate, setBirthDate] = useState("");
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
   const [code, setCode] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!db) {
+      setAvailablePlans(readLocalCollection<AcademyPlan>(access.academyId, "plans").filter((item) => item.active !== false));
+      return;
+    }
+    return onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
+      setAvailablePlans(snapshot.docs.map((item) => {
+        const data = item.data() as { name?: string; price?: number; interval?: string; active?: boolean };
+        return { id: item.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", active: data.active !== false };
+      }).filter((item) => item.active));
+    }, () => setAvailablePlans([]));
+  }, [access.academyId]);
+
+  const selectedPlan = availablePlans.find((item) => item.id === planId);
+  const selectedPlanName = selectedPlan?.name || plan;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -5259,21 +5279,45 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
     const invitationCode = `DF-${random}`;
     try {
       if (db) {
-        await setDoc(doc(db, "accessCodes", invitationCode), {
+        const codeRef = doc(db, "accessCodes", invitationCode);
+        const registrationChargeRef = doc(db, "academies", access.academyId, "monthlyCharges", `registration-${invitationCode}`);
+        const batch = writeBatch(db);
+        batch.set(codeRef, {
           academyId: access.academyId,
           role,
           invitedName: capitalizeName(name.trim()),
           invitedEmail: email.trim() || null,
-          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
+          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planInterval: selectedPlan?.interval ?? null, planPrice: selectedPlan?.price ?? null, initialDueDate: selectedPlan ? firstDueDate : null, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
           active: true,
           createdBy: access.userId,
           createdAt: serverTimestamp(),
         });
+        if (role === "student" && selectedPlan && selectedPlan.price > 0) {
+          batch.set(registrationChargeRef, {
+            studentId: invitationCode,
+            studentName: capitalizeName(name.trim()),
+            planId: selectedPlan.id,
+            planName: selectedPlan.name,
+            amount: selectedPlan.price,
+            dueDate: firstDueDate,
+            status: "pending",
+            chargeType: "monthly",
+            accessCodeId: invitationCode,
+            origin: "student_registration",
+            createdBy: access.userId,
+            createdAt: serverTimestamp(),
+          });
+        }
+        await batch.commit();
       } else {
         const id = `local-${role}-${Date.now()}`;
         if (role === "student") {
           const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan, teacherId: null, anatomyProfile, active: true }]);
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true }]);
+          if (selectedPlan && selectedPlan.price > 0) {
+            const charges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
+            writeLocalCollection(access.academyId, "monthlyCharges", [...charges, { id: `local-registration-${id}`, studentId: id, studentName: capitalizeName(name.trim()), planId: selectedPlan.id, planName: selectedPlan.name, amount: selectedPlan.price, dueDate: firstDueDate, status: "pending", chargeType: "monthly", origin: "student_registration" }]);
+          }
         } else {
           const teachers = readLocalCollection<RegisteredTeacher>(access.academyId, "teachers");
           writeLocalCollection(access.academyId, "teachers", [...teachers, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null, active: true }]);
@@ -5298,14 +5342,15 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <label>E-mail Google <small>(opcional — use somente se a pessoa tiver)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
             {role === "student" && <><label>Telefone / WhatsApp<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Endereço<input value={address} onChange={(event) => setAddress(event.target.value)} autoComplete="street-address" placeholder="Rua, número, bairro e cidade" /></label></>}
             {role === "teacher" && <><label>Telefone<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} /></label><label>CREF<input value={cref} onChange={(event) => setCref(event.target.value.toUpperCase())} placeholder="Ex.: 012345-G/SP" /></label><label>Especialidade<input value={specialty} onChange={(event) => setSpecialty(capitalizeName(event.target.value))} placeholder="Ex.: Musculação" /></label></>}
-            {role === "student" && <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label>}
+            {role === "student" && (availablePlans.length > 0 ? <label>Plano da academia<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{availablePlans.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} · {item.interval}</option>)}</select><small>O primeiro vencimento será lançado automaticamente no financeiro.</small></label> : <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select><small>Nenhum plano com valor foi cadastrado ainda. A cobrança poderá ser criada depois.</small></label>)}
+            {role === "student" && selectedPlan && <label>Primeiro vencimento<input type="date" value={firstDueDate} onChange={(event) => setFirstDueDate(event.target.value)} min={todayIso()} required /></label>}
             {role === "student" && <label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} required /><small>Usada para calcular a idade e felicitar o aluno no aniversário.</small></label>}
             {role === "student" && <label>Perfil anatômico<select value={anatomyProfile} onChange={(event) => setAnatomyProfile(event.target.value === "feminino" ? "feminino" : "masculino")}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>Define o modelo exibido durante o treino.</small></label>}
             {error && <p className="auth-status" role="status">{error}</p>}
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
           </form>
         ) : (
-          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div><button className="student-modal-close" onClick={onClose}>Concluir</button></div>
+          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` A primeira cobrança de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} vence em ${formatDate(firstDueDate)} e já foi lançada no financeiro.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div><button className="student-modal-close" onClick={onClose}>Concluir</button></div>
         )}
       </section>
     </div>

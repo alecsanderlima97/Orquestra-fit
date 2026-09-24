@@ -133,7 +133,14 @@ service cloud.firestore {
     match /academies/{academyId}/monthlyCharges/{chargeId} {
       allow read: if isAdmin(academyId) ||
         (isStudent(academyId) && resource.data.studentId == request.auth.uid);
-      allow create, update: if isAdmin(academyId);
+      allow create: if isAdmin(academyId);
+      allow update: if isAdmin(academyId) ||
+        (isStudent(academyId) &&
+          resource.data.accessCodeId is string &&
+          resource.data.studentId == resource.data.accessCodeId &&
+          resource.data.accessCodeId == membership(academyId).data.activationCodeId &&
+          request.resource.data.studentId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['studentId', 'studentName', 'updatedAt']));
       allow delete: if false;
     }
 
