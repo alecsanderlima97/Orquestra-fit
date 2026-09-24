@@ -73,7 +73,17 @@ const readFile = (file: File) =>
   });
 const money = (value: number) =>
   value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(new Date())
+    .filter((part) => part.type === "year" || part.type === "month" || part.type === "day")
+    .map((part) => part.value)
+    .join("-");
 const addMonths = (date: string, months: number) => {
   const value = new Date(`${date}T12:00:00`);
   value.setMonth(value.getMonth() + months);

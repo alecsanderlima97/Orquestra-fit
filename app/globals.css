@@ -2794,6 +2794,8 @@ button:not(:disabled):active { transform: translateY(1px) scale(.995); }
   .finance-accounts-workspace { grid-template-columns: 1fr; }
 }
 @media (max-width: 520px) {
+  .finance-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; gap: 6px; padding-bottom: 0; }
+  .finance-tabs button { min-width: 0; min-height: 40px; justify-content: center; padding: 0 7px; font-size: 9px; }
   .finance-period { align-items: stretch; flex-wrap: wrap; }
   .finance-period label { flex: 1 1 125px; }
   .finance-period button { width: 100%; }
@@ -2809,7 +2811,11 @@ button:not(:disabled):active { transform: translateY(1px) scale(.995); }
   .finance-list > div > button { grid-column: 1 / -1; }
   .report-lines { grid-template-columns: 1fr; }
   .app-guide-panel { width: calc(100vw - 26px); }
-  .stock-summary { grid-template-columns: 1fr; }
+  .stock-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .stock-summary article { min-height: 72px; padding: 12px; gap: 8px; }
+  .stock-summary article > svg { width: 18px; }
+  .stock-summary span { font-size: 9px; }
+  .stock-summary strong { font-size: 20px; }
   .machine-asset-fields { grid-template-columns: 1fr; }
   .finance-form-grid, .finance-attachments { grid-template-columns: 1fr; }
   .finance-notes { grid-column: auto; }
