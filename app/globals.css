@@ -4305,3 +4305,148 @@ input, select, textarea { border-radius: 10px; }
 [data-theme="ferro"] .gif-catalog-modal,
 [data-theme="ferro"] .training-preview-backdrop,
 [data-theme="ferro"] .permissions-backdrop { background: rgba(25,42,49,.38); }
+
+/* Tema claro areia: reduz o branco e mantém leitura confortável em todas as áreas. */
+[data-theme="ferro"] {
+  --iron-950: #eee7dc;
+  --iron-900: #f6efe4;
+  --iron-850: #fbf7ef;
+  --iron-800: #e8ddcf;
+  --paper: #25343b;
+  --steel-500: #64757c;
+  --steel-300: #42545c;
+  --line: #d3c4b2;
+  --bronze-500: #9b6b34;
+  --bronze-400: #aa783c;
+  --bronze-300: #795323;
+}
+[data-theme="ferro"].v3-page {
+  background:
+    radial-gradient(circle at 12% 0, rgba(255,255,255,.52), transparent 34%),
+    linear-gradient(145deg, #f1e9de, #e3d8c9);
+}
+[data-theme="ferro"] .workspace-shell,
+[data-theme="ferro"] .student-app,
+[data-theme="ferro"] .student-scroll {
+  background: #eee7dc;
+}
+[data-theme="ferro"] .workspace-topbar,
+[data-theme="ferro"] .workspace-panel,
+[data-theme="ferro"] .metric-card,
+[data-theme="ferro"] .admin-lower > article,
+[data-theme="ferro"] .professor-focus,
+[data-theme="ferro"] .workspace-content > section,
+[data-theme="ferro"] .student-modal,
+[data-theme="ferro"] .permissions-panel,
+[data-theme="ferro"] .payment-modal,
+[data-theme="ferro"] .training-preview-panel,
+[data-theme="ferro"] .gif-catalog-panel,
+[data-theme="ferro"] .app-guide-panel {
+  background: #f8f1e7 !important;
+}
+[data-theme="ferro"] .status-grid article,
+[data-theme="ferro"] .weekly-card,
+[data-theme="ferro"] .academy-note,
+[data-theme="ferro"] .program-summary,
+[data-theme="ferro"] .workout-list > button,
+[data-theme="ferro"] .workout-library-card,
+[data-theme="ferro"] .evolution-hero,
+[data-theme="ferro"] .evolution-grid article,
+[data-theme="ferro"] .date-selector button,
+[data-theme="ferro"] .class-card,
+[data-theme="ferro"] .exercise-card,
+[data-theme="ferro"] .training-layout-redesigned > .training-collapsible-card,
+[data-theme="ferro"] .published-workouts.training-collapsible-card,
+[data-theme="ferro"] .training-subcard,
+[data-theme="ferro"] .workout-composition,
+[data-theme="ferro"] .library-phase-group,
+[data-theme="ferro"] .published-template-level-group,
+[data-theme="ferro"] .published-template-group,
+[data-theme="ferro"] .published-sent-list {
+  background: #fbf7ef !important;
+}
+[data-theme="ferro"] .student-header,
+[data-theme="ferro"] .student-nav {
+  background: rgba(250,246,238,.98) !important;
+}
+[data-theme="ferro"] .training-card-summary,
+[data-theme="ferro"] .training-collapsible-card[open] > .training-card-summary,
+[data-theme="ferro"] .training-subcard[open] > .training-subcard-summary,
+[data-theme="ferro"] .published-template-level-group > header,
+[data-theme="ferro"] .published-template-group > header,
+[data-theme="ferro"] .app-guide-panel > header,
+[data-theme="ferro"] .app-guide-panel > footer,
+[data-theme="ferro"] .notification-panel > header {
+  background: linear-gradient(105deg, #f3e6d4, #fbf7ef 78%) !important;
+}
+[data-theme="ferro"] .notification-panel,
+[data-theme="ferro"] .notification-panel article {
+  background: #fbf7ef !important;
+}
+
+/* Execução do treino: botões de série com aparência de controle físico. */
+[data-theme="ferro"] .workout-flow {
+  --workout-bg: #eee7dc;
+  --workout-surface: #fbf7ef;
+  --workout-border: #d1c1ae;
+  --workout-muted: #64757c;
+  --workout-text: #25343b;
+  --workout-accent: #a87536;
+  background: radial-gradient(ellipse at 100% 0, rgba(178,132,76,.12), transparent 420px), var(--workout-bg);
+}
+[data-theme="ferro"] .workout-topbar > span:not(.workout-time),
+[data-theme="ferro"] .workout-time { color: #4f626a; }
+[data-theme="ferro"] .workout-back,
+[data-theme="ferro"] .workout-time,
+[data-theme="ferro"] .workout-scan {
+  background: #f8f0e4;
+  border-color: #cfbea9;
+  color: #344b54;
+}
+[data-theme="ferro"] .workout-flow .workout-exercise {
+  background: #fbf7ef;
+  border-color: #d1c1ae;
+  box-shadow: 0 5px 16px rgba(101,76,48,.1);
+}
+[data-theme="ferro"] .workout-flow .workout-exercise.is-open { background: #f8f0e5; border-color: #b99058; }
+[data-theme="ferro"] .workout-flow .workout-exercise.is-complete { background: #edf5eb; border-color: #8eb18f; }
+[data-theme="ferro"] .workout-set-labels { color: #718087; }
+[data-theme="ferro"] .workout-set { border-color: #e0d4c5; }
+[data-theme="ferro"] .workout-set input {
+  background: #fffaf3;
+  border-color: #cfbea9;
+  color: #25343b;
+  box-shadow: inset 0 1px 2px rgba(101,76,48,.08);
+}
+[data-theme="ferro"] .workout-set button {
+  position: relative;
+  width: 46px;
+  height: 42px;
+  border: 1px solid #b89362;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #fffaf2, #e7d6bd);
+  color: #8a622d;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 2px 0 #b9a083, 0 5px 11px rgba(102,75,42,.15);
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+[data-theme="ferro"] .workout-set button::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid rgba(151,106,53,.28);
+  border-radius: 7px;
+  pointer-events: none;
+}
+[data-theme="ferro"] .workout-set button:hover {
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 3px 0 #b9a083, 0 8px 15px rgba(102,75,42,.2);
+}
+[data-theme="ferro"] .workout-set button:active { transform: translateY(1px); box-shadow: inset 0 2px 4px rgba(92,61,25,.2), 0 1px 0 #b9a083; }
+[data-theme="ferro"] .workout-set.is-done button {
+  border-color: #8c5f29;
+  background: linear-gradient(145deg, #c4914d, #98662e);
+  color: #fffaf0;
+  box-shadow: inset 0 1px 0 rgba(255,245,218,.45), 0 2px 0 #70491e, 0 5px 14px rgba(135,87,28,.25);
+}
+[data-theme="ferro"] .workout-set.is-done button::before { border-color: rgba(255,245,218,.34); }
+[data-theme="ferro"] .workout-set.is-done input { background: #f0eadf; border-color: #b9c8ba; color: #597263; }
