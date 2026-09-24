@@ -113,6 +113,13 @@ function normalizeWhatsappLink(value?: string) {
   }
 }
 
+function whatsappMessageHref(phone: string | null | undefined, message: string) {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (digits.length < 10) return "";
+  const destination = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${destination}?text=${encodeURIComponent(message)}`;
+}
+
 type AuditEventInput = {
   academyId: string;
   userId: string;
@@ -2083,6 +2090,11 @@ type RegisteredStudent = {
   birthDate?: string | null;
   plan: string;
   planId?: string | null;
+  planPrice?: number | null;
+  planInterval?: string | null;
+  initialDueDate?: string | null;
+  nextBillingDate?: string | null;
+  accessBlocked?: boolean;
   joinedAt?: string | null;
   planStartedAt?: string | null;
   teacherId?: string | null;
@@ -4035,7 +4047,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
       <section className="billing-layout">
         <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Cadastrar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Valor<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar plano"}</button></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
-        <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
+        <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-automation-note"><Check size={14} /> Cobranças recorrentes geradas automaticamente todos os dias</div><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
       <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${paymentMethodLabel(charge.paymentMethod)}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
       {paymentCharge && <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="payment-title"><section className="payment-modal"><header><div><span>BAIXA MANUAL</span><h2 id="payment-title">Registrar pagamento</h2><p>{paymentCharge.studentName} · R$ {paymentCharge.amount.toFixed(2).replace(".", ",")}</p></div><button aria-label="Fechar registro de pagamento" onClick={() => setPaymentCharge(null)}><X /></button></header><div className="payment-method-grid">{([['pix', 'Pix'], ['cartao_credito', 'Cartão de crédito'], ['cartao_debito', 'Cartão de débito'], ['dinheiro', 'Dinheiro'], ['transferencia', 'Transferência'], ['boleto', 'Boleto']] as const).map(([value, label]) => <button key={value} className={paymentMethod === value ? "active" : ""} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><div className="payment-modal-actions"><button className="modal-secondary" onClick={() => setPaymentCharge(null)}>Cancelar</button><button className="detail-save" onClick={confirmPayment} disabled={savingPayment}>{savingPayment ? "Salvando..." : "Confirmar pagamento"}</button></div></section></div>}
@@ -4250,6 +4262,39 @@ function StudentMessagesPanel({ messages, body, sending, onBodyChange, onSend }:
   return <section className="student-profile-messages"><div className="student-profile-message-heading"><span><MessageCircle /> MENSAGEM INTERNA</span><small>{messages.length} enviada(s)</small></div>{messages.length > 0 && <div className="student-message-history">{messages.slice(0, 2).map((message) => <div key={message.id}><strong>{message.senderName}</strong><p>{message.body}</p></div>)}</div>}<div className="student-message-compose"><textarea value={body} onChange={(event) => onBodyChange(event.target.value)} placeholder="Escreva uma orientação ou lembrete para o aluno..." /><button type="button" onClick={onSend} disabled={sending || !body.trim()}>{sending ? "Enviando..." : "Enviar mensagem"}</button></div></section>;
 }
 
+function StudentWhatsAppPanel({ student, onFeedback }: { student: RegisteredStudent; onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [template, setTemplate] = useState<"payment" | "birthday" | "news" | "custom">("payment");
+  const [customMessage, setCustomMessage] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const messages = {
+    payment: `Olá ${student.name.split(" ")[0]}. Este é um lembrete da sua mensalidade na academia. Se precisar de ajuda, fale conosco por aqui.`,
+    birthday: `Olá ${student.name.split(" ")[0]}! A equipe da academia deseja um feliz aniversário, com muita saúde e evolução.`,
+    news: `Olá ${student.name.split(" ")[0]}! Temos uma novidade da academia para você. Acesse o aplicativo para conferir.`,
+    custom: customMessage.trim(),
+  };
+  const message = messages[template];
+  const directHref = whatsappMessageHref(student.phone, message);
+
+  async function scheduleMessage() {
+    if (access.role !== "admin") { onFeedback("Somente a gestão pode programar mensagens."); return; }
+    if (!student.phone || !message || !scheduledAt) { onFeedback("Informe uma mensagem, telefone e data para programar."); return; }
+    const record = { studentId: student.id, studentName: student.name, phone: student.phone, body: message, scheduledAt, status: "pending", createdBy: access.userId, createdAt: new Date().toISOString() };
+    try {
+      if (!db) {
+        const current = readLocalCollection<typeof record & { id: string }>(access.academyId, "scheduledMessages");
+        writeLocalCollection(access.academyId, "scheduledMessages", [{ id: `local-scheduled-${Date.now()}`, ...record }, ...current]);
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "scheduledMessages"), { ...record, createdAt: serverTimestamp() });
+      }
+      setScheduledAt("");
+      onFeedback("Mensagem programada. O envio automático depende da conexão oficial do WhatsApp Business; enquanto isso, o botão abre a conversa pronta.");
+    } catch { onFeedback("Não foi possível programar a mensagem."); }
+  }
+
+  return <section className="student-whatsapp-panel"><header><div><span>WHATSAPP DO ALUNO</span><h3>Contato e lembretes</h3><p>Abra uma conversa pronta ou programe um aviso para este cadastro.</p></div><MessageCircle /></header>{directHref ? <a className="student-whatsapp-open" href={directHref} target="_blank" rel="noreferrer"><MessageCircle size={16} /> Abrir WhatsApp com mensagem pronta</a> : <p className="student-profile-empty">Cadastre um telefone com WhatsApp para habilitar o contato direto.</p>}<div className="student-whatsapp-schedule"><label>Modelo<select value={template} onChange={(event) => setTemplate(event.target.value as typeof template)}><option value="payment">Lembrete de pagamento</option><option value="birthday">Aniversário</option><option value="news">Novidade da academia</option><option value="custom">Mensagem personalizada</option></select></label>{template === "custom" && <label>Mensagem<textarea value={customMessage} onChange={(event) => setCustomMessage(event.target.value)} maxLength={600} placeholder="Escreva a mensagem que será enviada." /></label>}<label>Programar para (opcional)<input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></label><button type="button" className="detail-secondary" onClick={() => void scheduleMessage()} disabled={access.role !== "admin" || !scheduledAt || !message}>Programar lembrete</button></div><small className="student-whatsapp-note">O envio automático usa a API oficial do WhatsApp Business quando as credenciais da academia estiverem configuradas.</small></section>;
+}
+
 function StudentWorkoutFeedbackPanel({ feedbacks }: { feedbacks: WorkoutFeedbackRecord[] }) {
   return <section className="student-feedback-history"><header><div><span>RETORNO DO ALUNO</span><h3>Como foram os treinos</h3></div><strong>{feedbacks.length} {feedbacks.length === 1 ? "avaliação" : "avaliações"}</strong></header>{feedbacks.length === 0 ? <p className="student-profile-empty">O aluno ainda não avaliou um treino concluído.</p> : <div>{feedbacks.slice(0, 4).map((item) => <article key={item.id}><div><strong>{displayWorkoutName(item.workoutName)}</strong>{item.comment && <p>{item.comment}</p>}</div><span aria-label={item.rating + " de 5 estrelas"}>{"★".repeat(item.rating)}{"☆".repeat(5 - item.rating)}</span><small>{formatNotificationDate(item.createdAt) || "Data não informada"}</small></article>)}</div>}</section>;
 }
@@ -4347,8 +4392,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
-        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
+        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; planPrice?: number | null; planInterval?: string | null; initialDueDate?: string | null; nextBillingDate?: string | null; accessBlocked?: boolean; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
+        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, planPrice: data.planPrice ?? null, planInterval: data.planInterval ?? null, initialDueDate: data.initialDueDate ?? null, nextBillingDate: data.nextBillingDate ?? null, accessBlocked: data.accessBlocked === true, joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     if (access.role !== "admin") return unsubscribeStudents;
@@ -4588,6 +4633,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
             <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}><Dumbbell size={15} /> Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}><Activity size={15} /> Nova avaliação</button>{access.role === "admin" && <button type="button" className={financialOpen ? "is-open" : ""} onClick={() => setFinancialOpen((current) => !current)}><WalletCards size={15} /> {financialOpen ? "Ocultar financeiro" : "Ver financeiro"}</button>}</div>
             {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
+            <StudentWhatsAppPanel student={selectedStudent} onFeedback={onFeedback} />
             <StudentWorkoutFeedbackPanel feedbacks={studentFeedback} />
             <details className="student-profile-collapse"><summary><span><small>CADASTRO E ACESSO</small><strong>Dados pessoais, plano e permissões</strong></span><ChevronDown /></summary><div className="student-profile-collapse-content">
               {access.role === "admin" ? <form className="student-detail-form" onSubmit={saveStudent}>
@@ -5313,7 +5359,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
         const id = `local-${role}-${Date.now()}`;
         if (role === "student") {
           const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true }]);
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planPrice: selectedPlan?.price ?? null, planInterval: selectedPlan?.interval ?? null, initialDueDate: selectedPlan ? firstDueDate : null, nextBillingDate: selectedPlan ? firstDueDate : null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true, accessBlocked: false }]);
           if (selectedPlan && selectedPlan.price > 0) {
             const charges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
             writeLocalCollection(access.academyId, "monthlyCharges", [...charges, { id: `local-registration-${id}`, studentId: id, studentName: capitalizeName(name.trim()), planId: selectedPlan.id, planName: selectedPlan.name, amount: selectedPlan.price, dueDate: firstDueDate, status: "pending", chargeType: "monthly", origin: "student_registration" }]);
@@ -5331,7 +5377,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
       setSaving(false);
     }
   }
-
+  const inviteWhatsappHref = phone ? whatsappMessageHref(phone, `Olá ${name.trim() || "!"}. Seu acesso à Orquestra Fit foi criado pela academia. Use o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://orquestra-fit.vercel.app"} e toque em “Ativar minha conta” para começar.`) : "";
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-student-title">
       <section className="student-modal">
@@ -5350,7 +5396,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
           </form>
         ) : (
-          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` A primeira cobrança de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} vence em ${formatDate(firstDueDate)} e já foi lançada no financeiro.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div><button className="student-modal-close" onClick={onClose}>Concluir</button></div>
+          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` A primeira cobrança de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} vence em ${formatDate(firstDueDate)} e já foi lançada no financeiro.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div>{inviteWhatsappHref && <a className="whatsapp-invite-action" href={inviteWhatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Enviar código pelo WhatsApp</a>}<button className="student-modal-close" onClick={onClose}>Concluir</button></div>
         )}
       </section>
     </div>
@@ -5522,4 +5568,5 @@ function AcademyFooter() {
   const whatsappDestination = whatsappNumber?.startsWith("55") ? whatsappNumber : `55${whatsappNumber}`;
   return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div>{whatsappNumber && <a href={`https://wa.me/${whatsappDestination}`} target="_blank" rel="noreferrer">WhatsApp · {contactPhone}</a>}{instagramUrl && <a href={instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{siteUrl && <a href={siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div></footer>;
 }
+
 

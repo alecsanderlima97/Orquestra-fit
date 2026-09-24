@@ -223,6 +223,18 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId);
     }
 
+    match /academies/{academyId}/scheduledMessages/{messageId} {
+      allow read: if isAdmin(academyId);
+      allow create: if isAdmin(academyId) &&
+        request.resource.data.studentId is string &&
+        request.resource.data.phone is string &&
+        request.resource.data.body is string &&
+        request.resource.data.scheduledAt is string &&
+        request.resource.data.status == 'pending';
+      allow update: if isAdmin(academyId);
+      allow delete: if isAdmin(academyId);
+    }
+
     match /academies/{academyId}/announcements/{announcementId} {
       allow read: if belongsToAcademy(academyId);
       allow create, update: if isAdmin(academyId);

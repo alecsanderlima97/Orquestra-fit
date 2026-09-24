@@ -298,6 +298,8 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           planId: invitation.planId ?? null,
           planInterval: invitation.planInterval ?? null,
           planPrice: invitation.planPrice ?? null,
+          initialDueDate: invitation.initialDueDate ?? null,
+          nextBillingDate: invitation.initialDueDate ?? null,
           planStartedAt: new Date().toISOString(),
           joinedAt: new Date().toISOString(),
           anatomyProfile: invitation.anatomyProfile === "feminino" ? "feminino" : "masculino",
@@ -306,6 +308,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           cpf: invitation.cpf ?? null,
           address: invitation.address ?? null,
           active: true,
+          accessBlocked: false,
           activationCodeId: normalizedCode,
           createdAt: now,
         });

@@ -1,9 +1,10 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { CollectionReference, FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { randomUUID } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 
 initializeApp({ storageBucket: "orquestra-fit.firebasestorage.app" });
 
@@ -77,6 +78,213 @@ async function audit(academyId: string, actorId: string, type: string, targetUse
     createdAt: FieldValue.serverTimestamp(),
   });
 }
+
+function isoDate(value: unknown) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (value && typeof value === "object" && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function") {
+    return (value as { toDate: () => Date }).toDate().toISOString().slice(0, 10);
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  return null;
+}
+
+function dateFromIso(value: unknown) {
+  const normalized = isoDate(value);
+  if (!normalized) return null;
+  const [year, month, day] = normalized.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function todayInSaoPaulo() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function addBillingMonths(date: Date, months: number) {
+  const next = new Date(date.getFullYear(), date.getMonth() + months, 1);
+  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(date.getDate(), lastDay));
+  return next;
+}
+
+function billingIntervalMonths(value: unknown) {
+  const label = String(value ?? "Mensal").toLocaleLowerCase("pt-BR");
+  if (label.includes("anual") || label.includes("ano")) return 12;
+  if (label.includes("semestral") || label.includes("semestre")) return 6;
+  if (label.includes("trimestral") || label.includes("trimestre")) return 3;
+  return 1;
+}
+
+function recurringChargeId(studentId: string, planId: string, dueDate: string) {
+  return `recurring-${studentId}-${planId}-${dueDate}`.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 140);
+}
+
+/**
+ * Gera mensalidades de planos ativos e marca o acesso financeiro do aluno.
+ * A catraca ainda não é acionada por esta rotina; o campo accessBlocked fica
+ * pronto para a futura integração física.
+ */
+export const generateRecurringCharges = onSchedule({ schedule: "15 3 * * *", timeZone: "America/Sao_Paulo", region }, async () => {
+  const today = todayInSaoPaulo();
+  const academySnapshot = await firestore.collection("academies").get();
+  let created = 0;
+  let blocked = 0;
+
+  for (const academy of academySnapshot.docs) {
+    const academyId = academy.id;
+    const [studentsSnapshot, plansSnapshot, chargesSnapshot] = await Promise.all([
+      firestore.collection(`academies/${academyId}/students`).get(),
+      firestore.collection(`academies/${academyId}/plans`).get(),
+      firestore.collection(`academies/${academyId}/monthlyCharges`).get(),
+    ]);
+    const plans = new Map(plansSnapshot.docs.filter((item) => item.data().active !== false).map((item) => [item.id, item.data()]));
+    const chargesByStudent = new Map<string, Array<{ dueDate?: unknown; status?: unknown; chargeType?: unknown; planId?: unknown }>>();
+    chargesSnapshot.docs.forEach((item) => {
+      const data = item.data();
+      const studentId = typeof data.studentId === "string" ? data.studentId : "";
+      if (!studentId) return;
+      chargesByStudent.set(studentId, [...(chargesByStudent.get(studentId) ?? []), data]);
+    });
+    let batch = firestore.batch();
+    let writes = 0;
+    const flush = async () => {
+      if (!writes) return;
+      await batch.commit();
+      batch = firestore.batch();
+      writes = 0;
+    };
+
+    for (const studentSnapshot of studentsSnapshot.docs.filter((item) => item.data().active !== false)) {
+      const student = studentSnapshot.data();
+      const planId = typeof student.planId === "string" ? student.planId : "";
+      const plan = planId ? plans.get(planId) : undefined;
+      const price = Number(plan?.price ?? student.planPrice ?? 0);
+      if (!plan || !price || price <= 0) continue;
+      const studentCharges = chargesByStudent.get(studentSnapshot.id) ?? [];
+      const firstDate = dateFromIso(student.nextBillingDate) ?? dateFromIso(student.initialDueDate) ?? dateFromIso(student.planStartedAt) ?? dateFromIso(student.joinedAt) ?? new Date();
+      let cursor = firstDate;
+      let iterations = 0;
+      while (isoDate(cursor)! <= today && iterations < 24) {
+        const dueDate = isoDate(cursor)!;
+        const existing = studentCharges.some((charge) => isoDate(charge.dueDate) === dueDate && charge.chargeType === "monthly" && charge.planId === planId);
+        if (!existing) {
+          batch.create(firestore.doc(`academies/${academyId}/monthlyCharges/${recurringChargeId(studentSnapshot.id, planId, dueDate)}`), {
+            studentId: studentSnapshot.id,
+            studentName: String(student.name ?? "Aluno"),
+            planId,
+            planName: String(plan.name ?? student.plan ?? "Mensalidade"),
+            amount: price,
+            dueDate,
+            status: "pending",
+            chargeType: "monthly",
+            origin: "recurring_scheduler",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          writes += 1;
+          created += 1;
+        }
+        cursor = addBillingMonths(cursor, billingIntervalMonths(plan.interval));
+        iterations += 1;
+        if (writes >= 450) await flush();
+      }
+      const overdue = studentCharges.some((charge) => charge.status !== "paid" && (isoDate(charge.dueDate) ?? "9999-12-31") <= today);
+      if (overdue) blocked += 1;
+      const nextBillingDate = isoDate(cursor);
+      batch.set(studentSnapshot.ref, { nextBillingDate, accessBlocked: overdue, accessBlockReason: overdue ? "cobranca_em_atraso" : null, accessStatusUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      writes += 1;
+      const userId = typeof student.userId === "string" ? student.userId : "";
+      if (userId) {
+        batch.set(firestore.doc(`academies/${academyId}/members/${userId}`), { accessBlocked: overdue, accessBlockReason: overdue ? "cobranca_em_atraso" : null, accessStatusUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        writes += 1;
+      }
+      if (writes >= 450) await flush();
+    }
+    await flush();
+  }
+  console.info("Cobrança recorrente concluída", { today, created, blocked });
+});
+
+function backupValue(value: unknown): unknown {
+  if (value === null || value === undefined || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Buffer.isBuffer(value)) return { __type: "bytes", value: value.toString("base64") };
+  if (Array.isArray(value)) return value.map(backupValue);
+  if (typeof value === "object" && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function") return { __type: "timestamp", value: (value as { toDate: () => Date }).toDate().toISOString() };
+  if (typeof value === "object" && "path" in value && typeof (value as { path?: unknown }).path === "string") return { __type: "reference", path: (value as { path: string }).path };
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, backupValue(item)]));
+}
+
+async function exportBackupCollection(collectionRef: CollectionReference, output: Array<Record<string, unknown>>) {
+  const snapshot = await collectionRef.get();
+  for (const item of snapshot.docs) {
+    const node: Record<string, unknown> = { path: item.ref.path, data: backupValue(item.data()) };
+    const nested = await item.ref.listCollections();
+    if (nested.length) {
+      const children: Array<Record<string, unknown>> = [];
+      for (const child of nested) await exportBackupCollection(child, children);
+      node.subcollections = children;
+    }
+    output.push(node);
+  }
+}
+
+/** Backup JSON privado diário no Storage do projeto. Mantém uma cópia recuperável sem expor dados no frontend. */
+export const backupFirestoreProduction = onSchedule({ schedule: "45 3 * * *", timeZone: "America/Sao_Paulo", region }, async () => {
+  const collections = await firestore.listCollections();
+  const output: Array<Record<string, unknown>> = [];
+  for (const collectionRef of collections) await exportBackupCollection(collectionRef, output);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = getStorage().bucket().file(`firestore-backups/${stamp}.json`);
+  await file.save(JSON.stringify({ exportedAt: new Date().toISOString(), project: "orquestra-fit", collections: output }), { resumable: false, contentType: "application/json", metadata: { cacheControl: "private, no-store" } });
+  console.info("Backup do Firestore salvo", { path: file.name, collections: output.length });
+});
+
+function whatsappPhone(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.length < 10) return "";
+  return digits.startsWith("55") ? digits : `55${digits}`;
+}
+
+/** Processa lembretes agendados quando as credenciais oficiais do WhatsApp Business estiverem configuradas. */
+export const processScheduledWhatsApp = onSchedule({ schedule: "every 5 minutes", timeZone: "America/Sao_Paulo", region }, async () => {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const academies = await firestore.collection("academies").get();
+  let processed = 0;
+  for (const academy of academies.docs) {
+    const messages = await firestore.collection(`academies/${academy.id}/scheduledMessages`).get();
+    for (const message of messages.docs) {
+      const data = message.data();
+      if (data.status !== "pending") continue;
+      const scheduledAt = data.scheduledAt && typeof data.scheduledAt === "object" && "toDate" in data.scheduledAt && typeof (data.scheduledAt as { toDate?: unknown }).toDate === "function"
+        ? (data.scheduledAt as { toDate: () => Date }).toDate().getTime()
+        : new Date(String(data.scheduledAt ?? "")).getTime();
+      if (!Number.isFinite(scheduledAt) || scheduledAt > Date.now()) continue;
+      if (!token || !phoneNumberId) {
+        await message.ref.update({ status: "awaiting_provider", error: "Configure WHATSAPP_ACCESS_TOKEN e WHATSAPP_PHONE_NUMBER_ID para envio automático.", attemptedAt: FieldValue.serverTimestamp() });
+        continue;
+      }
+      const to = whatsappPhone(data.phone);
+      if (!to || typeof data.body !== "string" || !data.body.trim()) {
+        await message.ref.update({ status: "error", error: "Telefone ou mensagem inválidos.", attemptedAt: FieldValue.serverTimestamp() });
+        continue;
+      }
+      try {
+        const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body: data.body } }),
+        });
+        if (!response.ok) throw new Error(`WhatsApp API ${response.status}`);
+        await message.ref.update({ status: "sent", sentAt: FieldValue.serverTimestamp(), attemptedAt: FieldValue.serverTimestamp() });
+        processed += 1;
+      } catch (error) {
+        await message.ref.update({ status: "error", error: error instanceof Error ? error.message : "Falha no provedor WhatsApp.", attemptedAt: FieldValue.serverTimestamp() });
+      }
+    }
+  }
+  console.info("Mensagens WhatsApp processadas", { processed });
+});
 
 export const resetMemberPassword = onCall({ region }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para continuar.");
