@@ -9,9 +9,12 @@ export const metadata: Metadata = {
     "codex-preview": "development",
   },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
-    apple: "/branding/orquestra-assistant-icon.png",
+    icon: [
+      { url: "/branding/orquestra-cs/system-icon-192.png", type: "image/png", sizes: "192x192" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/branding/orquestra-cs/system-icon-192.png",
+    apple: "/branding/orquestra-cs/system-icon-180.png",
   },
   manifest: "/manifest.webmanifest",
   appleWebApp: {

@@ -39,6 +39,7 @@ Os arquivos estão em `public/branding/orquestra-cs/` e devem ser reutilizados a
 - Manter a proporção original; não esticar as artes.
 - Usar `logo-primary.png` quando houver espaço horizontal e `symbol-o.png` quando a marca precisar ser compacta.
 - Usar `system-icon.png` como primeira opção para ícone de aplicativo/PWA; validar o recorte em Android e iOS antes da publicação.
+- As versões quadradas `system-icon-180.png`, `system-icon-192.png`, `system-icon-512.png` e `system-icon-1024.png` são derivados prontos para cada plataforma.
 - Não misturar a identidade azul da Orquestra.cs com a paleta bronze da Dama de Ferro em uma mesma assinatura sem hierarquia clara.
 - Não substituir a arte atual de uma tela automaticamente. Primeiro comparar a composição e aplicar a versão escolhida de forma intencional.
 - Os arquivos originais permanecem preservados no pacote recebido em `C:\Users\alecs\Downloads\Orquestra_CS_Alta_Qualidade.zip`.

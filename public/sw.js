@@ -1,5 +1,5 @@
 const CACHE_VERSION = "orquestra-fit-pwa-v1";
-const APP_SHELL = ["/offline.html", "/branding/orquestra-assistant-icon.png"];
+const APP_SHELL = ["/offline.html", "/branding/orquestra-cs/system-icon-192.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
