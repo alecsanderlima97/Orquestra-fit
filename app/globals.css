@@ -1080,6 +1080,9 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .workout-list small { color: var(--bronze-400); font-size: 8px; font-weight: 900; letter-spacing: 1px; }
 .workout-list strong { font-family: Georgia, serif; font-size: 20px; font-weight: 500; }
 .workout-list p { color: var(--steel-500); font-size: 10px; margin: 0; }
+.workout-card-stats { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0 1px; }
+.workout-card-stats span { display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 4px 6px; border: 1px solid rgba(210, 176, 103, .28); border-radius: 999px; background: rgba(31, 27, 21, .72); color: #d9c7a5; font-size: 8px; font-weight: 800; line-height: 1; white-space: nowrap; }
+.workout-card-stats svg { color: var(--bronze-300); flex: 0 0 auto; }
 .play-button { width: 38px; height: 38px; border: 1px solid #494e51; display: grid; place-items: center; color: var(--steel-300); }
 .active .play-button { background: var(--bronze-400); border-color: var(--bronze-400); color: #17100a; }
 .is-in-progress .workout-index, .is-in-progress .play-button { border-color: #e1b83d; color: #f4d66b; }
