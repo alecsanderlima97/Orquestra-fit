@@ -1288,6 +1288,7 @@ function Evolution() {
   const [period, setPeriod] = useState<7 | 30 | 90 | 365>(30);
   const [currentAssessmentId, setCurrentAssessmentId] = useState("");
   const [comparisonAssessmentId, setComparisonAssessmentId] = useState("");
+  const [selectedAssessmentMetric, setSelectedAssessmentMetric] = useState<"weight" | "bodyFat" | "biceps" | "waist" | "chest" | "thigh">("weight");
   const [selectedExercise, setSelectedExercise] = useState("");
   useEffect(() => {
     if (!db) {
@@ -1345,6 +1346,13 @@ function Evolution() {
     if (current === null || previous === null) return null;
     return current - previous;
   }
+  const selectedMetric = comparisonMetrics.find((metric) => metric.key === selectedAssessmentMetric) ?? comparisonMetrics[0];
+  const assessmentChartData = [...assessments].sort((a, b) => a.date.localeCompare(b.date)).map((assessment) => ({ id: assessment.id, date: assessment.date, value: assessmentValue(assessment, selectedMetric.key) })).filter((item): item is { id: string; date: string; value: number } => item.value !== null);
+  const chartValues = assessmentChartData.map((item) => item.value);
+  const chartMin = chartValues.length ? Math.min(...chartValues) : 0;
+  const chartMax = chartValues.length ? Math.max(...chartValues) : 0;
+  const chartRange = chartMax - chartMin || 1;
+  const chartPoints = assessmentChartData.map((item, index) => ({ ...item, x: assessmentChartData.length > 1 ? (index / (assessmentChartData.length - 1)) * 100 : 50, y: 90 - ((item.value - chartMin) / chartRange) * 72 }));
   const bestLoads = Array.from(executions.flatMap((execution) => execution.sets ?? []).reduce((records, item) => {
     const load = Number(item.load.replace(",", ".")) || 0;
     const current = records.get(item.exerciseName);
@@ -1381,6 +1389,7 @@ function Evolution() {
             const delta = assessmentDelta(metric.key);
             return <div className="comparison-row" key={metric.key}><div><strong>{metric.label}</strong><small>{current === null ? "Não informado" : `${current} ${metric.unit}`}</small></div><span className={delta === null ? "comparison-neutral" : delta > 0 ? "comparison-up" : delta < 0 ? "comparison-down" : "comparison-neutral"}>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${metric.unit}`}</span></div>;
           })}</div>
+          <div className="assessment-chart"><header><div><small>HISTÓRICO DE MEDIDA</small><strong>{selectedMetric.label}</strong></div><select value={selectedAssessmentMetric} onChange={(event) => setSelectedAssessmentMetric(event.target.value as typeof selectedAssessmentMetric)} aria-label="Métrica do gráfico de evolução">{comparisonMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}</select></header>{assessmentChartData.length < 2 ? <p>Registre pelo menos duas avaliações com esta medida para visualizar a tendência.</p> : <><div className="assessment-chart-stage"><svg viewBox="0 0 100 100" role="img" aria-label={`Evolução de ${selectedMetric.label}`} preserveAspectRatio="none"><line x1="0" y1="90" x2="100" y2="90" /><line x1="0" y1="54" x2="100" y2="54" /><line x1="0" y1="18" x2="100" y2="18" /><polyline points={chartPoints.map((point) => `${point.x},${point.y}`).join(" ")} /></svg>{chartPoints.map((point) => <span className="assessment-chart-point" key={point.id} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`${formatDate(point.date)}: ${point.value} ${selectedMetric.unit}`} />)}</div><div className="assessment-chart-axis">{chartPoints.map((point) => <span key={point.id}>{formatDate(point.date)}</span>)}</div><small className="assessment-chart-range">Menor registro: {chartMin} {selectedMetric.unit} · Maior registro: {chartMax} {selectedMetric.unit}</small></>}</div>
         </>}
       </section>
       <section className="history-panel">
