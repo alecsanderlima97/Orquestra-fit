@@ -62,6 +62,10 @@ function localCollectionKey(academyId: string, collectionName: string) {
   return `orquestra-fit:${academyId}:${collectionName}`;
 }
 
+function notificationReadId(userId: string, notificationId: string) {
+  return `${userId}-${notificationId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 140);
+}
+
 function workoutInProgressKey(academyId: string, userId: string) {
   return `orquestra-fit:${academyId}:workout-in-progress:${userId}`;
 }
@@ -983,14 +987,31 @@ function NotificationBell({ scope, className }: { scope: "student" | "workspace"
   const [open, setOpen] = useState(false);
   const seenKey = `orquestra-fit:notifications-seen:${access.userId}`;
   const [seen, setSeen] = useState<string[]>([]);
-  useEffect(() => { try { setSeen(JSON.parse(window.localStorage.getItem(seenKey) ?? "[]") as string[]); } catch { setSeen([]); } }, [seenKey]);
+  useEffect(() => {
+    let localSeen: string[] = [];
+    try { localSeen = JSON.parse(window.localStorage.getItem(seenKey) ?? "[]") as string[]; } catch { localSeen = []; }
+    setSeen(localSeen);
+    if (!db) return;
+    return onSnapshot(query(collection(db, "academies", access.academyId, "notificationReads"), where("userId", "==", access.userId)), (snapshot) => {
+      const remoteSeen = snapshot.docs.map((item) => (item.data() as { notificationId?: string }).notificationId).filter((item): item is string => Boolean(item));
+      setSeen((current) => [...new Set([...current, ...remoteSeen])]);
+    }, (error) => console.error("Não foi possível carregar o estado das notificações.", error));
+  }, [access.academyId, access.userId, seenKey]);
   const unread = items.filter((item) => !seen.includes(item.id)).length;
   const toggle = () => {
     setOpen((current) => !current);
     if (!open) {
       const ids = items.map((item) => item.id);
-      setSeen(ids);
-      window.localStorage.setItem(seenKey, JSON.stringify(ids));
+      setSeen((current) => [...new Set([...current, ...ids])]);
+      window.localStorage.setItem(seenKey, JSON.stringify([...new Set([...seen, ...ids])]));
+      if (db) {
+        void Promise.all(items.filter((item) => !seen.includes(item.id)).map((item) => setDoc(doc(db!, "academies", access.academyId, "notificationReads", notificationReadId(access.userId, item.id)), { userId: access.userId, notificationId: item.id, readAt: serverTimestamp() }, { merge: true }))).catch((error) => console.error("Não foi possível salvar notificações lidas.", error));
+      } else {
+        const current = readLocalCollection<{ id: string; userId: string; notificationId: string; readAt: string }>(access.academyId, "notificationReads");
+        const next = [...current];
+        ids.forEach((notificationId) => { if (!next.some((item) => item.userId === access.userId && item.notificationId === notificationId)) next.push({ id: notificationReadId(access.userId, notificationId), userId: access.userId, notificationId, readAt: new Date().toISOString() }); });
+        writeLocalCollection(access.academyId, "notificationReads", next);
+      }
     }
   };
   return <div className={`notification-anchor ${scope}`}>

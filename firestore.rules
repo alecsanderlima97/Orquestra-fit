@@ -236,6 +236,13 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId);
     }
 
+    match /academies/{academyId}/notificationReads/{readId} {
+      allow read: if belongsToAcademy(academyId) && resource.data.userId == request.auth.uid;
+      allow create, update: if belongsToAcademy(academyId) && request.resource.data.userId == request.auth.uid &&
+        request.resource.data.notificationId is string;
+      allow delete: if belongsToAcademy(academyId) && resource.data.userId == request.auth.uid;
+    }
+
     match /academies/{academyId}/{document=**} {
       allow read: if isDeveloper() || isAdmin(academyId);
       allow write: if isDeveloper() || isAdmin(academyId);
