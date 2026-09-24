@@ -2750,8 +2750,9 @@ button:not(:disabled):active { transform: translateY(1px) scale(.995); }
 .app-guide-trigger { display: grid; place-items: center; width: 48px; height: 48px; margin-left: auto; border: 1px solid #267ab9; border-radius: 50%; background: radial-gradient(circle at 35% 25%, #55c8f4, #1267a5 58%, #062541); color: #e7f8ff; box-shadow: 0 8px 28px rgba(0,0,0,.42), 0 0 18px rgba(49, 169, 235, .28); cursor: pointer; }
 .app-guide-trigger:hover { transform: translateY(-2px); box-shadow: 0 10px 32px rgba(0,0,0,.46), 0 0 22px rgba(49, 169, 235, .4); }
 .app-guide-trigger svg { width: 21px; }
-.orquestra-guide-mark { display: grid; place-items: center; width: 26px; height: 26px; border: 2px solid #7de3ff; border-radius: 50%; color: #ecfbff; font-size: 15px; font-style: normal; font-weight: 900; line-height: 1; text-shadow: 0 0 8px rgba(87, 213, 255, .72); }
-.app-guide-panel .orquestra-guide-mark { width: 22px; height: 22px; border-width: 1.5px; font-size: 12px; }
+.orquestra-guide-icon { display: block; width: 30px; height: 30px; flex: 0 0 auto; object-fit: cover; border-radius: 9px; box-shadow: 0 0 12px rgba(49, 169, 235, .38); }
+.app-guide-trigger .orquestra-guide-icon { width: 34px; height: 34px; border-radius: 50%; box-shadow: 0 0 14px rgba(49, 169, 235, .48); }
+.app-guide-panel .orquestra-guide-icon { width: 24px; height: 24px; border-radius: 7px; box-shadow: 0 0 9px rgba(49, 169, 235, .34); }
 .app-guide-panel { width: min(360px, calc(100vw - 30px)); margin-bottom: 11px; overflow: hidden; border: 1px solid #65482e; background: rgba(11,15,16,.98); box-shadow: 0 24px 70px rgba(0,0,0,.58); }
 .app-guide-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-bottom: 1px solid #503921; background: linear-gradient(110deg, rgba(91,51,23,.72), rgba(16,19,20,.96)); }
 .app-guide-panel > header span { display: flex; align-items: center; gap: 8px; color: var(--bronze-300); }
