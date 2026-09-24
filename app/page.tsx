@@ -627,27 +627,32 @@ function packagedGifUrl(file: string) {
   return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
 }
 
-function catalogGifStaticUrl(file: string) {
-  return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
-}
-
 function expansionGifMedia(name: string) {
   const seed = gifLibraryExpansionSeeds.find((item) => item.name === name);
   if (!seed) return {};
-  const url = catalogGifStaticUrl(seed.file);
-  return { gifUrl: url, gifMaleUrl: url, gifMalePath: seed.file, gifMatch: "exact" as const };
+  return { gifMalePath: seed.file, gifPath: seed.file, gifMatch: "exact" as const };
 }
 
 function verifiedExerciseGif(name: string, profile: "masculino" | "feminino" = "masculino") {
   const key = exerciseGifKey(name);
-  const gif = verifiedExerciseGifs[key];
+  const gif = verifiedGifDefinition(name);
   if (!gif) return "";
   return profile === "feminino" ? (verifiedFemaleGifUrls[key] || gif.femaleUrl || packagedGifUrl(gif.maleFile)) : packagedGifUrl(gif.maleFile);
 }
 
-function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">, profile: "masculino" | "feminino" = "masculino") {
+function verifiedGifDefinition(name: string): VerifiedExerciseGif | undefined {
+  const key = exerciseGifKey(name);
+  return verifiedExerciseGifs[key] ?? (() => {
+    const expansion = gifLibraryExpansionSeeds.find((seed) => exerciseGifKey(seed.name) === key);
+    return expansion ? { maleFile: expansion.file, match: "exact" as const } : undefined;
+  })();
+}
+
+function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath">, profile: "masculino" | "feminino" = "masculino") {
   const saved = profile === "feminino" ? (exercise.gifFemaleUrl || exercise.gifUrl) : (exercise.gifMaleUrl || exercise.gifUrl);
-  return saved || verifiedExerciseGif(exercise.name, profile);
+  if (saved) return saved;
+  const path = profile === "masculino" ? exercise.gifMalePath : exercise.gifFemalePath;
+  return (path ? packagedGifUrl(path) : "") || verifiedExerciseGif(exercise.name, profile);
 }
 
 function machineCode(value: string) {
@@ -3226,7 +3231,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function syncVerifiedGifLibrary() {
     if (!db || !functions || access.role !== "admin") { onFeedback("Entre como gestão no ambiente local para enviar a biblioteca revisada."); return; }
-    const pending = exercises.filter((exercise) => Boolean(verifiedExerciseGifs[exerciseGifKey(exercise.name)]) && !exercise.gifMaleUrl && !exercise.gifUrl);
+    const pending = exercises.filter((exercise) => Boolean(verifiedGifDefinition(exercise.name)) && !exercise.gifMaleUrl && !exercise.gifUrl);
     if (!pending.length) { onFeedback("Todos os GIFs revisados já foram enviados para a biblioteca da academia."); return; }
     if (!window.confirm(`Enviar ${pending.length} GIFs revisados ao Firebase Storage? Isso os disponibiliza também na Vercel e no celular.`)) return;
     setSyncingVerifiedGifs(true);
@@ -3384,7 +3389,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const firebaseStorage = storage;
     const pending = exercises.filter((exercise) => {
       const key = exerciseGifKey(exercise.name);
-      const verified = verifiedExerciseGifs[key];
+      const verified = verifiedGifDefinition(exercise.name);
       const needsMale = !exercise.gifMaleUrl && !exercise.gifUrl;
       const needsFemale = Boolean(verifiedFemaleGifUrls[key]) && !exercise.gifFemaleUrl;
       return Boolean(verified) && (needsMale || needsFemale) && !autoLinkedExerciseIds.current.has(exercise.id);
@@ -3394,7 +3399,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     void (async () => {
       const resolved = await Promise.all(pending.map(async (exercise) => {
         const key = exerciseGifKey(exercise.name);
-        const verified = verifiedExerciseGifs[key];
+        const verified = verifiedGifDefinition(exercise.name);
         if (!verified) return null;
         const femaleUrl = verifiedFemaleGifUrls[key] || verified.femaleUrl || "";
         const existingMaleUrl = exercise.gifMaleUrl || exercise.gifUrl || "";
@@ -3412,7 +3417,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       if (!available.length) return;
       const batch = writeBatch(firestore);
       available.forEach(({ exercise, path, url, femaleUrl }) => {
-        const verified = verifiedExerciseGifs[exerciseGifKey(exercise.name)];
+        const verified = verifiedGifDefinition(exercise.name);
         const mediaPatch = {
           ...(url ? { gifUrl: url, gifMaleUrl: url } : {}),
           ...(path ? { gifPath: path, gifMalePath: path } : {}),
