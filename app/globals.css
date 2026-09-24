@@ -792,6 +792,8 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .template-chip-audience { border-color: rgba(94, 132, 91, .46); color: #b7d59c; background: rgba(53, 88, 48, .18); }
 .template-chip-audience.personalized { border-color: rgba(126, 162, 139, .5); color: #b8ddc2; background: rgba(38, 67, 54, .24); }
 .template-chip-count { border-color: rgba(129, 132, 136, .32); color: var(--steel-400); }
+.template-chip-duration { border-color: rgba(205, 150, 82, .36); color: #e0bd91; background: rgba(91, 61, 34, .16); }
+.template-chip-duration svg { color: var(--bronze-300); }
 .published-template-target { display: inline-flex !important; align-items: center; gap: 4px; margin-top: 7px; color: var(--steel-500) !important; font-size: 10px !important; }
 .published-template-target svg { color: #b8ddc2; }
 .published-list .template-badge { border-color: #4b5b45; color: #b7d59c; }
