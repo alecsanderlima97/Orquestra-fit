@@ -2346,22 +2346,24 @@ function defaultExerciseDetails(exercise: ExerciseMetricSource) {
 
 function StudentAcademyWhatsAppCard() {
   const access = useAccess();
-  const [settings, setSettings] = useState<{ name?: string; whatsappUrl?: string }>({});
+  const [settings, setSettings] = useState<{ name?: string; phone?: string; whatsappUrl?: string }>({});
   useEffect(() => {
-    function apply(data?: { name?: string; whatsappUrl?: string } | null) {
-      setSettings({ name: data?.name, whatsappUrl: data?.whatsappUrl });
+    function apply(data?: { name?: string; phone?: string; whatsappUrl?: string } | null) {
+      setSettings({ name: data?.name, phone: data?.phone, whatsappUrl: data?.whatsappUrl });
     }
     if (!db) {
       const syncLocal = () => {
-        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; whatsappUrl?: string } | null); } catch { apply(null); }
+        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; phone?: string; whatsappUrl?: string } | null); } catch { apply(null); }
       };
       syncLocal();
       window.addEventListener("orquestra-fit:collection-updated", syncLocal);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
     }
-    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; whatsappUrl?: string } | undefined));
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; phone?: string; whatsappUrl?: string } | undefined));
   }, [access.academyId]);
-  const href = normalizeWhatsappLink(settings.whatsappUrl);
+  const phoneDigits = (settings.phone ?? "").replace(/\D/g, "");
+  const phoneHref = phoneDigits.length >= 10 ? `https://wa.me/${phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`}` : "";
+  const href = normalizeWhatsappLink(settings.whatsappUrl) || phoneHref;
   if (!href) return null;
   return <a className="academy-whatsapp-card" href={href} target="_blank" rel="noreferrer"><span className="academy-whatsapp-mark"><MessageCircle size={19} /></span><span><small>COMUNIDADE DA ACADEMIA</small><strong>Entrar no WhatsApp</strong><p>{settings.name || "Receba avisos, novidades e orientações da academia."}</p></span><ArrowRight size={18} /></a>;
 }
