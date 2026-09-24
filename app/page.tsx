@@ -1409,6 +1409,7 @@ function Agenda() {
   const feedback = useFeedback();
   const [classes, setClasses] = useState<ClassRecord[]>([]);
   const [reservationIds, setReservationIds] = useState<string[]>([]);
+  const [waitlistClassIds, setWaitlistClassIds] = useState<string[]>([]);
   const [attendanceIds, setAttendanceIds] = useState<string[]>([]);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
@@ -1420,6 +1421,7 @@ function Agenda() {
       const studentId = localStudentId(access.academyId, access.userId);
       setClasses(readLocalCollection<ClassRecord>(access.academyId, "classes").filter((item) => item.active));
       setReservationIds(readLocalCollection<{ classId: string; studentId: string; status: string }>(access.academyId, "reservations").filter((item) => item.studentId === studentId && item.status === "active").map((item) => item.classId));
+      setWaitlistClassIds(readLocalCollection<ClassWaitlistRecord>(access.academyId, "classWaitlist").filter((item) => item.studentId === studentId && item.status === "active").map((item) => item.classId));
       setAttendanceIds(readLocalCollection<{ classId: string; studentId: string }>(access.academyId, "attendance").filter((item) => item.studentId === studentId).map((item) => item.classId));
       return;
     }
@@ -1428,9 +1430,11 @@ function Agenda() {
     });
     const reservationQuery = query(collection(db, "academies", access.academyId, "reservations"), where("studentId", "==", access.userId), where("status", "==", "active"));
     const unsubscribeReservations = onSnapshot(reservationQuery, (snapshot) => setReservationIds(snapshot.docs.map((item) => (item.data() as { classId: string }).classId)));
+    const waitlistQuery = query(collection(db, "academies", access.academyId, "classWaitlist"), where("studentId", "==", access.userId), where("status", "==", "active"));
+    const unsubscribeWaitlist = onSnapshot(waitlistQuery, (snapshot) => setWaitlistClassIds(snapshot.docs.map((item) => (item.data() as { classId: string }).classId)));
     const attendanceQuery = query(collection(db, "academies", access.academyId, "attendance"), where("studentId", "==", access.userId));
     const unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => setAttendanceIds(snapshot.docs.map((item) => (item.data() as { classId: string }).classId)));
-    return () => { unsubscribeClasses(); unsubscribeReservations(); unsubscribeAttendance(); };
+    return () => { unsubscribeClasses(); unsubscribeReservations(); unsubscribeWaitlist(); unsubscribeAttendance(); };
   }, [access.academyId, access.userId]);
 
   async function reserve(item: ClassRecord) {
@@ -1442,6 +1446,9 @@ function Agenda() {
       writeLocalCollection(access.academyId, "reservations", [...reservations, { id: `local-reservation-${Date.now()}`, classId: item.id, studentId, status: "active" }]);
       const nextClasses = readLocalCollection<ClassRecord>(access.academyId, "classes").map((current) => current.id === item.id ? { ...current, reservedCount: reservedCount + 1 } : current);
       writeLocalCollection(access.academyId, "classes", nextClasses);
+      const waitlists = readLocalCollection<ClassWaitlistRecord>(access.academyId, "classWaitlist");
+      writeLocalCollection(access.academyId, "classWaitlist", waitlists.filter((entry) => !(entry.classId === item.id && entry.studentId === studentId && entry.status === "active")));
+      setWaitlistClassIds((current) => current.filter((id) => id !== item.id));
       setReservationIds((current) => [...current, item.id]);
       feedback("Reserva confirmada no modo local.");
       return;
@@ -1462,8 +1469,16 @@ function Agenda() {
       const reservations = readLocalCollection<{ id: string; classId: string; studentId: string; status: string }>(access.academyId, "reservations");
       const canceled = reservations.some((reservation) => reservation.classId === item.id && reservation.studentId === studentId && reservation.status === "active");
       const nextReservations = reservations.map((reservation) => reservation.classId === item.id && reservation.studentId === studentId && reservation.status === "active" ? { ...reservation, status: "canceled" } : reservation);
-      const reservedCount = nextReservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active").length;
+      let reservedCount = nextReservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active").length;
       writeLocalCollection(access.academyId, "reservations", nextReservations);
+      const waitlists = readLocalCollection<ClassWaitlistRecord>(access.academyId, "classWaitlist");
+      const nextWaitlist = waitlists.filter((entry) => entry.classId === item.id && entry.status === "active").sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER))[0];
+      if (nextWaitlist) {
+        nextReservations.push({ id: `local-reservation-${Date.now()}-waitlist`, classId: item.id, studentId: nextWaitlist.studentId, status: "active" });
+        writeLocalCollection(access.academyId, "reservations", nextReservations);
+        writeLocalCollection(access.academyId, "classWaitlist", waitlists.map((entry) => entry.id === nextWaitlist.id ? { ...entry, status: "promoted" as const } : entry));
+        reservedCount += 1;
+      }
       const nextClasses = readLocalCollection<ClassRecord>(access.academyId, "classes").map((current) => current.id === item.id ? { ...current, reservedCount } : current);
       writeLocalCollection(access.academyId, "classes", nextClasses);
       setReservationIds((current) => current.filter((id) => id !== item.id));
@@ -1476,6 +1491,47 @@ function Agenda() {
       await cancelClassReservation({ academyId: access.academyId, classId: item.id });
       feedback("Reserva cancelada.");
     } catch { feedback("Não foi possível cancelar a reserva."); }
+  }
+
+  async function joinWaitlist(item: ClassRecord) {
+    if (!db) {
+      const studentId = localStudentId(access.academyId, access.userId);
+      const waitlists = readLocalCollection<ClassWaitlistRecord>(access.academyId, "classWaitlist");
+      if (waitlists.some((entry) => entry.classId === item.id && entry.studentId === studentId && entry.status === "active")) { feedback("Você já está na lista de espera."); return; }
+      const reservations = readLocalCollection<{ classId: string; studentId: string; status: string }>(access.academyId, "reservations");
+      const reservedCount = reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active").length;
+      if (reservedCount < item.capacity) { feedback("Ainda há vaga. Faça a reserva diretamente."); return; }
+      const position = waitlists.filter((entry) => entry.classId === item.id && entry.status === "active").length + 1;
+      const entry: ClassWaitlistRecord = { id: `local-waitlist-${Date.now()}`, classId: item.id, className: item.name, studentId, studentName: accountName(access.user.displayName, access.user.email), status: "active", position };
+      writeLocalCollection(access.academyId, "classWaitlist", [...waitlists, entry]);
+      setWaitlistClassIds((current) => [...current, item.id]);
+      feedback(`Você entrou na lista de espera em ${position}º lugar.`);
+      return;
+    }
+    try {
+      if (!functions) throw new Error("Função de lista de espera indisponível.");
+      const join = httpsCallable(functions, "joinClassWaitlist");
+      const result = await join({ academyId: access.academyId, classId: item.id });
+      const payload = result.data as { alreadyWaiting?: boolean; position?: number };
+      feedback(payload.alreadyWaiting ? "Você já está na lista de espera." : `Você entrou na lista de espera em ${payload.position ?? ""}º lugar.`);
+    } catch (error) { feedback(error instanceof Error && error.message.includes("Ainda há vaga") ? "Ainda há vaga. Faça a reserva diretamente." : "Não foi possível entrar na lista de espera."); }
+  }
+
+  async function leaveWaitlist(item: ClassRecord) {
+    if (!db) {
+      const studentId = localStudentId(access.academyId, access.userId);
+      const waitlists = readLocalCollection<ClassWaitlistRecord>(access.academyId, "classWaitlist");
+      writeLocalCollection(access.academyId, "classWaitlist", waitlists.map((entry) => entry.classId === item.id && entry.studentId === studentId && entry.status === "active" ? { ...entry, status: "canceled" as const } : entry));
+      setWaitlistClassIds((current) => current.filter((id) => id !== item.id));
+      feedback("Você saiu da lista de espera.");
+      return;
+    }
+    try {
+      if (!functions) throw new Error("Função de lista de espera indisponível.");
+      const leave = httpsCallable(functions, "leaveClassWaitlist");
+      await leave({ academyId: access.academyId, classId: item.id });
+      feedback("Você saiu da lista de espera.");
+    } catch { feedback("Não foi possível sair da lista de espera."); }
   }
 
   async function checkIn(item: ClassRecord) {
@@ -1511,6 +1567,7 @@ function Agenda() {
     const timestamp = Date.parse(`${item.date}T${item.time || "23:59"}`);
     if (Number.isFinite(timestamp) && timestamp < Date.now()) return { key: "completed", label: "CONCLUÍDA" };
     if (reserved) return { key: "reserved", label: "RESERVADA" };
+    if (waitlistClassIds.includes(item.id)) return { key: "waitlist", label: "LISTA DE ESPERA" };
     if (typeof item.reservedCount === "number" && item.reservedCount >= item.capacity) return { key: "full", label: "LOTADA" };
     return { key: "available", label: "DISPONÍVEL" };
   }
@@ -1536,7 +1593,7 @@ function Agenda() {
         <div className="agenda-calendar-legend"><span><i className="legend-today" /> Hoje</span><span><i className="legend-class" /> Aula disponível</span></div>
       </section>
       <div className="agenda-selected-heading"><small>AULAS DO DIA</small><strong>{selectedDateLabel}</strong></div>
-      {selectedClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>{visibleClasses.length === 0 ? "Nenhuma aula disponível" : "Nenhuma aula neste dia"}</h3><p>{visibleClasses.length === 0 ? "As próximas turmas da academia aparecerão aqui." : "Escolha outra data no calendário para consultar as aulas."}</p></div> : selectedClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); const status = classStatus(item, reserved); const isCompleted = status.key === "completed"; const isFull = status.key === "full"; const spotsLeft = typeof item.reservedCount === "number" ? Math.max(0, item.capacity - item.reservedCount) : item.capacity; return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{spotsLeft} {spotsLeft === 1 ? "vaga" : "vagas"}</span></div><div><div className="class-card-heading"><small>{item.name.toUpperCase()}</small><span className={`agenda-class-status ${status.key}`}>{status.label}</span></div><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button disabled={isCompleted || isFull} onClick={() => { if (!isCompleted && !isFull) void (reserved ? cancel(item) : reserve(item)); }}>{isCompleted ? "Aula encerrada" : isFull ? "Turma lotada" : reserved ? "Cancelar reserva" : "Reservar"}</button>{reserved && !isCompleted && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
+      {selectedClasses.length === 0 ? <div className="empty-agenda"><CalendarDays /><h3>{visibleClasses.length === 0 ? "Nenhuma aula disponível" : "Nenhuma aula neste dia"}</h3><p>{visibleClasses.length === 0 ? "As próximas turmas da academia aparecerão aqui." : "Escolha outra data no calendário para consultar as aulas."}</p></div> : selectedClasses.map((item) => { const reserved = reservationIds.includes(item.id); const checkedIn = attendanceIds.includes(item.id); const status = classStatus(item, reserved); const isCompleted = status.key === "completed"; const isFull = status.key === "full"; const isWaitlist = status.key === "waitlist"; const spotsLeft = typeof item.reservedCount === "number" ? Math.max(0, item.capacity - item.reservedCount) : item.capacity; return <article className="class-card" key={item.id}><div className="class-time"><strong>{item.time}</strong><span>{isFull || isWaitlist ? "Sem vagas" : `${spotsLeft} ${spotsLeft === 1 ? "vaga" : "vagas"}`}</span></div><div><div className="class-card-heading"><small>{item.name.toUpperCase()}</small><span className={`agenda-class-status ${status.key}`}>{status.label}</span></div><h2>{item.name}</h2><p>{item.instructor} · {item.date}</p></div><div className="class-card-actions"><button disabled={isCompleted} onClick={() => { if (isCompleted) return; if (reserved) void cancel(item); else if (isWaitlist) void leaveWaitlist(item); else if (isFull) void joinWaitlist(item); else void reserve(item); }}>{isCompleted ? "Aula encerrada" : reserved ? "Cancelar reserva" : isWaitlist ? "Sair da lista" : isFull ? "Entrar na lista de espera" : "Reservar"}</button>{reserved && !isCompleted && <button className="secondary-action" disabled={checkedIn} onClick={() => void checkIn(item)}>{checkedIn ? "Presença registrada" : "Registrar presença"}</button>}</div></article>; })}
     </div>
   );
 }
@@ -2188,6 +2245,7 @@ const workoutLevelOrder: WorkoutLevel[] = ["Fundação", "Evolução", "Performa
 type WorkoutTemplateRecord = { id: string; name: string; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; scheduleDay?: WorkoutTemplateDay; focusLabel?: string; targetStudentId?: string | null; targetStudentName?: string | null; seedKey?: string; exerciseIds: string[]; exerciseDetails: WorkoutExerciseDetail[]; createdBy: string };
 type ClassRecord = { id: string; name: string; instructor: string; instructorId?: string | null; date: string; time: string; capacity: number; reservedCount?: number; active: boolean; visibility?: "open" | "selected"; selectedStudentIds?: string[] };
 type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
+type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string; metricMode?: ExerciseMetricMode }>; calories?: number; totalVolume?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };

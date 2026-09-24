@@ -181,6 +181,14 @@ service cloud.firestore {
       allow delete: if isAdmin(academyId);
     }
 
+    match /academies/{academyId}/classWaitlist/{waitlistId} {
+      allow read: if isAdmin(academyId) || isTeacher(academyId) ||
+        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+      // A entrada e a promoção são feitas pelas callables, com validação de lotação.
+      allow create, update: if isAdmin(academyId) || isTeacher(academyId);
+      allow delete: if isAdmin(academyId);
+    }
+
     match /academies/{academyId}/attendance/{attendanceId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
         (isStudent(academyId) && resource.data.studentId == request.auth.uid);

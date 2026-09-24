@@ -23,6 +23,8 @@ type ExerciseGifPayload = {
 };
 type ClassReservationPayload = { academyId?: unknown; classId?: unknown };
 
+type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
+
 function readString(value: unknown, field: string) {
   if (typeof value !== "string" || !value.trim()) {
     throw new HttpsError("invalid-argument", `Informe ${field}.`);
@@ -175,19 +177,94 @@ export const cancelClassReservation = onCall({ region }, async (request) => {
   if (membership.data()?.role !== "student") throw new HttpsError("permission-denied", "Somente alunos podem cancelar suas reservas.");
 
   const classRef = firestore.doc(`academies/${academyId}/classes/${classId}`);
-  const reservationQuery = firestore.collection(`academies/${academyId}/reservations`).where("classId", "==", classId).where("studentId", "==", uid).where("status", "==", "active");
+  const reservationCollection = firestore.collection(`academies/${academyId}/reservations`);
+  const reservationQuery = reservationCollection.where("classId", "==", classId).where("studentId", "==", uid).where("status", "==", "active");
+  const waitlistQuery = firestore.collection(`academies/${academyId}/classWaitlist`).where("classId", "==", classId).where("status", "==", "active");
   let canceled = false;
   await firestore.runTransaction(async (transaction) => {
-    const [classSnapshot, reservationSnapshot] = await Promise.all([transaction.get(classRef), transaction.get(reservationQuery)]);
+    const [classSnapshot, reservationSnapshot, waitlistSnapshot] = await Promise.all([transaction.get(classRef), transaction.get(reservationQuery), transaction.get(waitlistQuery)]);
     if (!classSnapshot.exists) throw new HttpsError("not-found", "A aula não foi encontrada.");
     const reservation = reservationSnapshot.docs[0];
     if (!reservation) return;
     transaction.update(reservation.ref, { status: "canceled", canceledAt: FieldValue.serverTimestamp(), canceledBy: uid });
     const currentCount = Math.max(0, Number(classSnapshot.data()?.reservedCount ?? 1));
-    transaction.set(classRef, { reservedCount: Math.max(0, currentCount - 1), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    const nextWaitlist = waitlistSnapshot.docs
+      .map((item) => ({ ref: item.ref, data: item.data() as ClassWaitlistRecord }))
+      .sort((a, b) => {
+        const aTime = typeof a.data.joinedAt === "object" && a.data.joinedAt && "toMillis" in a.data.joinedAt ? (a.data.joinedAt as { toMillis: () => number }).toMillis() : Number.MAX_SAFE_INTEGER;
+        const bTime = typeof b.data.joinedAt === "object" && b.data.joinedAt && "toMillis" in b.data.joinedAt ? (b.data.joinedAt as { toMillis: () => number }).toMillis() : Number.MAX_SAFE_INTEGER;
+        return aTime - bTime;
+      })[0];
+    if (nextWaitlist) {
+      const promotedReservation = reservationCollection.doc();
+      transaction.create(promotedReservation, {
+        classId,
+        className: String(classSnapshot.data()?.name ?? "Aula"),
+        studentId: nextWaitlist.data.studentId,
+        studentName: nextWaitlist.data.studentName ?? "Aluno",
+        status: "active",
+        source: "waitlist",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(nextWaitlist.ref, { status: "promoted", promotedAt: FieldValue.serverTimestamp() });
+      transaction.set(classRef, { reservedCount: currentCount, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    } else {
+      transaction.set(classRef, { reservedCount: Math.max(0, currentCount - 1), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    }
     canceled = true;
   });
   return { ok: true, canceled };
+});
+
+export const joinClassWaitlist = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para entrar na lista de espera.");
+  const data = request.data as ClassReservationPayload;
+  const academyId = readString(data.academyId, "a academia");
+  const classId = readString(data.classId, "a aula");
+  const uid = request.auth.uid;
+  const studentName = request.auth.token.name ?? request.auth.token.email ?? "Aluno";
+  const membership = await activeMembership(academyId, uid);
+  if (membership.data()?.role !== "student") throw new HttpsError("permission-denied", "Somente alunos podem entrar na lista de espera.");
+
+  const classRef = firestore.doc(`academies/${academyId}/classes/${classId}`);
+  const reservationQuery = firestore.collection(`academies/${academyId}/reservations`).where("classId", "==", classId).where("status", "==", "active");
+  const waitlistCollection = firestore.collection(`academies/${academyId}/classWaitlist`);
+  const waitlistQuery = waitlistCollection.where("classId", "==", classId).where("status", "==", "active");
+  let position = 0;
+  let alreadyWaiting = false;
+  await firestore.runTransaction(async (transaction) => {
+    const [classSnapshot, reservationSnapshot, waitlistSnapshot] = await Promise.all([transaction.get(classRef), transaction.get(reservationQuery), transaction.get(waitlistQuery)]);
+    if (!classSnapshot.exists) throw new HttpsError("not-found", "A aula não foi encontrada.");
+    const classData = classSnapshot.data() ?? {};
+    if (classData.active === false) throw new HttpsError("failed-precondition", "Essa aula está inativa.");
+    if (classData.visibility === "selected") throw new HttpsError("permission-denied", "A lista de espera está disponível apenas para aulas abertas.");
+    if (reservationSnapshot.docs.some((item) => item.data().studentId === uid)) throw new HttpsError("already-exists", "Você já está reservado nesta aula.");
+    alreadyWaiting = waitlistSnapshot.docs.some((item) => item.data().studentId === uid);
+    if (alreadyWaiting) {
+      position = waitlistSnapshot.size;
+      return;
+    }
+    const capacity = Math.max(1, Number(classData.capacity ?? 10));
+    if (reservationSnapshot.size < capacity) throw new HttpsError("failed-precondition", "Ainda há vaga. Faça a reserva diretamente.");
+    position = waitlistSnapshot.size + 1;
+    const waitlistRef = waitlistCollection.doc();
+    transaction.create(waitlistRef, { classId, className: String(classData.name ?? "Aula"), studentId: uid, studentName, status: "active", position, joinedAt: FieldValue.serverTimestamp() });
+  });
+  return { ok: true, alreadyWaiting, position };
+});
+
+export const leaveClassWaitlist = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para sair da lista de espera.");
+  const data = request.data as ClassReservationPayload;
+  const academyId = readString(data.academyId, "a academia");
+  const classId = readString(data.classId, "a aula");
+  const uid = request.auth.uid;
+  const membership = await activeMembership(academyId, uid);
+  if (membership.data()?.role !== "student") throw new HttpsError("permission-denied", "Somente alunos podem sair da lista de espera.");
+  const waitlistQuery = firestore.collection(`academies/${academyId}/classWaitlist`).where("classId", "==", classId).where("studentId", "==", uid).where("status", "==", "active");
+  const snapshot = await waitlistQuery.get();
+  if (!snapshot.empty) await snapshot.docs[0].ref.update({ status: "canceled", canceledAt: FieldValue.serverTimestamp() });
+  return { ok: true, removed: !snapshot.empty };
 });
 
 export const uploadExerciseGif = onCall({ region, timeoutSeconds: 120, memory: "512MiB" }, async (request) => {
