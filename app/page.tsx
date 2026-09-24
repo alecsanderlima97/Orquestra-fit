@@ -3021,7 +3021,7 @@ function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTempla
     const day = workout.recommendedDay ?? "Flexível";
     const audience = workout.audience ?? "Personalizado";
     const duration = estimatedWorkoutDurationLabel(workout.exerciseDetails ?? [], workout.exerciseIds.length);
-    return <div className="published-template-row" key={workout.id}><div className="published-template-copy"><strong>Treino {code}</strong><small className="published-template-name">{displayWorkoutCardName(workout.name)}</small><div className="published-template-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {day}</span><span className="template-chip template-chip-audience personalized"><Users size={12} /> {audience}</span><span className="template-chip template-chip-count"><ClipboardList size={12} /> {workout.exerciseIds.length} exercícios</span><span className="template-chip template-chip-duration"><Clock3 size={12} /> {duration}</span></div><small>{workout.studentName}</small></div><div className="published-item-actions"><em>Enviado</em><button type="button" onClick={() => onPreviewWorkout(workout)}><Eye size={13} /> Visualizar</button><button type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={13} /> Imprimir</button><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>;
+    return <div className="published-template-row" key={workout.id}><div className="published-template-copy"><strong>Treino {code}</strong><small className="published-template-name">{displayWorkoutCardName(workout.name)}</small><div className="published-template-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {day}</span><span className="template-chip template-chip-audience personalized"><Users size={12} /> {audience}</span><span className="template-chip template-chip-count"><ClipboardList size={12} /> {workout.exerciseIds.length} exercícios</span><span className="template-chip template-chip-duration"><Clock3 size={12} /> {duration}</span></div><small>{workout.studentName}</small></div><div className="published-item-actions has-status"><em>Enviado</em><button type="button" onClick={() => onPreviewWorkout(workout)}><Eye size={13} /> Visualizar</button><button type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={13} /> Imprimir</button><button type="button" onClick={() => onEditWorkout(workout)}>Editar</button><button type="button" onClick={() => onRemoveWorkout(workout)}>Excluir</button></div></div>;
   };
   return <details className="workspace-panel published-workouts training-collapsible-card"><summary className="training-card-summary"><span><small>4 · MODELOS E PUBLICADOS</small><strong>{templates.length} modelos · {visibleWorkouts.length} fichas enviadas{targetStudentName ? ` para ${targetStudentName}` : ""}</strong><em>{targetStudentName ? `Escolha um modelo geral para adicionar a ${targetStudentName}.` : "Use filtros para encontrar rapidamente um programa geral ou personalizado."}</em></span><ChevronDown /></summary><div className="training-card-content">{empty ? <div className="directory-empty"><Dumbbell /><p>Crie um programa-base para reutilizá-lo com novos alunos.</p><button className="detail-secondary" type="button" onClick={onSeedGeneralPrograms}>Criar grade geral · 28 programas · 11 exercícios</button></div> : <>
     {(hasStudentContext || visibleWorkouts.length > 0) && <details className="published-sent-list published-student-workouts" open={hasStudentContext}>
@@ -4899,6 +4899,9 @@ type DeveloperMember = {
   active?: boolean;
   lastAccessAt?: unknown;
   lastSeenAt?: unknown;
+  presenceStatus?: "present" | "left";
+  presenceEnteredAt?: unknown;
+  presenceExitedAt?: unknown;
 };
 
 type DeveloperAudit = {
@@ -5162,10 +5165,10 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
   const resolveStudentId = (studentId: string) => registeredStudents.find((student) => student.id === studentId || student.userId === studentId)?.id ?? studentId;
   const todayVisits = new Set([...dashboardAttendance.filter((item) => item.status !== "absent" && item.date === todayIso()).map((item) => resolveStudentId(item.studentId)), ...dashboardExecutions.filter((item) => dateKeyFromValue(item.completedAt) === todayIso()).map((item) => resolveStudentId(item.studentId))]);
   const onlineLimit = presenceNow - 5 * 60 * 1000;
-  const onlineStudentCount = academyMembers.filter((member) => {
+  const presentStudentCount = academyMembers.filter((member) => {
     if (member.role !== "student" || member.active === false) return false;
     const lastSeen = firestoreDate(member.lastSeenAt);
-    return Boolean(lastSeen && lastSeen.getTime() >= onlineLimit);
+    return Boolean(member.presenceStatus !== "left" && lastSeen && lastSeen.getTime() >= onlineLimit);
   }).length;
   const today = new Date();
   const birthdayStudents = registeredStudents.filter((student) => { const parts = student.birthDate?.split("-").map(Number); return parts?.[1] === today.getMonth() + 1 && parts?.[2] === today.getDate(); });
@@ -5174,7 +5177,7 @@ function AdminWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeChange:
     <WorkspaceShell profile="Gestão" theme={theme} onThemeChange={onThemeChange} onNewStudent={() => setNewMemberRole("student")}>
       <div className="workspace-content">
         <section className="workspace-intro">
-          <div><span>{brazilLongDate()}</span><h2>{brazilGreeting()}, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p><div className="manager-online-indicator" title="Alunos com atividade no sistema nos últimos 5 minutos"><i aria-hidden="true" /><span>Alunos online agora</span><strong>{onlineStudentCount}</strong></div></div>
+          <div><span>{brazilLongDate()}</span><h2>{brazilGreeting()}, {firstName(registeredProfile?.name || registeredProfile?.displayName || access.user.displayName, access.user.email)}.</h2><p>Uma leitura direta da operação para você decidir o que precisa de atenção hoje.</p><div className="manager-online-indicator" title="Alunos com sessão ativa e última atividade nos últimos 5 minutos"><i aria-hidden="true" /><span>Alunos presentes</span><strong>{presentStudentCount}</strong></div></div>
           <button onClick={() => setNewMemberRole("student")}><Plus /> Novo aluno</button>
         </section>
         <div className="dashboard-metrics-heading"><span>INDICADORES</span><button type="button" onClick={() => setMetricsVisible((visible) => !visible)} aria-label={metricsVisible ? "Ocultar indicadores" : "Mostrar indicadores"}>{metricsVisible ? <EyeOff /> : <Eye />}<span>{metricsVisible ? "Ocultar valores" : "Mostrar valores"}</span></button></div>

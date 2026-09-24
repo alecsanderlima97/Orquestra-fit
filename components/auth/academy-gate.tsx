@@ -128,18 +128,20 @@ function PresenceHeartbeat({ user, academyId, role }: { user: User; academyId: s
     if (!db) return;
     const firestore = db;
     let auditWritten = false;
-    const touch = async () => {
+    const touch = async (startSession = false) => {
       const now = serverTimestamp();
       await Promise.all([
         setDoc(doc(firestore, "users", user.uid), {
           lastAccessAt: now,
           lastSeenAt: now,
+          ...(startSession ? { presenceStatus: "present", presenceEnteredAt: now, presenceExitedAt: null } : {}),
           activeAcademyId: academyId,
           lastRole: role,
         }, { merge: true }),
         setDoc(doc(firestore, "academies", academyId, "members", user.uid), {
           lastAccessAt: now,
           lastSeenAt: now,
+          ...(startSession ? { presenceStatus: "present", presenceEnteredAt: now, presenceExitedAt: null } : {}),
           lastRole: role,
         }, { merge: true }),
       ]);
@@ -157,9 +159,15 @@ function PresenceHeartbeat({ user, academyId, role }: { user: User; academyId: s
         });
       }
     };
-    void touch().catch(() => undefined);
+    void touch(true).catch(() => undefined);
     const intervalId = window.setInterval(() => { void touch().catch(() => undefined); }, 90_000);
-    return () => window.clearInterval(intervalId);
+    return () => {
+      window.clearInterval(intervalId);
+      void Promise.all([
+        setDoc(doc(firestore, "users", user.uid), { presenceStatus: "left", presenceExitedAt: serverTimestamp() }, { merge: true }),
+        setDoc(doc(firestore, "academies", academyId, "members", user.uid), { presenceStatus: "left", presenceExitedAt: serverTimestamp() }, { merge: true }),
+      ]).catch(() => undefined);
+    };
   }, [academyId, role, user]);
   return null;
 }
