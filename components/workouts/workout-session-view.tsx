@@ -12,6 +12,7 @@ export type WorkoutSessionExercise = {
   load: string;
   rest: string;
   gifUrl?: string;
+  gifLoading?: boolean;
   videoUrl?: string;
   equipmentName?: string;
   instructions?: string;
@@ -84,6 +85,13 @@ const MovementDemo = memo(function MovementDemo({ src, name }: { src: string; na
     <figcaption><Play size={13} /> Demonstração do movimento</figcaption>
   </figure>;
 });
+
+function MovementDemoPlaceholder() {
+  return <figure className="workout-demo workout-demo-pending">
+    <div className="workout-demo-stage"><span className="workout-demo-status" role="status">Preparando uma demonstração leve para este aparelho…</span></div>
+    <figcaption><Play size={13} /> Demonstração do movimento</figcaption>
+  </figure>;
+}
 
 function WorkoutTime({ clock }: { clock: SessionClock }) {
   const [seconds, setSeconds] = useState(() => clock.getSeconds());
@@ -204,7 +212,7 @@ export function WorkoutSessionView(props: Props) {
             <span className="workout-exercise-bottom"><span className="workout-exercise-prescription">{exercise.sets} {metricLabels.sets.toLocaleLowerCase("pt-BR")} <span aria-hidden="true">×</span> {exercise.reps} {metricLabels.repsUnit}</span><span className="workout-exercise-action">{isOpen ? "Recolher" : isComplete ? "Rever" : completed ? "Continuar" : "Iniciar"}{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span></span>
           </button>
           {isOpen && <div className="workout-exercise-content" id={panelId}>
-            {exercise.gifUrl && <MovementDemo src={exercise.gifUrl} name={exercise.name} />}
+            {exercise.gifLoading ? <MovementDemoPlaceholder /> : exercise.gifUrl && <MovementDemo src={exercise.gifUrl} name={exercise.name} />}
             {exercise.equipmentName && <p className="workout-equipment"><Dumbbell size={16} />{exercise.equipmentName}</p>}
             {hasInstructions && <details className="workout-instructions"><summary>Orientação do professor<ChevronDown size={16} /></summary><p>{instructions}</p></details>}
             <div className="workout-detail-actions">

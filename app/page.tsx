@@ -725,8 +725,10 @@ function verifiedGifDefinition(name: string): VerifiedExerciseGif | undefined {
   })();
 }
 
-function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath">, profile: "masculino" | "feminino" = "masculino") {
-  const saved = profile === "feminino" ? (exercise.gifFemaleUrl || exercise.gifUrl) : (exercise.gifMaleUrl || exercise.gifUrl);
+function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">, profile: "masculino" | "feminino" = "masculino") {
+  const saved = profile === "feminino"
+    ? (exercise.gifFemaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifFemaleUrl || exercise.gifUrl)
+    : (exercise.gifMaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifMaleUrl || exercise.gifUrl);
   if (saved) return saved;
   const path = profile === "masculino" ? exercise.gifMalePath : exercise.gifFemalePath;
   return (path ? packagedGifUrl(path) : "") || verifiedExerciseGif(exercise.name, profile);
@@ -1890,7 +1892,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   );
 }
 
-type SessionExercise = Omit<WorkoutExerciseDetail, "exerciseId" | "sets" | "rest"> & { group: string; sets: number; rest: string; metricMode?: ExerciseMetricMode };
+type SessionExercise = Omit<WorkoutExerciseDetail, "exerciseId" | "sets" | "rest"> & { group: string; sets: number; rest: string; metricMode?: ExerciseMetricMode; gifLoading?: boolean };
 
 function normalizeMachineQr(rawValue: string) {
   const value = rawValue.trim();
@@ -1966,13 +1968,14 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
   const [bodyWeightKg, setBodyWeightKg] = useState<number | null>(null);
-  const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">>>({});
+  const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath" | "gifPath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">>>({});
+  const [gifPreparation, setGifPreparation] = useState<Record<string, "loading" | "ready" | "failed">>({});
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(null);
   const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
   const [completionSummary, setCompletionSummary] = useState<WorkoutCompletionSummary | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
   const exerciseIdsKey = (workout?.exerciseDetails ?? []).map((exercise) => exercise.exerciseId).filter(Boolean).join("|");
-  const exercises = useMemo<SessionExercise[]>(() => workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource({ ...exercise, ...currentMedia, name: exercise.name }, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode })), [workout?.exerciseDetails, exerciseMedia, anatomyProfile]);
+  const exercises = useMemo<SessionExercise[]>(() => workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); const merged = { ...exercise, ...currentMedia, name: exercise.name }; const directGif = exerciseGifSource(merged, anatomyProfile); const hasStoredGif = Boolean(merged.gifPath || merged.gifMalePath || merged.gifFemalePath || currentMedia.gifPath); const preparation = gifPreparation[exercise.exerciseId]; const gifLoading = Boolean(db && functions && hasStoredGif && !merged.gifOptimizedUrl && !merged.gifMaleOptimizedUrl && !merged.gifFemaleOptimizedUrl && preparation !== "failed"); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: gifLoading ? "" : directGif, gifLoading, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode })), [workout?.exerciseDetails, exerciseMedia, anatomyProfile, gifPreparation]);
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const previousExecutions = useStudentWorkoutExecutions();
   const previousSets = useMemo(() => {
@@ -2019,27 +2022,51 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
       const exerciseIdSet = new Set(exerciseIds);
       setExerciseMedia(Object.fromEntries(readLocalCollection<ExerciseRecord>(access.academyId, "exercises")
         .filter((exercise) => exerciseIdSet.size === 0 || exerciseIdSet.has(exercise.id))
-        .map((exercise) => [exercise.id, { name: exercise.name, gifUrl: exercise.gifUrl, gifMaleUrl: exercise.gifMaleUrl, gifFemaleUrl: exercise.gifFemaleUrl }])));
+        .map((exercise) => [exercise.id, { name: exercise.name, gifUrl: exercise.gifUrl, gifMaleUrl: exercise.gifMaleUrl, gifFemaleUrl: exercise.gifFemaleUrl, gifPath: exercise.gifPath, gifMalePath: exercise.gifMalePath, gifFemalePath: exercise.gifFemalePath, gifOptimizedUrl: exercise.gifOptimizedUrl, gifOptimizedPath: exercise.gifOptimizedPath, gifMaleOptimizedUrl: exercise.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise.gifFemaleOptimizedPath }])));
       return;
     }
     if (!exerciseIds.length) {
       setExerciseMedia({});
       return;
     }
-    const mediaById = new Map<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">>();
+    const mediaById = new Map<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifPath" | "gifMalePath" | "gifFemalePath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">>();
     const unsubscribers = [] as Array<() => void>;
     for (let start = 0; start < exerciseIds.length; start += 30) {
       const chunk = exerciseIds.slice(start, start + 30);
       unsubscribers.push(onSnapshot(query(collection(db, "academies", access.academyId, "exercises"), where(documentId(), "in", chunk)), (snapshot) => {
         snapshot.docs.forEach((item) => {
           const data = item.data() as Omit<ExerciseRecord, "id">;
-          mediaById.set(item.id, { name: data.name ?? "Exercício", gifUrl: data.gifUrl, gifMaleUrl: data.gifMaleUrl, gifFemaleUrl: data.gifFemaleUrl });
+          mediaById.set(item.id, { name: data.name ?? "Exercício", gifUrl: data.gifUrl, gifMaleUrl: data.gifMaleUrl, gifFemaleUrl: data.gifFemaleUrl, gifPath: data.gifPath, gifMalePath: data.gifMalePath, gifFemalePath: data.gifFemalePath, gifOptimizedUrl: data.gifOptimizedUrl, gifOptimizedPath: data.gifOptimizedPath, gifMaleOptimizedUrl: data.gifMaleOptimizedUrl, gifMaleOptimizedPath: data.gifMaleOptimizedPath, gifFemaleOptimizedUrl: data.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: data.gifFemaleOptimizedPath });
         });
         setExerciseMedia(Object.fromEntries(mediaById));
       }));
     }
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [access.academyId, exerciseIdsKey]);
+  useEffect(() => {
+    if (!db || !functions || !workout || openExerciseIndex === null) return;
+    const detail = workout.exerciseDetails?.[openExerciseIndex];
+    if (!detail?.exerciseId) return;
+    const currentMedia = exerciseMedia[detail.exerciseId] ?? {};
+    const merged = { ...detail, ...currentMedia };
+    const sourcePath = anatomyProfile === "feminino" ? (merged.gifFemalePath || merged.gifPath) : (merged.gifMalePath || merged.gifPath);
+    const optimizedUrl = anatomyProfile === "feminino" ? (merged.gifFemaleOptimizedUrl || merged.gifOptimizedUrl) : (merged.gifMaleOptimizedUrl || merged.gifOptimizedUrl);
+    if (!sourcePath || optimizedUrl || gifPreparation[detail.exerciseId]) return;
+    let active = true;
+    setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "loading" }));
+    const prepare = httpsCallable<{ academyId: string; exerciseId: string; profile: "masculino" | "feminino" }, { ok: boolean; url: string; path: string; profile: "masculino" | "feminino" }>(functions, "prepareExerciseGif");
+    void prepare({ academyId: access.academyId, exerciseId: detail.exerciseId, profile: anatomyProfile }).then(({ data }) => {
+      if (!active) return;
+      const media = data.profile === "feminino"
+        ? { gifFemaleOptimizedUrl: data.url, gifFemaleOptimizedPath: data.path }
+        : { gifOptimizedUrl: data.url, gifOptimizedPath: data.path, gifMaleOptimizedUrl: data.url, gifMaleOptimizedPath: data.path };
+      setExerciseMedia((current) => ({ ...current, [detail.exerciseId]: { ...current[detail.exerciseId], name: detail.name, ...media } }));
+      setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "ready" }));
+    }).catch(() => {
+      if (active) setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "failed" }));
+    });
+    return () => { active = false; };
+  }, [access.academyId, anatomyProfile, exerciseMedia, gifPreparation, openExerciseIndex, workout]);
   useEffect(() => {
     if (!restTimer) return;
     if (restTimer.remaining <= 0) {
@@ -2486,8 +2513,8 @@ function paymentMethodLabel(method?: PaymentMethod) { return method === "cartao_
 type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
 type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
 type ExerciseType = "Força" | "Peso corporal" | "Alongamento" | "Cardio";
-type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifMatch?: "exact" | "equivalent"; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
-type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifOptimizedUrl?: string; gifOptimizedPath?: string; gifMaleOptimizedUrl?: string; gifMaleOptimizedPath?: string; gifFemaleOptimizedUrl?: string; gifFemaleOptimizedPath?: string; gifMatch?: "exact" | "equivalent"; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifOptimizedUrl?: string; gifOptimizedPath?: string; gifMaleOptimizedUrl?: string; gifMaleOptimizedPath?: string; gifFemaleOptimizedUrl?: string; gifFemaleOptimizedPath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 
 type ExerciseMetricMode = "strength" | "cardio" | "timed";
 function defaultExerciseDetails(exercise: ExerciseMetricSource) {
@@ -3418,7 +3445,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; userId?: string | null; authUid?: string | null; uid?: string | null; teacherId?: string | null }; return { id: student.id, userId: data.userId ?? data.authUid ?? data.uid ?? student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifOptimizedUrl: data.gifOptimizedUrl ?? "", gifOptimizedPath: data.gifOptimizedPath ?? "", gifMaleOptimizedUrl: data.gifMaleOptimizedUrl ?? "", gifMaleOptimizedPath: data.gifMaleOptimizedPath ?? "", gifFemaleOptimizedUrl: data.gifFemaleOptimizedUrl ?? "", gifFemaleOptimizedPath: data.gifFemaleOptimizedPath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
       setExerciseSnapshotReady(true);
     });
     const unsubscribeMachines = onSnapshot(query(collection(db, "academies", access.academyId, "stockItems"), where("kind", "==", "machine")), (snapshot) => setStockMachines(snapshot.docs.map((item) => { const data = item.data() as { name?: string; machineCode?: string }; return { id: item.id, name: data.name ?? "Máquina", machineCode: data.machineCode }; })));
@@ -3679,7 +3706,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (!student) { onFeedback("Aluno não encontrado."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, gifOptimizedUrl: exercise?.gifOptimizedUrl, gifOptimizedPath: exercise?.gifOptimizedPath, gifMaleOptimizedUrl: exercise?.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise?.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise?.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise?.gifFemaleOptimizedPath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     const focusLabel = Array.from(new Set(details.map((detail) => detail.muscleGroup).filter((value): value is string => Boolean(value)))).slice(0, 2).join(" + ") || "Treino personalizado";
     if (!db) {
@@ -3759,7 +3786,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const finisherExercises = exercises.filter((exercise) => exercise.phase === "Finalização" || exercise.phase === "Cardio");
     const mainExercises = exercises.filter((exercise) => exercise.phase !== "Preparação" && exercise.phase !== "Finalização" && exercise.phase !== "Cardio");
     const existingByKey = new Map(templates.filter((template) => template.seedKey).map((template) => [template.seedKey as string, template]));
-    const templateExerciseDetails = (exercise: ExerciseRecord): WorkoutExerciseDetail => ({ exerciseId: exercise.id, name: exercise.name, muscleGroup: exercise.muscleGroup, secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exercise.gifUrl, gifPath: exercise.gifPath, gifMaleUrl: exercise.gifMaleUrl, gifMalePath: exercise.gifMalePath, gifFemaleUrl: exercise.gifFemaleUrl, gifFemalePath: exercise.gifFemalePath, equipmentName: exercise.equipmentName, machineCode: exercise.machineCode, bodyRegion: exercise.bodyRegion, phase: exercise.phase, exerciseType: exercise.exerciseType, ...defaultExerciseDetails(exercise) });
+    const templateExerciseDetails = (exercise: ExerciseRecord): WorkoutExerciseDetail => ({ exerciseId: exercise.id, name: exercise.name, muscleGroup: exercise.muscleGroup, secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exercise.gifUrl, gifPath: exercise.gifPath, gifMaleUrl: exercise.gifMaleUrl, gifMalePath: exercise.gifMalePath, gifFemaleUrl: exercise.gifFemaleUrl, gifFemalePath: exercise.gifFemalePath, gifOptimizedUrl: exercise.gifOptimizedUrl, gifOptimizedPath: exercise.gifOptimizedPath, gifMaleOptimizedUrl: exercise.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise.gifFemaleOptimizedPath, equipmentName: exercise.equipmentName, machineCode: exercise.machineCode, bodyRegion: exercise.bodyRegion, phase: exercise.phase, exerciseType: exercise.exerciseType, ...defaultExerciseDetails(exercise) });
     const createdTemplates: WorkoutTemplateRecord[] = [];
     const updatedTemplates: WorkoutTemplateRecord[] = [];
     levels.forEach((level, levelIndex) => dayFocus.forEach((day, dayIndex) => {
@@ -3838,7 +3865,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, gifOptimizedUrl: exercise?.gifOptimizedUrl, gifOptimizedPath: exercise?.gifOptimizedPath, gifMaleOptimizedUrl: exercise?.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise?.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise?.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise?.gifFemaleOptimizedPath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
       const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, audience: templateAudience, scheduleDay: "Flexível", targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId, createdAt: editingTemplateId ? templates.find((item) => item.id === editingTemplateId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), updatedAt: new Date().toISOString() };
