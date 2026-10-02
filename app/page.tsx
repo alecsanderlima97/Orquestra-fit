@@ -1970,10 +1970,12 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
   const [bodyWeightKg, setBodyWeightKg] = useState<number | null>(null);
   const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath" | "gifPath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">>>({});
   const [gifPreparation, setGifPreparation] = useState<Record<string, "loading" | "ready" | "failed">>({});
+  const sessionMounted = useRef(true);
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(null);
   const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
   const [completionSummary, setCompletionSummary] = useState<WorkoutCompletionSummary | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
+  useEffect(() => () => { sessionMounted.current = false; }, []);
   const exerciseIdsKey = (workout?.exerciseDetails ?? []).map((exercise) => exercise.exerciseId).filter(Boolean).join("|");
   const exercises = useMemo<SessionExercise[]>(() => workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); const merged = { ...exercise, ...currentMedia, name: exercise.name }; const directGif = exerciseGifSource(merged, anatomyProfile); const hasStoredGif = Boolean(merged.gifPath || merged.gifMalePath || merged.gifFemalePath || currentMedia.gifPath); const preparation = gifPreparation[exercise.exerciseId]; const gifLoading = Boolean(db && functions && hasStoredGif && !merged.gifOptimizedUrl && !merged.gifMaleOptimizedUrl && !merged.gifFemaleOptimizedUrl && preparation !== "failed"); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: gifLoading ? "" : directGif, gifLoading, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode })), [workout?.exerciseDetails, exerciseMedia, anatomyProfile, gifPreparation]);
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
@@ -2052,20 +2054,18 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     const sourcePath = anatomyProfile === "feminino" ? (merged.gifFemalePath || merged.gifPath) : (merged.gifMalePath || merged.gifPath);
     const optimizedUrl = anatomyProfile === "feminino" ? (merged.gifFemaleOptimizedUrl || merged.gifOptimizedUrl) : (merged.gifMaleOptimizedUrl || merged.gifOptimizedUrl);
     if (!sourcePath || optimizedUrl || gifPreparation[detail.exerciseId]) return;
-    let active = true;
     setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "loading" }));
     const prepare = httpsCallable<{ academyId: string; exerciseId: string; profile: "masculino" | "feminino" }, { ok: boolean; url: string; path: string; profile: "masculino" | "feminino" }>(functions, "prepareExerciseGif");
     void prepare({ academyId: access.academyId, exerciseId: detail.exerciseId, profile: anatomyProfile }).then(({ data }) => {
-      if (!active) return;
+      if (!sessionMounted.current) return;
       const media = data.profile === "feminino"
         ? { gifFemaleOptimizedUrl: data.url, gifFemaleOptimizedPath: data.path }
         : { gifOptimizedUrl: data.url, gifOptimizedPath: data.path, gifMaleOptimizedUrl: data.url, gifMaleOptimizedPath: data.path };
       setExerciseMedia((current) => ({ ...current, [detail.exerciseId]: { ...current[detail.exerciseId], name: detail.name, ...media } }));
       setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "ready" }));
     }).catch(() => {
-      if (active) setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "failed" }));
+      if (sessionMounted.current) setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "failed" }));
     });
-    return () => { active = false; };
   }, [access.academyId, anatomyProfile, exerciseMedia, gifPreparation, openExerciseIndex, workout]);
   useEffect(() => {
     if (!restTimer) return;
