@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/MgDMFLN4pxz8I9G7aEV7",
+  "fields": {
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "exerciseType": {
+      "stringValue": "Alongamento"
+    },
+    "name": {
+      "stringValue": "Mobilidade de ombros"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "phase": {
+      "stringValue": "Preparação"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros superiores"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Ombros, peitoral"
+    },
+    "anatomyRegion": {
+      "stringValue": "Ombros"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "muscleGroup": {
+      "stringValue": "Mobilidade"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

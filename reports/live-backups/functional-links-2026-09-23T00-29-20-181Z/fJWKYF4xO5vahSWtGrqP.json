@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/fJWKYF4xO5vahSWtGrqP",
+  "fields": {
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "name": {
+      "stringValue": "Avanço com peso corporal"
+    },
+    "phase": {
+      "stringValue": "Treino principal"
+    },
+    "muscleGroup": {
+      "stringValue": "Quadríceps"
+    },
+    "exerciseType": {
+      "stringValue": "Peso corporal"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Glúteos, posteriores"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "anatomyRegion": {
+      "stringValue": "Coxas e glúteos"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

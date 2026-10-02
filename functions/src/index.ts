@@ -79,6 +79,60 @@ async function audit(academyId: string, actorId: string, type: string, targetUse
   });
 }
 
+const auditLabels: Record<string, string> = {
+  teacher_updated: "Cadastro de professor atualizado",
+  teacher_access_updated: "Acesso do professor atualizado",
+  student_anamnesis_updated: "Ficha de anamnese atualizada",
+  student_updated: "Cadastro de aluno atualizado",
+  student_access_updated: "Acesso do aluno atualizado",
+  financial_access_released: "Acesso liberado manualmente",
+  profile_updated: "Perfil atualizado",
+  academy_hours_updated: "Funcionamento da academia atualizado",
+  academy_provisioned: "Nova academia provisionada",
+  invite_created: "Convite de acesso criado",
+  academy_billing_update: "Controle da academia atualizado",
+};
+
+type AuditEventPayload = { academyId?: unknown; action?: unknown; details?: unknown };
+
+export const recordAuditEvent = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para registrar esta alteração.");
+  const payload = (request.data ?? {}) as AuditEventPayload;
+  const academyId = readString(payload.academyId, "a academia");
+  const action = readString(payload.action, "o tipo de alteração");
+  const label = auditLabels[action];
+  if (!label) throw new HttpsError("invalid-argument", "Este tipo de alteração não pode ser registrado.");
+  const details = payload.details == null ? null : readString(payload.details, "os detalhes");
+  if (details && details.length > 160) throw new HttpsError("invalid-argument", "Os detalhes excedem o limite permitido.");
+
+  const uid = request.auth.uid;
+  const [userSnapshot, membershipSnapshot] = await Promise.all([
+    firestore.doc(`users/${uid}`).get(),
+    firestore.doc(`academies/${academyId}/members/${uid}`).get(),
+  ]);
+  const developer = userSnapshot.data()?.accountType === "developer";
+  const membership = membershipSnapshot.data();
+  if (!developer && (!membershipSnapshot.exists || membership?.active !== true || !["admin", "teacher"].includes(String(membership.role)))) {
+    throw new HttpsError("permission-denied", "Somente gestão e professores ativos podem registrar alterações.");
+  }
+
+  const token = request.auth.token;
+  const userName = typeof token.name === "string" ? token.name.slice(0, 120) : typeof token.email === "string" ? token.email.slice(0, 160) : "Usuário";
+  const role = developer ? "developer" : String(membership?.role);
+  await firestore.collection("auditLogs").add({
+    academyId,
+    userId: uid,
+    userName,
+    userEmail: typeof token.email === "string" ? token.email.slice(0, 160) : null,
+    role,
+    action,
+    label,
+    details,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  return { ok: true };
+});
+
 function isoDate(value: unknown) {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   if (value && typeof value === "object" && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function") {

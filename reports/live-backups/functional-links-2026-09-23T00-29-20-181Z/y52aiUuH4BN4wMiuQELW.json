@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/y52aiUuH4BN4wMiuQELW",
+  "fields": {
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "muscleGroup": {
+      "stringValue": "Mobilidade"
+    },
+    "name": {
+      "stringValue": "Mobilidade de tornozelo"
+    },
+    "phase": {
+      "stringValue": "Preparação"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Panturrilhas"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "exerciseType": {
+      "stringValue": "Alongamento"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "anatomyRegion": {
+      "stringValue": "Tornozelos"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}
