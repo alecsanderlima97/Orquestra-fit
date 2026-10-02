@@ -2046,8 +2046,9 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [access.academyId, exerciseIdsKey]);
   useEffect(() => {
-    if (!db || !functions || !workout || openExerciseIndex === null) return;
-    const detail = workout.exerciseDetails?.[openExerciseIndex];
+    if (!db || !functions || !workout) return;
+    const targetIndex = openExerciseIndex ?? 0;
+    const detail = workout.exerciseDetails?.[targetIndex];
     if (!detail?.exerciseId) return;
     const currentMedia = exerciseMedia[detail.exerciseId] ?? {};
     const merged = { ...detail, ...currentMedia };

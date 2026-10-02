@@ -641,8 +641,8 @@ export const prepareExerciseGif = onCall({ region, timeoutSeconds: 120, memory: 
     const [sourceBuffer] = await sourceFile.download();
     const { default: sharp } = await import("sharp");
     const optimizedBuffer = await sharp(sourceBuffer, { animated: true })
-      .resize({ width: 640, withoutEnlargement: true })
-      .webp({ quality: 68, effort: 3, loop: 0 })
+      .resize({ width: 560, withoutEnlargement: true })
+      .webp({ quality: 60, effort: 1, loop: 0 })
       .toBuffer();
     await optimizedFile.save(optimizedBuffer, {
       resumable: false,
