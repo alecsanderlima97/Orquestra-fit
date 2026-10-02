@@ -47,16 +47,28 @@ const MovementDemo = memo(function MovementDemo({ src, name }: { src: string; na
   const [pageVisible, setPageVisible] = useState(true);
   const figure = useRef<HTMLElement>(null);
   useEffect(() => {
-    // Let the expanded card finish its opening animation before starting GIF decoding.
-    // This keeps the first interaction responsive on entry-level phones.
-    const readyTimer = window.setTimeout(() => setReady(true), 180);
+    // Do not start decoding while the card is still opening. GIF decoding happens
+    // outside React but can still compete with the first touch/scroll on entry-level
+    // phones, so give the browser an idle window after the interaction settles.
+    let cancelled = false;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const startDecoding = () => {
+      if (!cancelled) setReady(true);
+    };
+    const idleHandle = idleWindow.requestIdleCallback?.(startDecoding, { timeout: 900 });
+    const readyTimer = idleHandle === undefined ? window.setTimeout(startDecoding, 480) : undefined;
     const updateVisibility = () => setPageVisible(!document.hidden);
     updateVisibility();
     document.addEventListener("visibilitychange", updateVisibility);
     const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: "150px" });
     if (figure.current) observer?.observe(figure.current);
     return () => {
-      window.clearTimeout(readyTimer);
+      cancelled = true;
+      if (readyTimer !== undefined) window.clearTimeout(readyTimer);
+      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle);
       observer?.disconnect();
       document.removeEventListener("visibilitychange", updateVisibility);
     };
