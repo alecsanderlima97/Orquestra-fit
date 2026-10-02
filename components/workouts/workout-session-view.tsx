@@ -88,7 +88,7 @@ const MovementDemo = memo(function MovementDemo({ src, name }: { src: string; na
 
 function MovementDemoPlaceholder() {
   return <figure className="workout-demo workout-demo-pending">
-    <div className="workout-demo-stage"><span className="workout-demo-status" role="status">Preparando uma demonstração leve para este aparelho…</span></div>
+    <div className="workout-demo-stage"><span className="workout-demo-status" role="status">Aguarde o carregamento do GIF. Isso depende da internet e das configurações do seu celular.</span></div>
     <figcaption><Play size={13} /> Demonstração do movimento</figcaption>
   </figure>;
 }
