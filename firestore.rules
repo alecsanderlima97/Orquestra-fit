@@ -46,7 +46,13 @@ service cloud.firestore {
     }
 
     match /accessCodes/{codeId} {
-      allow read: if signedIn() && resource.data.active == true;
+      // O código é um segredo de uso único: permite leitura apenas por ID,
+      // e nunca enumeração da coleção. Convites vinculados a e-mail só podem
+      // ser consultados pela conta convidada.
+      allow get: if signedIn() && resource.data.active == true &&
+        (resource.data.get('invitedEmail', null) == null ||
+          resource.data.get('invitedEmail', null) == request.auth.token.email);
+      allow list: if false;
       allow create: if signedIn() && isAdmin(request.resource.data.academyId) &&
         request.resource.data.active == true &&
         request.resource.data.role in ['admin', 'teacher', 'student'] &&
@@ -276,9 +282,8 @@ service cloud.firestore {
 
     match /auditLogs/{logId} {
       allow read: if isDeveloper() || (resource.data.academyId is string && isAdmin(resource.data.academyId));
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid &&
-        belongsToAcademy(request.resource.data.academyId);
-      allow update, delete: if false;
+      // Escritas passam pela Cloud Function, que deriva ator, papel e horário.
+      allow create, update, delete: if false;
     }
   }
 }

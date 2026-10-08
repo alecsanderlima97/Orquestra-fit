@@ -3,7 +3,7 @@
 .student-app .home-view .welcome-row { gap: 16px; margin-bottom: 24px; }
 .student-app .home-view .welcome-row h1 { font-family: inherit; font-size: clamp(25px, 6vw, 30px); letter-spacing: -.7px; line-height: 1.2; }
 .student-app .home-view .today-workout { border-radius: 24px; padding: 26px 22px; border-color: #c2925433; box-shadow: 0 12px 32px #0002; }
-.student-app .home-view .workout-copy { width: 100%; position: relative; z-index: 2; }
+.student-app .home-view .workout-copy { width: 100%; position: relative; z-index: 4; }
 .student-app .home-view .workout-copy h2 { max-width: 90%; font-family: inherit; font-size: 30px; line-height: 1.15; letter-spacing: -.7px; overflow-wrap: anywhere; }
 .student-app .home-view .workout-copy p { max-width: 90%; line-height: 1.6; }
 .student-app .home-view .workout-copy button { border-radius: 14px; min-height: 50px; width: 100%; margin-top: 22px; }
@@ -31,19 +31,28 @@
 .student-app .home-view .student-message-inbox p { line-height: 1.6; font-size: 13px; overflow-wrap: anywhere; }
 .student-app .home-view .note-mark { border-radius: 12px; }
 .student-app .home-view .academy-whatsapp-card {
-  display: grid; grid-template-columns: 43px 1fr auto; gap: 12px; align-items: center;
+  display: grid; grid-template-columns: 43px minmax(0, 1fr); gap: 12px; align-items: start;
   margin-top: 16px; padding: 17px 14px; border: 1px solid rgba(73, 174, 118, .46);
   background: linear-gradient(115deg, rgba(28, 79, 57, .4), #151719 72%); color: inherit;
-  text-decoration: none; transition: border-color .2s ease, transform .2s ease, background .2s ease;
+  transition: border-color .2s ease, transform .2s ease, background .2s ease;
 }
 .student-app .home-view .academy-whatsapp-card:hover,
 .student-app .home-view .academy-whatsapp-card:focus-visible { border-color: #72d49a; background: linear-gradient(115deg, rgba(35, 104, 72, .52), #151719 72%); transform: translateY(-1px); }
 .academy-whatsapp-mark { width: 43px; height: 43px; display: grid; place-items: center; border: 1px solid rgba(105, 210, 147, .6); color: #80e2a7; }
-.academy-whatsapp-card > span:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
+.academy-whatsapp-copy { display: grid; gap: 3px; min-width: 0; }
 .academy-whatsapp-card small { color: #87d9a5; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
 .academy-whatsapp-card strong { color: #eaf8ef; font-size: 15px; }
 .academy-whatsapp-card p { color: #a3b8ab; font-size: 10px; line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
-.academy-whatsapp-card > svg { color: #80e2a7; }
+.academy-whatsapp-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.academy-whatsapp-actions a { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 7px 10px; border: 1px solid rgba(105, 210, 147, .45); border-radius: 9px; color: #c8f4d8; background: rgba(11, 37, 25, .5); font-size: 10px; font-weight: 800; text-decoration: none; transition: background .2s ease, border-color .2s ease, transform .2s ease; }
+.academy-whatsapp-actions a:hover, .academy-whatsapp-actions a:focus-visible { border-color: #80e2a7; background: rgba(35, 104, 72, .62); transform: translateY(-1px); }
+.academy-whatsapp-actions a svg:last-child { opacity: .8; }
+.student-app .home-view .today-workout { isolation: isolate; }
+.student-app .home-view .today-workout::after { content: ""; position: absolute; width: 180px; height: 180px; right: -72px; top: -82px; border: 1px solid rgba(226, 175, 104, .2); border-radius: 50%; box-shadow: 0 0 0 18px rgba(226, 175, 104, .035), 0 0 42px rgba(226, 175, 104, .12); pointer-events: none; z-index: 1; }
+.student-app .home-view .student-workout-actions > button:first-child { position: relative; overflow: hidden; box-shadow: 0 8px 18px rgba(194, 146, 84, .22), inset 0 1px rgba(255, 245, 219, .22); }
+.student-app .home-view .student-workout-actions > button:first-child::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.32) 48%, transparent 66%); transform: translateX(-120%); animation: student-action-sheen 5.5s ease-in-out infinite; pointer-events: none; }
+@keyframes student-action-sheen { 0%, 58% { transform: translateX(-120%); } 76%, 100% { transform: translateX(120%); } }
+@media (prefers-reduced-motion: reduce) { .student-app .home-view .student-workout-actions > button:first-child::after { animation: none; } }
 .student-app .home-view button:focus-visible,
 .student-app .home-view [role="button"]:focus-visible { outline: 2px solid var(--bronze-400); outline-offset: 4px; }
 .student-app .home-view button:disabled { opacity: .55; cursor: not-allowed; }

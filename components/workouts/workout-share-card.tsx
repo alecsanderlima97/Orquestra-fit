@@ -5,6 +5,7 @@ import { Camera, Check, Download, ImagePlus, Share2, X } from "lucide-react";
 
 export type ShareWorkoutSummary = {
   durationSeconds: number;
+  exerciseCount: number;
   calories?: number;
   totalVolume: number;
   maxLoad: number;
@@ -115,20 +116,19 @@ function drawMetricIcon(context: CanvasRenderingContext2D, icon: MetricIcon, x: 
 }
 
 function metric(context: CanvasRenderingContext2D, x: number, y: number, width: number, label: string, value: string, icon: MetricIcon) {
-  context.fillStyle = "rgba(12, 15, 16, .72)";
-  context.strokeStyle = "rgba(231, 184, 91, .38)";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.roundRect(x, y, width, 170, 28);
-  context.fill();
-  context.stroke();
-  drawMetricIcon(context, icon, x + 25, y + 20);
+  drawMetricIcon(context, icon, x + 22, y + 16);
   context.fillStyle = "#d4a65c";
-  context.font = "700 25px Arial";
-  context.fillText(label.toLocaleUpperCase("pt-BR"), x + 95, y + 50);
+  context.font = "700 21px Arial";
+  context.fillText(label.toLocaleUpperCase("pt-BR"), x + 88, y + 47);
   context.fillStyle = "#ffffff";
-  context.font = "700 42px Arial";
-  context.fillText(value, x + 30, y + 116, width - 60);
+  context.shadowColor = "rgba(0, 0, 0, .9)";
+  context.shadowBlur = 10;
+  context.shadowOffsetY = 2;
+  context.font = "700 35px Arial";
+  context.fillText(value, x + 24, y + 108, width - 48);
+  context.shadowColor = "transparent";
+  context.shadowBlur = 0;
+  context.shadowOffsetY = 0;
 }
 
 function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
@@ -165,7 +165,10 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   studentName: string;
   summary: ShareWorkoutSummary;
   showName: boolean;
-  showPerformance: boolean;
+  showDuration: boolean;
+  showExercises: boolean;
+  showCalories: boolean;
+  showWorkoutName: boolean;
 }) {
   const width = 1080;
   const height = 1920;
@@ -176,6 +179,7 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
 
   const fallback = await loadImage("/dama-de-ferro.jpeg");
   const damaLogo = await loadImage("/dama-de-ferro.jpeg").catch(() => null);
+  const orquestraLogo = await loadImage("/branding/orquestra-cs/logo-primary.png").catch(() => null);
   let background = fallback;
   if (options.photoUrl) {
     try { background = await loadImage(options.photoUrl); } catch { background = fallback; }
@@ -200,38 +204,38 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   if (damaLogo) {
     context.save();
     context.beginPath();
-    context.roundRect(60, 60, 112, 112, 22);
+    context.roundRect(60, 60, 124, 124, 24);
     context.clip();
-    context.drawImage(damaLogo, 60, 60, 112, 112);
+    context.drawImage(damaLogo, 60, 60, 124, 124);
     context.restore();
   }
   context.fillStyle = accent;
-  context.fillRect(192, 60, 7, 116);
+  context.fillRect(204, 60, 7, 128);
   context.fillStyle = silver;
   context.font = "800 40px Arial";
-  context.fillText("DAMA DE FERRO", 222, 114);
+  context.fillText("DAMA DE FERRO", 234, 116);
   context.fillStyle = accent;
   context.font = "700 22px Arial";
   context.letterSpacing = "5px";
-  context.fillText("ACADEMIA", 225, 154);
+  context.fillText("ACADEMIA", 237, 157);
   context.letterSpacing = "0px";
 
   const contentTop = 820;
-  context.fillStyle = accent;
-  context.font = "800 25px Arial";
-  context.fillText("TREINO CONCLUÍDO", 70, contentTop);
-  context.fillStyle = "#ffffff";
   const shareTitle = formatShareTitle(options.workoutName);
-  let titleFontSize = 58;
-  context.font = `800 ${titleFontSize}px Arial`;
-  while (titleFontSize > 36 && context.measureText(shareTitle).width > 940) {
-    titleFontSize -= 2;
+  let titleBottomOffset = 30;
+  if (options.showWorkoutName) {
+    context.fillStyle = "#ffffff";
+    let titleFontSize = 58;
     context.font = `800 ${titleFontSize}px Arial`;
+    while (titleFontSize > 36 && context.measureText(shareTitle).width > 940) {
+      titleFontSize -= 2;
+      context.font = `800 ${titleFontSize}px Arial`;
+    }
+    const titleLines = wrapCanvasText(context, shareTitle, 940);
+    const titleLineHeight = Math.round(titleFontSize * 1.12);
+    titleLines.forEach((line, index) => context.fillText(line, 70, contentTop + 42 + index * titleLineHeight, 940));
+    titleBottomOffset = 42 + (titleLines.length - 1) * titleLineHeight;
   }
-  const titleLines = wrapCanvasText(context, shareTitle, 940);
-  const titleLineHeight = Math.round(titleFontSize * 1.12);
-  titleLines.forEach((line, index) => context.fillText(line, 70, contentTop + 88 + index * titleLineHeight, 940));
-  const titleBottomOffset = 88 + (titleLines.length - 1) * titleLineHeight;
   if (options.showName) {
     context.fillStyle = "rgba(255, 255, 255, .78)";
     context.font = "500 31px Arial";
@@ -239,17 +243,12 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   }
 
   const metricTop = contentTop + Math.max(205, titleBottomOffset + (options.showName ? 130 : 110));
-  const metrics: Array<{ label: string; value: string; icon: MetricIcon }> = [
-    { label: "Duração", value: durationLabel(options.summary.durationSeconds), icon: "clock" },
-    { label: "Séries concluídas", value: String(options.summary.completedSets), icon: "sets" },
-  ];
-  if (options.showPerformance && options.summary.totalVolume > 0) metrics.push({ label: "Volume total", value: `${Math.round(options.summary.totalVolume).toLocaleString("pt-BR")} kg`, icon: "weight" });
-  if (options.showPerformance && typeof options.summary.calories === "number" && options.summary.calories > 0) metrics.push({ label: "Calorias", value: `${options.summary.calories} kcal`, icon: "flame" });
-  if (options.showPerformance && options.summary.maxLoad > 0) metrics.push({ label: "Maior carga", value: `${options.summary.maxLoad} kg`, icon: "weight" });
+  const metrics: Array<{ label: string; value: string; icon: MetricIcon }> = [];
+  if (options.showDuration) metrics.push({ label: "Duração", value: durationLabel(options.summary.durationSeconds), icon: "clock" });
+  if (options.showExercises) metrics.push({ label: "Exercícios", value: String(options.summary.exerciseCount), icon: "sets" });
+  if (options.showCalories && typeof options.summary.calories === "number" && options.summary.calories > 0) metrics.push({ label: "Calorias", value: `${options.summary.calories} kcal`, icon: "flame" });
   metrics.forEach((item, index) => {
-    const lastOdd = metrics.length % 2 === 1 && index === metrics.length - 1;
-    const row = Math.floor(index / 2);
-    metric(context, lastOdd ? 70 : index % 2 === 0 ? 70 : 555, metricTop + row * 195, lastOdd ? 940 : 455, item.label, item.value, item.icon);
+    metric(context, 70, metricTop + index * 162, 350, item.label, item.value, item.icon);
   });
 
   const footerY = height - 100;
@@ -257,13 +256,17 @@ async function renderCard(canvas: HTMLCanvasElement, options: {
   context.font = "500 22px Arial";
   context.fillText(new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date()), 70, footerY);
   context.textAlign = "right";
-  context.globalAlpha = .52;
-  context.fillStyle = silver;
-  context.font = "700 18px Arial";
-  context.fillText("ORQUESTRA FIT", width - 70, footerY - 10);
-  context.fillStyle = accent;
-  context.font = "600 13px Arial";
-  context.fillText("TECNOLOGIA ORQUESTRA.CS", width - 70, footerY + 15);
+  context.globalAlpha = .68;
+  if (orquestraLogo) {
+    context.drawImage(orquestraLogo, width - 285, height - 145, 215, 96);
+  } else {
+    context.fillStyle = silver;
+    context.font = "700 18px Arial";
+    context.fillText("ORQUESTRA FIT", width - 70, footerY - 10);
+    context.fillStyle = accent;
+    context.font = "600 13px Arial";
+    context.fillText("TECNOLOGIA ORQUESTRA.CS", width - 70, footerY + 15);
+  }
   context.globalAlpha = 1;
   context.textAlign = "left";
 }
@@ -276,15 +279,34 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [photoUrl, setPhotoUrl] = useState(profilePhoto);
   const [showName, setShowName] = useState(true);
-  const [showPerformance, setShowPerformance] = useState(true);
+  const [showDuration, setShowDuration] = useState(true);
+  const [showExercises, setShowExercises] = useState(true);
+  const [showCalories, setShowCalories] = useState(true);
+  const [showWorkoutName, setShowWorkoutName] = useState(true);
   const [status, setStatus] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [rendering, setRendering] = useState(true);
+  const [renderError, setRenderError] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    void renderCard(canvas, { photoUrl, workoutName, studentName, summary, showName, showPerformance });
-  }, [photoUrl, showName, showPerformance, studentName, summary, workoutName]);
+    let cancelled = false;
+    const draft = document.createElement("canvas");
+    setRendering(true);
+    setRenderError(false);
+    void renderCard(draft, { photoUrl, workoutName, studentName, summary, showName, showDuration, showExercises, showCalories, showWorkoutName }).then(() => {
+      if (cancelled) return;
+      canvas.width = draft.width;
+      canvas.height = draft.height;
+      canvas.getContext("2d")?.drawImage(draft, 0, 0);
+    }).catch(() => {
+      if (cancelled) return;
+      setRenderError(true);
+      setStatus("Não foi possível preparar a imagem. Escolha outra foto e tente novamente.");
+    }).finally(() => { if (!cancelled) setRendering(false); });
+    return () => { cancelled = true; };
+  }, [photoUrl, showName, showDuration, showExercises, showCalories, showWorkoutName, studentName, summary, workoutName]);
 
   useEffect(() => () => { if (photoUrl.startsWith("blob:")) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
@@ -301,7 +323,7 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
 
   async function share() {
     const canvas = canvasRef.current;
-    if (!canvas || sharing) return;
+    if (!canvas || sharing || rendering || renderError) return;
     setSharing(true);
     setStatus("");
     try {
@@ -335,10 +357,10 @@ export function WorkoutShareCard({ workoutName, studentName, profilePhoto = "", 
         <div className="workout-share-options">
           <div className="workout-share-output"><strong>Story e Status</strong><span>1080 × 1920 · pronto para publicar</span></div>
           <fieldset><legend>Foto do treino</legend><div className="workout-share-photo-actions"><label className="workout-share-photo is-camera"><Camera /><span><strong>Tirar foto agora</strong><small>Use a câmera do celular</small></span><input type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label><label className="workout-share-photo"><ImagePlus /><span><strong>Escolher da galeria</strong><small>{photoUrl ? "Foto selecionada" : "JPG, PNG ou WebP"}</small></span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /></label></div></fieldset>
-          <fieldset><legend>Privacidade</legend><label className="workout-share-toggle"><input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} /><span><Check />Mostrar meu nome</span></label><label className="workout-share-toggle"><input type="checkbox" checked={showPerformance} onChange={(event) => setShowPerformance(event.target.checked)} /><span><Check />Mostrar métricas disponíveis</span></label></fieldset>
+          <fieldset><legend>Informações no filtro</legend><label className="workout-share-toggle"><input type="checkbox" checked={showWorkoutName} onChange={(event) => setShowWorkoutName(event.target.checked)} /><span><Check />Nome do treino</span></label><label className="workout-share-toggle"><input type="checkbox" checked={showDuration} onChange={(event) => setShowDuration(event.target.checked)} /><span><Check />Duração do treino</span></label><label className="workout-share-toggle"><input type="checkbox" checked={showExercises} onChange={(event) => setShowExercises(event.target.checked)} /><span><Check />Quantidade de exercícios</span></label><label className="workout-share-toggle"><input className="workout-share-calories-toggle" type="checkbox" checked={showCalories} disabled={!summary.calories} onChange={(event) => setShowCalories(event.target.checked)} /><span><Check />Calorias calculadas</span></label><label className="workout-share-toggle"><input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} /><span><Check />Meu nome</span></label><small className="workout-share-field-note">{summary.calories ? "As calorias usam seu peso registrado e a duração do treino." : "Calorias ficam disponíveis depois que o peso estiver registrado na avaliação física."}</small></fieldset>
           <p className="workout-share-privacy">A foto é processada somente no seu aparelho.</p>
           {status && <p className="workout-share-status" role="status">{status}</p>}
-          <button className="workout-share-submit" type="button" onClick={() => void share()} disabled={sharing}>{sharing ? <Download /> : <Share2 />}{sharing ? "Gerando arte…" : "Compartilhar ou salvar"}</button>
+          <button className="workout-share-submit" type="button" onClick={() => void share()} disabled={sharing || rendering || renderError}>{sharing || rendering ? <Download /> : <Share2 />}{sharing || rendering ? "Preparando arte…" : "Compartilhar ou salvar"}</button>
         </div>
       </div>
     </section>

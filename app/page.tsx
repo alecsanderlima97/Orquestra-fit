@@ -1,9 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import dynamic from "next/dynamic";
+import { matchesSearch } from "@/lib/search";
+import { CompanyFields, maskCompanyDocument, type CompanyFieldsValue } from "@/components/company-fields";
 import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword, updateProfile } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, documentId, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
   Activity, ArrowLeft, ArrowRight, ArrowUp, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
@@ -12,20 +15,30 @@ import {
   Eye, EyeOff, PersonStanding, QrCode, Share2, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, Package, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
-import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
-import { WorkoutSessionView } from "@/components/workouts/workout-session-view";
-import { WorkoutShareCard } from "@/components/workouts/workout-share-card";
-import { FinanceModule } from "@/components/finance/finance-module-v2";
-import { AppGuide } from "@/components/assistant/app-guide";
-import { StockModule } from "@/components/stock/stock-module";
+import { OrquestraLoader } from "@/components/ui/orquestra-loader";
+import type { ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
 import { auth, db, functions, storage } from "@/lib/firebase/client";
+import { createSessionClock } from "@/lib/workouts/session-clock";
+import { nextPendingExercise } from "@/lib/workouts/session-navigation";
+import { exerciseMetricLabels, type ExerciseMetricSource } from "@/lib/workouts/exercise-metrics";
 import { verifiedFemaleGifUrls } from "@/lib/workouts/verified-female-gifs";
+
+const ExerciseAnatomyView = dynamic(() => import("@/components/workouts/exercise-anatomy-view").then((module) => module.ExerciseAnatomyView), { ssr: false });
+const WorkoutSessionView = dynamic(() => import("@/components/workouts/workout-session-view").then((module) => module.WorkoutSessionView), { ssr: false });
+const WorkoutShareCard = dynamic(() => import("@/components/workouts/workout-share-card").then((module) => module.WorkoutShareCard), { ssr: false });
+const FinanceModule = dynamic(() => import("@/components/finance/finance-module-v2").then((module) => module.FinanceModule), { ssr: false, loading: () => <ModuleLoading label="Carregando financeiro" /> });
+const StockModule = dynamic(() => import("@/components/stock/stock-module").then((module) => module.StockModule), { ssr: false, loading: () => <ModuleLoading label="Carregando estoque" /> });
+const AppGuide = dynamic(() => import("@/components/assistant/app-guide").then((module) => module.AppGuide), { ssr: false });
+
+function ModuleLoading({ label }: { label: string }) {
+  return <div className="workspace-content module-view module-loading"><OrquestraLoader label={label} /></div>;
+}
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
 type Theme = "bronze" | "prata";
-type AccountProfile = { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string; whatsappUrl?: string };
-type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; createdAt?: { toDate?: () => Date } };
+type AccountProfile = CompanyFieldsValue & { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string; whatsappUrl?: string; whatsappGroupUrl?: string };
+type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; senderId?: string; createdAt?: unknown; updatedAt?: unknown; expiresAt?: unknown; isWelcome?: boolean };
 type NotificationItem = { id: string; type: "announcement" | "message" | "workout" | "dueSoon" | "overdue"; title: string; detail: string; createdAt?: unknown };
 
 const FeedbackContext = createContext<(message: string) => void>(() => undefined);
@@ -60,6 +73,17 @@ function profileStorageKey(userId: string) {
 
 function localCollectionKey(academyId: string, collectionName: string) {
   return `orquestra-fit:${academyId}:${collectionName}`;
+}
+
+function contentIsActive(expiresAt: unknown, now = Date.now(), createdAt?: unknown) {
+  const expiry = firestoreDate(expiresAt);
+  if (expiry) return expiry.getTime() > now;
+  const created = firestoreDate(createdAt);
+  return !created || now - created.getTime() <= 30 * 24 * 60 * 60 * 1000;
+}
+
+function announcementSeenKey(academyId: string, userId: string, announcementId: string) {
+  return `orquestra-fit:announcement-seen:${academyId}:${userId}:${announcementId}`;
 }
 
 function notificationReadId(userId: string, notificationId: string) {
@@ -132,14 +156,19 @@ type AuditEventInput = {
 };
 
 async function recordAuditEvent(event: AuditEventInput) {
-  const payload = { ...event, createdAt: db ? serverTimestamp() : new Date().toISOString() };
+  const payload = { ...event, createdAt: new Date().toISOString() };
   if (!db) {
     const current = readLocalCollection<AuditEventInput & { id: string; createdAt: unknown }>(event.academyId, "auditLogs");
     writeLocalCollection(event.academyId, "auditLogs", [{ id: `local-audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, ...payload }, ...current].slice(0, 200));
     return;
   }
   try {
-    await addDoc(collection(db, "auditLogs"), payload);
+    if (!functions) return;
+    await httpsCallable(functions, "recordAuditEvent")({
+      academyId: event.academyId,
+      action: event.action,
+      details: event.details ?? null,
+    });
   } catch (error) {
     console.warn("Não foi possível registrar a auditoria.", error);
   }
@@ -173,8 +202,17 @@ function birthdayCountdown(birthDate?: string | null, referenceDate = new Date()
   return Math.round((nextBirthday.getTime() - today.getTime()) / 86400000);
 }
 
-function scrollToContent(selector: string) {
-  window.setTimeout(() => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+function scrollToContent(selector: string, focus = false) {
+  window.setTimeout(() => {
+    const target = document.querySelector<HTMLElement>(selector);
+    if (!target) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    if (focus) {
+      if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
+    }
+  }, 60);
 }
 
 function brazilGreeting() {
@@ -672,12 +710,6 @@ function packagedGifUrl(file: string) {
   return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
 }
 
-function expansionGifMedia(name: string) {
-  const seed = gifLibraryExpansionSeeds.find((item) => item.name === name);
-  if (!seed) return {};
-  return { gifMalePath: seed.file, gifPath: seed.file, gifMatch: "exact" as const };
-}
-
 function verifiedExerciseGif(name: string, profile: "masculino" | "feminino" = "masculino") {
   const key = exerciseGifKey(name);
   const gif = verifiedGifDefinition(name);
@@ -693,8 +725,10 @@ function verifiedGifDefinition(name: string): VerifiedExerciseGif | undefined {
   })();
 }
 
-function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath">, profile: "masculino" | "feminino" = "masculino") {
-  const saved = profile === "feminino" ? (exercise.gifFemaleUrl || exercise.gifUrl) : (exercise.gifMaleUrl || exercise.gifUrl);
+function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">, profile: "masculino" | "feminino" = "masculino") {
+  const saved = profile === "feminino"
+    ? (exercise.gifFemaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifFemaleUrl || exercise.gifUrl)
+    : (exercise.gifMaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifMaleUrl || exercise.gifUrl);
   if (saved) return saved;
   const path = profile === "masculino" ? exercise.gifMalePath : exercise.gifFemalePath;
   return (path ? packagedGifUrl(path) : "") || verifiedExerciseGif(exercise.name, profile);
@@ -739,6 +773,7 @@ export default function Home() {
   const role = access.accountType === "developer" ? demoRole : accountRole;
   const [theme, setTheme] = useState<Theme>("bronze");
   const [activeTab, setActiveTab] = useState<StudentTab>("inicio");
+  const [, startStudentNavigation] = useTransition();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutRecord | null>(null);
@@ -746,6 +781,22 @@ export default function Home() {
   const [completedSets, setCompletedSets] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const canSwitchRole = access.accountType === "developer" || access.role === "admin";
+
+  useEffect(() => {
+    const guardId = `orquestra-fit-navigation-${Date.now()}`;
+    const guardedState = { ...(window.history.state ?? {}), orquestraFitGuard: guardId };
+    window.history.pushState(guardedState, document.title, window.location.href);
+    const handleBrowserBack = () => {
+      window.history.pushState(guardedState, document.title, window.location.href);
+      setFeedback("Use a navegação do aplicativo para sair desta tela com segurança.");
+      window.setTimeout(() => setFeedback(null), 2600);
+    };
+    window.addEventListener("popstate", handleBrowserBack);
+    return () => {
+      window.removeEventListener("popstate", handleBrowserBack);
+      if (window.history.state?.orquestraFitGuard === guardId) window.history.back();
+    };
+  }, []);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("orquestra_fit_theme");
@@ -785,6 +836,16 @@ export default function Home() {
     setSessionOpen(false);
   }
 
+  function navigateStudentTab(tab: StudentTab) {
+    startStudentNavigation(() => setActiveTab(tab));
+  }
+
+  useEffect(() => {
+    if (sessionOpen) return;
+    document.querySelector<HTMLElement>(".student-scroll")?.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeTab, sessionOpen]);
+
   return (
     <FeedbackContext.Provider value={announce}>
       <main
@@ -801,7 +862,7 @@ export default function Home() {
             <WorkoutSession
               workout={activeWorkout ?? undefined}
               completedSets={completedSets}
-              onBack={() => setSessionOpen(false)}
+              onBack={() => { setSessionOpen(false); navigateStudentTab("treinos"); }}
               onCompleted={finishStudentWorkout}
               onToggleSet={(id) =>
                 setCompletedSets((current) =>
@@ -813,17 +874,17 @@ export default function Home() {
             <>
               <StudentHeader />
               <div className="student-scroll">
-                {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => setActiveTab("evolucao")} onViewWorkouts={() => setActiveTab("treinos")} />}
+                {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => navigateStudentTab("evolucao")} onViewWorkouts={() => navigateStudentTab("treinos")} />}
                 {activeTab === "treinos" && <WorkoutLibrary activeWorkoutId={activeWorkout?.id ?? activeWorkoutId} onStart={startStudentWorkout} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
-                {activeTab === "perfil" && <Profile onNavigate={setActiveTab} theme={theme} onThemeChange={setTheme} />}
+                {activeTab === "perfil" && <Profile onNavigate={navigateStudentTab} theme={theme} onThemeChange={setTheme} />}
               </div>
-              <StudentNav activeTab={activeTab} onChange={setActiveTab} />
+              <StudentNav activeTab={activeTab} onChange={navigateStudentTab} />
               <AcademyFooter />
             </>
           )}
-          {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={setActiveTab} />}
+          {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={navigateStudentTab} />}
         </section>
       )}
         {role === "professor" && <ProfessorWorkspace theme={theme} onThemeChange={setTheme} />}
@@ -1028,15 +1089,23 @@ function useAcademyAnnouncements() {
   const [announcements, setAnnouncements] = useState<AcademyAnnouncement[]>([]);
   useEffect(() => {
     if (!db) {
-      const syncLocal = () => setAnnouncements(readLocalCollection<AcademyAnnouncement>(access.academyId, "announcements"));
+      const syncLocal = () => setAnnouncements(readLocalCollection<AcademyAnnouncement>(access.academyId, "announcements")
+        .filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt))
+        .sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
       syncLocal();
       window.addEventListener("orquestra-fit:collection-updated", syncLocal);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
     }
     return onSnapshot(collection(db, "academies", access.academyId, "announcements"), (snapshot) => {
-      setAnnouncements(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AcademyAnnouncement, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+      setAnnouncements(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AcademyAnnouncement, "id">) }))
+        .filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt))
+        .sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
     }, (error) => console.error("Não foi possível carregar os comunicados.", error));
   }, [access.academyId]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setAnnouncements((current) => current.filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt))), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   return announcements;
 }
 
@@ -1066,7 +1135,7 @@ function useStudentNotificationItems(includeStudentData = true) {
     ...charges.filter((charge) => chargeViewStatus(charge) === "overdue").map((charge) => ({ id: `charge-${charge.id}`, type: "overdue" as const, title: "Mensalidade vencida", detail: `${charge.planName} venceu em ${formatDate(charge.dueDate)}.` })),
     ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: "Vencimento próximo", detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
     ...announcements.map((item) => ({ id: `announcement-${item.id}`, type: "announcement" as const, title: item.title, detail: item.body, createdAt: item.createdAt })),
-    ...messages.map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body, createdAt: item.createdAt })),
+    ...messages.filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt)).map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body, createdAt: item.createdAt })),
     ...workouts.map((item) => ({ id: `workout-${item.id}`, type: "workout" as const, title: "Novo treino disponível", detail: `${item.name} foi publicado para você.`, createdAt: item.createdAt ?? item.publishedAt ?? item.updatedAt })),
   ];
   return items.sort((first, second) => (firestoreDate(second.createdAt)?.getTime() ?? 0) - (firestoreDate(first.createdAt)?.getTime() ?? 0));
@@ -1181,7 +1250,7 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
           <small className="today-workout-program">{workout?.level ? `Programa ${workout.level}` : "Seu programa atual"}</small>
           <h2>{loading ? "Carregando seu treino" : workout ? displayWorkoutCardName(workout.name) : "Nenhum treino publicado"}</h2>
-          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? (workout.focusLabel || "Treino liberado pelo professor para o seu momento.") : "Seu professor ainda não liberou um treino."}</p>
+          {loading ? <p>Buscando suas fichas disponíveis.</p> : workout ? (workout.focusLabel && workout.focusLabel.trim().toLowerCase() !== displayWorkoutCardName(workout.name).trim().toLowerCase() ? <p>{workout.focusLabel}</p> : null) : <p>Seu professor ainda não liberou um treino.</p>}
           <div className="workout-meta">
             <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Aguardando"}</span>
             <span><Activity size={16} /> {workout ? `${totalSets || "—"} séries` : "Sem séries"}</span>
@@ -1269,31 +1338,49 @@ function StudentPaymentStatus() {
 function StudentMessagesInbox() {
   const access = useAccess();
   const [messages, setMessages] = useState<InternalMessage[]>([]);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!db) {
       const syncLocalMessages = () => {
         const studentId = localStudentId(access.academyId, access.userId);
-        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId));
+        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId && contentIsActive(item.expiresAt, Date.now(), item.createdAt)));
       };
       syncLocalMessages();
       window.addEventListener("orquestra-fit:collection-updated", syncLocalMessages);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalMessages);
     }
     return onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => {
-      setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+      setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt)).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
     });
   }, [access.academyId, access.userId]);
-  const message = messages[0];
-  return <article className="student-message-inbox"><div className="student-message-inbox-icon"><MessageCircle /></div><div><small>COMUNICADO DA EQUIPE</small><strong>{message ? message.senderName : "Nenhuma mensagem nova"}</strong><p>{message?.body ?? "Quando seu professor enviar uma orientação, ela aparecerá aqui."}</p></div></article>;
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const message = messages.find((item) => contentIsActive(item.expiresAt, now, item.createdAt));
+  if (!message) return null;
+  return <article className="student-message-inbox"><div className="student-message-inbox-icon"><MessageCircle /></div><div><small>COMUNICADO DA EQUIPE</small><strong>{message.senderName}</strong><p>{message.body}</p></div></article>;
 }
 
 function StudentAnnouncementCard() {
+  const access = useAccess();
   const announcements = useAcademyAnnouncements();
   const latest = announcements[0];
+  const announcement = latest ?? { id: "welcome", title: "Boas-vindas à Dama de Ferro", body: "Seu espaço de treino e evolução começa aqui." };
+  const [dismissed, setDismissed] = useState(false);
+  const seenKey = announcementSeenKey(access.academyId, access.userId, announcement.id);
+  useEffect(() => {
+    try { setDismissed(window.localStorage.getItem(seenKey) === "1"); } catch { setDismissed(false); }
+  }, [seenKey]);
+  if (dismissed) return null;
+  function dismiss() {
+    try { window.localStorage.setItem(seenKey, "1"); } catch { /* armazenamento opcional */ }
+    setDismissed(true);
+  }
   return <article className="academy-note">
     <div className="note-mark">DF</div>
-    <div><span>COMUNICADO DA ACADEMIA</span><h3>{latest?.title ?? "Boas-vindas à Dama de Ferro"}</h3><p>{latest?.body ?? "Os avisos gerais da gestão aparecerão aqui e nas notificações."}</p></div>
-    <ChevronRight />
+    <div><span>COMUNICADO DA ACADEMIA</span><h3>{announcement.title}</h3><p>{announcement.body}</p></div>
+    <button type="button" className="academy-note-dismiss" onClick={dismiss} aria-label="Ocultar comunicado"><X size={15} /></button>
   </article>;
 }
 
@@ -1322,6 +1409,7 @@ function AcademyHoursCard() {
 
 function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: WorkoutRecord) => void; activeWorkoutId?: string | null }) {
   const { workouts: publishedWorkouts, loading } = useStudentPublishedWorkouts();
+  const [workoutSearch, setWorkoutSearch] = useState("");
   const executions = useStudentWorkoutExecutions();
   const [levelFilter, setLevelFilter] = useState<"Todos" | WorkoutLevel>("Todos");
   function workoutHistory(workoutId: string) { return executions.filter((execution) => execution.workoutId === workoutId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)); }
@@ -1333,11 +1421,18 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
     if (levelDifference !== 0) return levelDifference;
     return first.name.localeCompare(second.name, "pt-BR");
   });
-  const visibleWorkouts = levelFilter === "Todos" ? orderedWorkouts : orderedWorkouts.filter((workout) => (workout.level ?? "Fundação") === levelFilter);
+  const programCounts = new Map<string, number>();
+  const workoutCodes = new Map(orderedWorkouts.map((workout) => {
+    const level = workout.level ?? "Fundação";
+    const index = programCounts.get(level) ?? 0;
+    programCounts.set(level, index + 1);
+    return [workout.id, String.fromCharCode(65 + (index % 26))];
+  }));
+  const visibleWorkouts = orderedWorkouts.filter((workout) => (levelFilter === "Todos" || (workout.level ?? "Fundação") === levelFilter) && matchesSearch(workoutSearch, workout.name, workout.level, `Treino ${workoutCodes.get(workout.id)}`));
   return (
     <div className="student-view">
       <PageIntro kicker="MEU PROGRAMA ATUAL" title="Seus treinos" copy="Comece pelo treino recomendado e escolha outra ficha quando precisar." />
-      <div className="student-workout-toolbar"><div><small>PROGRAMA ATUAL</small><strong>{currentProgram}</strong><span>{publishedWorkouts.filter((workout) => (workout.level ?? "Fundação") === currentProgram && !workout.isLocked).length} treino(s) liberado(s)</span></div><label>Filtrar por programa<select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as "Todos" | WorkoutLevel)}><option value="Todos">Todos os programas</option><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label></div>
+      <label className="workspace-search"><Search /><input type="search" aria-label="Buscar treino" placeholder="Buscar treino ou programa…" value={workoutSearch} onChange={(event) => setWorkoutSearch(event.target.value)} /></label><div className="student-workout-toolbar"><div><small>PROGRAMA ATUAL</small><strong>{currentProgram}</strong><span>{publishedWorkouts.filter((workout) => (workout.level ?? "Fundação") === currentProgram && !workout.isLocked).length} treino(s) liberado(s)</span></div><label>Filtrar por programa<select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as "Todos" | WorkoutLevel)}><option value="Todos">Todos os programas</option><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label></div>
       <div className="program-summary">
         <div><small>ORIENTAÇÃO DA ACADEMIA</small><strong>Seu próximo passo é o programa {currentProgram}</strong></div><span>ESCOLHA LIVRE</span>
         <div className="program-line"><i /></div>
@@ -1359,7 +1454,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const isCompleted = !isLocked && Boolean(latest) && !isInProgress;
             const stateClass = isLocked ? "is-locked" : isInProgress ? "is-in-progress" : isCompleted ? "is-completed" : "is-next";
             const stateLabel = isLocked ? "NÍVEL BLOQUEADO" : isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
-            const workoutCode = String.fromCharCode(65 + (index % 26));
+            const workoutCode = workoutCodes.get(workout.id);
             const level = workout.level ?? "Fundação";
             const estimatedDuration = estimatedWorkoutDurationLabel(workout.exerciseDetails ?? [], workout.exerciseIds.length);
             const audience = workout.audience === "Geral" ? "Geral" : "Personalizado";
@@ -1367,7 +1462,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const stars = latest ? previous ? Math.max(1, Math.min(5, 3 + (durationDelta !== null && durationDelta <= 0 ? 1 : 0) + ((latest.maxLoad ?? 0) > (previous.maxLoad ?? 0) || (latest.maxReps ?? 0) > (previous.maxReps ?? 0) ? 1 : 0))) : 1 : 0;
             const previousLevel = index > 0 ? visibleWorkouts[index - 1].level ?? "Fundação" : null;
             const isCurrentProgram = level === currentProgram;
-            return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`}>
+            return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`} data-level={machineCode(level)}>
             <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-duration"><Clock3 size={12} /> {estimatedDuration}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutCardName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             {!isLocked && <details className="workout-card-menu"><summary aria-label="Mais ações"><MoreHorizontal size={18} /></summary><div><button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={15} /> Imprimir ficha</button></div></details>}
@@ -1797,7 +1892,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   );
 }
 
-type SessionExercise = Omit<WorkoutExerciseDetail, "exerciseId" | "sets" | "rest"> & { group: string; sets: number; rest: string; metricMode?: ExerciseMetricMode };
+type SessionExercise = Omit<WorkoutExerciseDetail, "exerciseId" | "sets" | "rest"> & { group: string; sets: number; rest: string; metricMode?: ExerciseMetricMode; gifLoading?: boolean };
 
 function normalizeMachineQr(rawValue: string) {
   const value = rawValue.trim();
@@ -1865,19 +1960,24 @@ function MachineQrReader({ exercises, onClose, onSelect }: { exercises: SessionE
 function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onCompleted: () => void; onToggleSet: (id: string) => void }) {
   const access = useAccess();
   const feedback = useFeedback();
-  const persistedProgress = typeof window === "undefined" ? null : readWorkoutProgress(access.academyId, access.userId, workout?.id);
-  const [seconds, setSeconds] = useState(() => persistedProgress?.seconds ?? 0);
+  const persistedProgress = useMemo(() => typeof window === "undefined" ? null : readWorkoutProgress(access.academyId, access.userId, workout?.id), [access.academyId, access.userId, workout?.id]);
+  const [clock] = useState(() => createSessionClock(persistedProgress?.seconds ?? 0));
   const [machineReaderOpen, setMachineReaderOpen] = useState(false);
   const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>(() => persistedProgress?.setValues ?? {});
   const [saving, setSaving] = useState(false);
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
-  const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">>>({});
+  const [bodyWeightKg, setBodyWeightKg] = useState<number | null>(null);
+  const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath" | "gifPath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">>>({});
+  const [gifPreparation, setGifPreparation] = useState<Record<string, "loading" | "ready" | "failed">>({});
+  const sessionMounted = useRef(true);
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(null);
   const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
   const [completionSummary, setCompletionSummary] = useState<WorkoutCompletionSummary | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
-  const exercises: SessionExercise[] = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource({ ...exercise, ...currentMedia, name: exercise.name }, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode }));
+  useEffect(() => () => { sessionMounted.current = false; }, []);
+  const exerciseIdsKey = (workout?.exerciseDetails ?? []).map((exercise) => exercise.exerciseId).filter(Boolean).join("|");
+  const exercises = useMemo<SessionExercise[]>(() => workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); const merged = { ...exercise, ...currentMedia, name: exercise.name }; const directGif = exerciseGifSource(merged, anatomyProfile); const hasStoredGif = Boolean(merged.gifPath || merged.gifMalePath || merged.gifFemalePath || currentMedia.gifPath); const preparation = gifPreparation[exercise.exerciseId]; const gifLoading = Boolean(db && functions && hasStoredGif && !merged.gifOptimizedUrl && !merged.gifMaleOptimizedUrl && !merged.gifFemaleOptimizedUrl && preparation !== "failed"); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: gifLoading ? "" : directGif, gifLoading, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode })), [workout?.exerciseDetails, exerciseMedia, anatomyProfile, gifPreparation]);
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const previousExecutions = useStudentWorkoutExecutions();
   const previousSets = useMemo(() => {
@@ -1885,14 +1985,15 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     return Object.fromEntries((latest?.sets ?? []).map((item) => [item.exerciseName, { load: item.load, reps: item.reps }]));
   }, [previousExecutions, workout?.id]);
   useEffect(() => {
-    if (completionSummary) return;
-    const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [completionSummary]);
+    if (completionSummary) clock.stop();
+  }, [completionSummary, clock]);
   useEffect(() => {
     if (!workout || completionSummary) return;
-    window.sessionStorage.setItem(workoutProgressKey(access.academyId, access.userId), JSON.stringify({ workoutId: workout.id, completedSets, setValues, seconds } satisfies WorkoutProgressSnapshot));
-  }, [access.academyId, access.userId, completedSets, completionSummary, seconds, setValues, workout]);
+    const persist = () => window.sessionStorage.setItem(workoutProgressKey(access.academyId, access.userId), JSON.stringify({ workoutId: workout.id, completedSets, setValues, seconds: clock.getSeconds() } satisfies WorkoutProgressSnapshot));
+    persist();
+    const timer = window.setInterval(persist, 5000);
+    return () => window.clearInterval(timer);
+  }, [access.academyId, access.userId, completedSets, completionSummary, setValues, workout, clock]);
   useEffect(() => {
     const studentId = localStudentId(access.academyId, access.userId);
     const setProfile = (value?: string) => setAnatomyProfile(value === "feminino" ? "feminino" : "masculino");
@@ -1903,12 +2004,70 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     return onSnapshot(doc(db, "academies", access.academyId, "students", studentId), (snapshot) => setProfile(snapshot.data()?.anatomyProfile));
   }, [access.academyId, access.userId]);
   useEffect(() => {
+    const studentId = localStudentId(access.academyId, access.userId);
+    const setLatestWeight = (items: AssessmentRecord[]) => {
+      const latest = [...items].filter((item) => item.studentId === studentId).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const weight = Number(String(latest?.weight ?? "").replace(",", "."));
+      setBodyWeightKg(Number.isFinite(weight) && weight > 0 ? weight : null);
+    };
     if (!db) {
-      setExerciseMedia(Object.fromEntries(readLocalCollection<ExerciseRecord>(access.academyId, "exercises").map((exercise) => [exercise.id, { name: exercise.name, gifUrl: exercise.gifUrl, gifMaleUrl: exercise.gifMaleUrl, gifFemaleUrl: exercise.gifFemaleUrl }])));
+      setLatestWeight(readLocalCollection<AssessmentRecord>(access.academyId, "assessments"));
       return;
     }
-    return onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => setExerciseMedia(Object.fromEntries(snapshot.docs.map((item) => { const data = item.data() as Omit<ExerciseRecord, "id">; return [item.id, { name: data.name ?? "Exercício", gifUrl: data.gifUrl, gifMaleUrl: data.gifMaleUrl, gifFemaleUrl: data.gifFemaleUrl }]; }))));
-  }, [access.academyId]);
+    return onSnapshot(query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", studentId)), (snapshot) => {
+      setLatestWeight(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AssessmentRecord, "id">) })));
+    });
+  }, [access.academyId, access.userId]);
+  useEffect(() => {
+    const exerciseIds = Array.from(new Set(exerciseIdsKey.split("|").filter(Boolean)));
+    if (!db) {
+      const exerciseIdSet = new Set(exerciseIds);
+      setExerciseMedia(Object.fromEntries(readLocalCollection<ExerciseRecord>(access.academyId, "exercises")
+        .filter((exercise) => exerciseIdSet.size === 0 || exerciseIdSet.has(exercise.id))
+        .map((exercise) => [exercise.id, { name: exercise.name, gifUrl: exercise.gifUrl, gifMaleUrl: exercise.gifMaleUrl, gifFemaleUrl: exercise.gifFemaleUrl, gifPath: exercise.gifPath, gifMalePath: exercise.gifMalePath, gifFemalePath: exercise.gifFemalePath, gifOptimizedUrl: exercise.gifOptimizedUrl, gifOptimizedPath: exercise.gifOptimizedPath, gifMaleOptimizedUrl: exercise.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise.gifFemaleOptimizedPath }])));
+      return;
+    }
+    if (!exerciseIds.length) {
+      setExerciseMedia({});
+      return;
+    }
+    const mediaById = new Map<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifPath" | "gifMalePath" | "gifFemalePath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">>();
+    const unsubscribers = [] as Array<() => void>;
+    for (let start = 0; start < exerciseIds.length; start += 30) {
+      const chunk = exerciseIds.slice(start, start + 30);
+      unsubscribers.push(onSnapshot(query(collection(db, "academies", access.academyId, "exercises"), where(documentId(), "in", chunk)), (snapshot) => {
+        snapshot.docs.forEach((item) => {
+          const data = item.data() as Omit<ExerciseRecord, "id">;
+          mediaById.set(item.id, { name: data.name ?? "Exercício", gifUrl: data.gifUrl, gifMaleUrl: data.gifMaleUrl, gifFemaleUrl: data.gifFemaleUrl, gifPath: data.gifPath, gifMalePath: data.gifMalePath, gifFemalePath: data.gifFemalePath, gifOptimizedUrl: data.gifOptimizedUrl, gifOptimizedPath: data.gifOptimizedPath, gifMaleOptimizedUrl: data.gifMaleOptimizedUrl, gifMaleOptimizedPath: data.gifMaleOptimizedPath, gifFemaleOptimizedUrl: data.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: data.gifFemaleOptimizedPath });
+        });
+        setExerciseMedia(Object.fromEntries(mediaById));
+      }));
+    }
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [access.academyId, exerciseIdsKey]);
+  useEffect(() => {
+    if (!db || !functions || !workout) return;
+    const targetIndex = openExerciseIndex ?? 0;
+    const detail = workout.exerciseDetails?.[targetIndex];
+    if (!detail?.exerciseId) return;
+    const currentMedia = exerciseMedia[detail.exerciseId] ?? {};
+    const merged = { ...detail, ...currentMedia };
+    const sourcePath = anatomyProfile === "feminino" ? (merged.gifFemalePath || merged.gifPath) : (merged.gifMalePath || merged.gifPath);
+    const optimizedUrl = anatomyProfile === "feminino" ? (merged.gifFemaleOptimizedUrl || merged.gifOptimizedUrl) : (merged.gifMaleOptimizedUrl || merged.gifOptimizedUrl);
+    if (!sourcePath || optimizedUrl || gifPreparation[detail.exerciseId]) return;
+    setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "loading" }));
+    const prepare = httpsCallable<{ academyId: string; exerciseId: string; profile: "masculino" | "feminino" }, { ok: boolean; url: string; path: string; profile: "masculino" | "feminino" }>(functions, "prepareExerciseGif");
+    void prepare({ academyId: access.academyId, exerciseId: detail.exerciseId, profile: anatomyProfile }).then(({ data }) => {
+      if (!sessionMounted.current) return;
+      const media = data.profile === "feminino"
+        ? { gifFemaleOptimizedUrl: data.url, gifFemaleOptimizedPath: data.path }
+        : { gifOptimizedUrl: data.url, gifOptimizedPath: data.path, gifMaleOptimizedUrl: data.url, gifMaleOptimizedPath: data.path };
+      setExerciseMedia((current) => ({ ...current, [detail.exerciseId]: { ...current[detail.exerciseId], name: detail.name, ...media } }));
+      setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "ready" }));
+    }).catch(() => {
+      if (sessionMounted.current) setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "failed" }));
+    });
+  }, [access.academyId, anatomyProfile, exerciseMedia, gifPreparation, openExerciseIndex, workout]);
   useEffect(() => {
     if (!restTimer) return;
     if (restTimer.remaining <= 0) {
@@ -1919,7 +2078,6 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     const timer = window.setTimeout(() => setRestTimer((current) => current ? { ...current, remaining: current.remaining - 1 } : null), 1000);
     return () => window.clearTimeout(timer);
   }, [restTimer, feedback]);
-  const elapsed = useMemo(() => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`, [seconds]);
   function startRest(exerciseIndex: number) {
     const configuredSeconds = Math.max(1, Number(String(exercises[exerciseIndex].rest).replace(/[^0-9]/g, "")) || 60);
     setRestTimer({ exerciseIndex, total: configuredSeconds, remaining: configuredSeconds });
@@ -1931,12 +2089,17 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     onToggleSet(id);
     if (!done) {
       startRest(exerciseIndex);
-      if (completedBefore + 1 === exercises[exerciseIndex].sets) setOpenExerciseIndex((current) => current === exerciseIndex ? null : current);
+      if (completedBefore + 1 === exercises[exerciseIndex].sets) {
+        setOpenExerciseIndex(null);
+        const nextIndex = nextPendingExercise(exercises, [...completedSets, id], exerciseIndex);
+        scrollToContent(nextIndex === null ? ".workout-finish button" : `[data-workout-index="${nextIndex}"]`, true);
+      }
     }
   }
 
   async function finishWorkout() {
     if (completedSets.length < totalSets || saving) return;
+    const seconds = clock.getSeconds();
     const sets = exercises.flatMap((exercise, exerciseIndex) => Array.from({ length: exercise.sets }).map((_, setIndex) => {
       const id = `${exerciseIndex}-${setIndex}`;
       const value = setValues[id] ?? { load: exercise.load, reps: exercise.reps };
@@ -1957,10 +2120,11 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
       maxLoadDelta: maxLoad > 0 && (previousExecution.maxLoad ?? 0) > 0 ? maxLoad - (previousExecution.maxLoad ?? 0) : undefined,
       repsDelta: maxReps > 0 && (previousExecution.maxReps ?? 0) > 0 ? maxReps - (previousExecution.maxReps ?? 0) : undefined,
     } : undefined;
-    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, maxLoad, maxReps, totalVolume, comparison, maxMetricLabel: "Maior carga", maxMetricUnit: "kg", completedSets: completedSets.length, totalSets };
+    const calories = estimateWorkoutCalories(bodyWeightKg, seconds, exercises);
+    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, exerciseCount: exercises.length, calories, maxLoad, maxReps, totalVolume, comparison, maxMetricLabel: "Maior carga", maxMetricUnit: "kg", completedSets: completedSets.length, totalSets };
     if (!workout || !db) {
       if (workout) {
-        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, totalVolume, maxLoad, maxReps, completedAt: new Date().toISOString() };
+        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, totalVolume, maxLoad, maxReps, calories, completedAt: new Date().toISOString() };
         const executions = readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions");
         writeLocalCollection(access.academyId, "workoutExecutions", [execution, ...executions]);
       }
@@ -1980,6 +2144,7 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
         totalVolume,
         maxLoad,
         maxReps,
+        ...(calories ? { calories } : {}),
         completedAt: serverTimestamp(),
       });
       setCompletionSummary(summary);
@@ -1990,10 +2155,18 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     }
   }
 
+  function currentPrescriptionValue(exerciseIndex: number, field: "load" | "reps", fallback: string) {
+    const current = exercises[exerciseIndex];
+    const values = Array.from({ length: current.sets }, (_, setIndex) => setValues[`${exerciseIndex}-${setIndex}`]?.[field] || fallback).filter(Boolean);
+    const unique = Array.from(new Set(values));
+    if (unique.length <= 2) return unique.join(" · ") || fallback;
+    return `${unique[0]}–${unique[unique.length - 1]}`;
+  }
+
   return <>
     <WorkoutSessionView
       name={displayWorkoutName(workout?.name ?? "Pernas e estabilidade")}
-      elapsed={elapsed}
+      clock={clock}
       exercises={exercises}
       completedSets={completedSets}
       openIndex={openExerciseIndex}
@@ -2004,14 +2177,15 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
       onBack={onBack}
       onOpen={setOpenExerciseIndex}
       onToggleSet={toggleSet}
-      onValueChange={(id, field, value, exercise) => setSetValues((current) => ({
-        ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: current[id]?.reps ?? exercise.reps, [field]: value },
-      }))}
+      onValueChange={(id, field, value, exercise) => {
+        setSetValues((current) => ({ ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: current[id]?.reps ?? exercise.reps, [field]: value } }));
+        setAnatomyExercise((current) => current?.name === exercise.name ? { ...current, [field]: value } : current);
+      }}
       onRest={startRest}
       onStopRest={() => setRestTimer(null)}
       onAnatomy={(index) => {
         const exercise = exercises[index];
-        setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest });
+        setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: currentPrescriptionValue(index, "reps", exercise.reps), load: currentPrescriptionValue(index, "load", exercise.load), metricMode: exercise.metricMode, rest: exercise.rest });
       }}
       onScan={() => setMachineReaderOpen(true)}
       onFinish={() => void finishWorkout()}
@@ -2063,7 +2237,7 @@ function WorkoutCompletionSummary({ workoutId, name, summary, onClose }: { worko
   if (sharing) return <WorkoutShareCard workoutName={displayWorkoutName(name)} studentName={studentName} profilePhoto={profilePhoto} summary={summary} onClose={() => setSharing(false)} />;
   return <div className="workout-completion-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-completion-title">
     <section className="workout-completion-card"><div className="workout-completion-mark"><Trophy size={25} /></div><small>CONQUISTA REGISTRADA</small><h2 id="workout-completion-title">Treino concluído</h2><p>{displayWorkoutName(name)} foi salvo no seu progresso pessoal.</p>
-      <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Activity size={17} /><small>Séries concluídas</small><strong>{summary.completedSets}</strong></div>{summary.totalVolume > 0 && <div><Dumbbell size={17} /><small>Volume total</small><strong>{summary.totalVolume.toLocaleString("pt-BR")} kg</strong></div>}{typeof summary.calories === "number" && summary.calories > 0 && <div><Flame size={17} /><small>Calorias</small><strong>{summary.calories} kcal</strong></div>}{summary.maxLoad > 0 && <div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad}{summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}</strong></div>}</div>
+      <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Activity size={17} /><small>Séries concluídas</small><strong>{summary.completedSets}</strong></div>{summary.totalVolume > 0 && <div><Dumbbell size={17} /><small>Volume total</small><strong>{summary.totalVolume.toLocaleString("pt-BR")} kg</strong></div>}{typeof summary.calories === "number" && summary.calories > 0 && <div><Flame size={17} /><small>Calorias estimadas</small><strong>{summary.calories} kcal</strong></div>}{summary.maxLoad > 0 && <div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad}{summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}</strong></div>}</div>
       <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p>{summary.comparison && <div className="workout-completion-comparison"><small>COMPARAÇÃO COM O ÚLTIMO TREINO</small>{summary.comparison.volumeDelta !== undefined && <span>{summary.comparison.volumeDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.volumeDelta).toLocaleString("pt-BR")} kg de volume</span>}{summary.comparison.maxLoadDelta !== undefined && <span>{summary.comparison.maxLoadDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.maxLoadDelta)} kg na maior carga</span>}{summary.comparison.repsDelta !== undefined && <span>{summary.comparison.repsDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.repsDelta)} repetições máximas</span>}{summary.comparison.durationDelta !== 0 && <span>{summary.comparison.durationDelta > 0 ? "+" : "−"}{formatWorkoutDuration(Math.abs(summary.comparison.durationDelta))} de duração</span>}</div>}{feedbackSaved ? <p className="workout-feedback-saved"><Check size={15} /> Avaliação registrada no seu histórico.</p> : <div className="workout-feedback"><div><small>COMO FOI ESTE TREINO?</small><span>Sua avaliação ajuda a acompanhar sua evolução.</span></div><div className="workout-rating" aria-label="Avalie este treino de 1 a 5 estrelas">{[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" className={value <= rating ? "is-selected" : ""} aria-label={`${value} ${value === 1 ? "estrela" : "estrelas"}`} onClick={() => setRating(value)}>★</button>)}</div><textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={800} placeholder="Comentário opcional sobre o treino" /><button type="button" className="workout-feedback-save" onClick={() => void saveFeedback()} disabled={savingFeedback}>{savingFeedback ? "Salvando..." : "Salvar avaliação"}</button></div>}<div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
     </section>
   </div>;
@@ -2101,7 +2275,7 @@ type RegisteredStudent = {
   anatomyProfile?: "masculino" | "feminino";
   active?: boolean;
 };
-type InternalMessage = { id: string; studentId: string; senderId: string; senderName: string; body: string; createdAt?: { toDate?: () => Date } };
+type InternalMessage = { id: string; studentId: string; senderId: string; senderName: string; body: string; createdAt?: unknown; expiresAt?: unknown };
 
 type RegisteredTeacher = {
   id: string;
@@ -2126,6 +2300,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeModule, setActiveModule] = useState("Visão geral");
+  const [, startWorkspaceNavigation] = useTransition();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -2138,19 +2313,22 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
     }
     setFocusStudentId(studentId ?? null);
     setFocusSearch("");
-    setActiveModule(module);
+    startWorkspaceNavigation(() => setActiveModule(module));
+    if (!studentId) window.requestAnimationFrame(() => scrollToContent(".workspace-content", true));
   }
   useEffect(() => {
     const handleNavigation = (event: Event) => {
       const detail = (event as CustomEvent<{ module?: string; studentId?: string; search?: string }>).detail;
       if (!detail?.module) return;
-      if (profile === "Professor" && detail.module === "Financeiro") {
+      const targetModule = detail.module;
+      if (profile === "Professor" && targetModule === "Financeiro") {
         feedback("O módulo financeiro é exclusivo da gestão.");
         return;
       }
       setFocusStudentId(detail.studentId ?? null);
       setFocusSearch(detail.search ?? "");
-      setActiveModule(detail.module);
+      startWorkspaceNavigation(() => setActiveModule(targetModule));
+      if (!detail.studentId) window.requestAnimationFrame(() => scrollToContent(".workspace-content", true));
     };
     window.addEventListener("orquestra-fit:navigate", handleNavigation);
     return () => window.removeEventListener("orquestra-fit:navigate", handleNavigation);
@@ -2336,22 +2514,10 @@ function paymentMethodLabel(method?: PaymentMethod) { return method === "cartao_
 type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
 type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
 type ExerciseType = "Força" | "Peso corporal" | "Alongamento" | "Cardio";
-type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifMatch?: "exact" | "equivalent"; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
-type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifOptimizedUrl?: string; gifOptimizedPath?: string; gifMaleOptimizedUrl?: string; gifMaleOptimizedPath?: string; gifFemaleOptimizedUrl?: string; gifFemaleOptimizedPath?: string; gifMatch?: "exact" | "equivalent"; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifOptimizedUrl?: string; gifOptimizedPath?: string; gifMaleOptimizedUrl?: string; gifMaleOptimizedPath?: string; gifFemaleOptimizedUrl?: string; gifFemaleOptimizedPath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 
 type ExerciseMetricMode = "strength" | "cardio" | "timed";
-type ExerciseMetricLabels = { mode: ExerciseMetricMode; sets: string; reps: string; load: string; rest: string; repsUnit: string; loadUnit: string; repsInputMode: "numeric" | "decimal"; loadInputMode: "numeric" | "decimal" };
-type ExerciseMetricSource = { name: string; exerciseType?: ExerciseType; equipmentName?: string; muscleGroup?: string };
-
-function exerciseMetricLabels(exercise: ExerciseMetricSource): ExerciseMetricLabels {
-  const text = `${exercise.name} ${exercise.equipmentName ?? ""} ${exercise.muscleGroup ?? ""}`.toLocaleLowerCase("pt-BR");
-  const isCardio = exercise.exerciseType === "Cardio" || /bicicleta|bike|esteira|corrida|caminhada|elípt|elipt|remo ergométrico|escada ergométrica|transport|stair|air bike|cardio/.test(text);
-  if (isCardio) return { mode: "cardio", sets: "Blocos", reps: "Tempo", load: "Velocidade", rest: "Recuperação", repsUnit: "min", loadUnit: "km/h", repsInputMode: "decimal", loadInputMode: "decimal" };
-  const isTimed = exercise.exerciseType === "Alongamento" || /alongamento|mobilidade|prancha|isometr|wall sit/.test(text);
-  if (isTimed) return { mode: "timed", sets: "Séries", reps: "Tempo", load: "Intensidade", rest: "Descanso", repsUnit: "s", loadUnit: "", repsInputMode: "numeric", loadInputMode: "numeric" };
-  return { mode: "strength", sets: "Séries", reps: "Repetições", load: "Carga", rest: "Descanso", repsUnit: "rep.", loadUnit: "kg", repsInputMode: "numeric", loadInputMode: "decimal" };
-}
-
 function defaultExerciseDetails(exercise: ExerciseMetricSource) {
   const labels = exerciseMetricLabels(exercise);
   return labels.mode === "cardio" ? { sets: "1", reps: "20", load: "6", rest: "60" } : labels.mode === "timed" ? { sets: "3", reps: "30", load: "0", rest: "60" } : { sets: "3", reps: "10", load: "0", rest: "60" };
@@ -2360,27 +2526,28 @@ function defaultExerciseDetails(exercise: ExerciseMetricSource) {
 function StudentAcademyWhatsAppCard() {
   const access = useAccess();
   const profile = useRegisteredProfile();
-  const [settings, setSettings] = useState<{ name?: string; phone?: string; whatsappUrl?: string }>({});
+  const [settings, setSettings] = useState<{ name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string }>({});
   useEffect(() => {
-    function apply(data?: { name?: string; phone?: string; whatsappUrl?: string } | null) {
-      setSettings({ name: data?.name, phone: data?.phone, whatsappUrl: data?.whatsappUrl });
+    function apply(data?: { name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string } | null) {
+      setSettings({ name: data?.name, phone: data?.phone, whatsappUrl: data?.whatsappUrl, whatsappGroupUrl: data?.whatsappGroupUrl });
     }
     if (!db) {
       const syncLocal = () => {
-        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; phone?: string; whatsappUrl?: string } | null); } catch { apply(null); }
+        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string } | null); } catch { apply(null); }
       };
       syncLocal();
       window.addEventListener("orquestra-fit:collection-updated", syncLocal);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
     }
-    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; phone?: string; whatsappUrl?: string } | undefined));
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string } | undefined));
   }, [access.academyId]);
   const academyPhone = settings.phone || (access.role === "admin" ? profile?.phone : "") || "";
   const phoneDigits = academyPhone.replace(/\D/g, "");
   const phoneHref = phoneDigits.length >= 10 ? `https://wa.me/${phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`}` : "";
-  const href = normalizeWhatsappLink(settings.whatsappUrl) || phoneHref;
-  if (!href) return null;
-  return <a className="academy-whatsapp-card" href={href} target="_blank" rel="noreferrer"><span className="academy-whatsapp-mark"><MessageCircle size={19} /></span><span><small>COMUNIDADE DA ACADEMIA</small><strong>Entrar no WhatsApp</strong><p>{settings.name || "Receba avisos, novidades e orientações da academia."}</p></span><ArrowRight size={18} /></a>;
+  const directHref = normalizeWhatsappLink(settings.whatsappUrl) || phoneHref;
+  const groupHref = normalizeWhatsappLink(settings.whatsappGroupUrl);
+  if (!directHref && !groupHref) return null;
+  return <section className="academy-whatsapp-card" aria-label="WhatsApp da academia"><span className="academy-whatsapp-mark"><MessageCircle size={19} /></span><span className="academy-whatsapp-copy"><small>CONTATO E COMUNIDADE</small><strong>Fale com a academia</strong><p>{settings.name || "Tire dúvidas, receba avisos e participe da comunidade."}</p></span><div className="academy-whatsapp-actions">{directHref && <a href={directHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp <ArrowRight size={14} /></a>}{groupHref && <a href={groupHref} target="_blank" rel="noreferrer"><Users size={15} /> Entrar no grupo <ArrowRight size={14} /></a>}</div></section>;
 }
 
 function estimatedWorkoutDurationLabel(details: WorkoutExerciseDetail[], exerciseCount: number) {
@@ -2409,6 +2576,7 @@ type ClassReservation = { id: string; classId: string; className?: string; stude
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
+type AnamnesisRecord = { id: string; studentId: string; studentName: string; goal: string; healthConditions: string; medications: string; injuries: string; surgeries: string; medicalClearance: string; emergencyName: string; emergencyPhone: string; consent: boolean; updatedAt?: unknown; updatedBy?: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string; metricMode?: ExerciseMetricMode }>; calories?: number; totalVolume?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
 type WorkoutFeedbackRecord = { id: string; workoutId: string; workoutName: string; studentId: string; rating: number; comment: string; createdAt?: unknown };
 
@@ -2445,8 +2613,17 @@ function formatWorkoutDuration(seconds: number) {
   return `${Math.floor(safeSeconds / 60)}min ${String(safeSeconds % 60).padStart(2, "0")}s`;
 }
 
+function estimateWorkoutCalories(weightKg: number | null, durationSeconds: number, exercises: SessionExercise[]) {
+  if (!weightKg || weightKg <= 0 || durationSeconds < 60) return undefined;
+  const activeModes = exercises.map((exercise) => exercise.metricMode).filter(Boolean);
+  const hasCardio = activeModes.includes("cardio");
+  const hasTimed = activeModes.includes("timed");
+  const met = hasCardio ? 7.5 : hasTimed ? 6.5 : 5.0;
+  return Math.max(1, Math.round((met * 3.5 * weightKg / 200) * (durationSeconds / 60)));
+}
+
 type WorkoutSummaryComparison = { durationDelta: number; volumeDelta?: number; maxLoadDelta?: number; repsDelta?: number };
-type WorkoutCompletionSummary = { durationSeconds: number; calories?: number; totalVolume: number; maxLoad: number; maxReps: number; comparison?: WorkoutSummaryComparison; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
+type WorkoutCompletionSummary = { durationSeconds: number; exerciseCount: number; calories?: number; totalVolume: number; maxLoad: number; maxReps: number; comparison?: WorkoutSummaryComparison; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
 
 type ChargeViewStatus = "paid" | "overdue" | "dueSoon" | "pending";
 
@@ -2471,10 +2648,7 @@ function maskPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`;
 }
 
-function maskCnpj(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 14);
-  return digits.replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
-}
+function maskCnpj(value: string) { return maskCompanyDocument(value); }
 
 function capitalizeName(value: string) {
   return value.toLocaleLowerCase("pt-BR").replace(/(^|[\s'-])(\p{L})/gu, (_, separator: string, letter: string) => `${separator}${letter.toLocaleUpperCase("pt-BR")}`);
@@ -2588,7 +2762,7 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
     const previous = selectedPrevious?.[key] ? Number(selectedPrevious[key]!.replace(",", ".")) : null;
     return current !== null && previous !== null ? current - previous : null;
   };
-  useEffect(() => { if (selectedStudentId && selectedLatest) scrollToContent(".staff-assessment-detail"); }, [selectedStudentId, selectedLatest?.id]);
+  useEffect(() => { if (selectedStudentId && selectedLatest && selectedStudentId !== initialStudentId) scrollToContent(".staff-assessment-detail", true); }, [selectedStudentId, selectedLatest?.id, initialStudentId]);
 
   return (
     <div className="workspace-content module-view">
@@ -2917,19 +3091,27 @@ function gifLibraryStoragePath(file: string) {
   return `gif-library/${file.replace(/\\/g, "/").replace(/^\/+/, "")}`;
 }
 
+function catalogGifFallback(item: GifCatalogItem) {
+  // A biblioteca masculina já está no Firebase Storage. Os originais femininos
+  // continuam no acervo licenciado e são exibidos pela rota interna para que o
+  // navegador não tente abrir diretamente o domínio do Google Drive.
+  return item.profile === "feminino"
+    ? `/api/catalog-gif?id=${encodeURIComponent(item.id)}`
+    : item.url;
+}
+
 function CatalogGifPreview({ item }: { item: GifCatalogItem }) {
-  const localPreview = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname) ? item.url : "";
-  const [source, setSource] = useState(localPreview);
-  const [loading, setLoading] = useState(!localPreview);
+  const catalogFallback = catalogGifFallback(item);
+  const [source, setSource] = useState(catalogFallback);
+  const [loading, setLoading] = useState(!catalogFallback);
   useEffect(() => {
     let active = true;
-    const local = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname) ? item.url : "";
-    setSource(local);
-    setLoading(!local);
-    if (storage) getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))).then((url) => { if (active) { setSource(url); setLoading(false); } }).catch(() => { if (active) { setSource(local); setLoading(false); } });
+    setSource(catalogFallback);
+    setLoading(!catalogFallback);
+    if (storage) getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))).then((url) => { if (active) { setSource(url); setLoading(false); } }).catch(() => { if (active) { setSource(catalogFallback); setLoading(false); } });
     else setLoading(false);
     return () => { active = false; };
-  }, [item.file, item.url]);
+  }, [catalogFallback, item.file]);
   if (!source) return <span className="gif-catalog-preview is-empty"><small>{loading ? "Carregando GIF…" : "Importe este GIF uma vez"}<b>{loading ? "Firebase Storage" : "Central do desenvolvedor"}</b></small></span>;
   return <span className="gif-catalog-preview" role="img" aria-label={`Prévia de ${item.name}`}><img src={source} alt="" loading="lazy" onError={() => setSource("")} /></span>;
 }
@@ -2969,12 +3151,26 @@ function ExerciseLibrary({ exercises, accessRole, onEdit, onLinkGif, onRemove, o
   </div>;
 }
 
-type GifCatalogItem = { id: string; name: string; file: string; url: string; equipment: string; muscle: string; profile: "masculino" | "feminino" };
+type GifCatalogAudience = "masculino" | "feminino" | "geral";
+type GifCatalogItem = { id: string; name: string; file: string; url: string; equipment: string; muscle: string; profile: "masculino" | "feminino"; audience: GifCatalogAudience };
 type SelectedCatalogGif = { url: string; path: string; profile: "masculino" | "feminino" };
+
+function classifyFemaleCatalogItem(item: { name: string; file: string; equipment?: string; muscle?: string }): GifCatalogAudience {
+  const parts = item.file.split("/").map((part) => part.toLocaleUpperCase("pt-BR"));
+  const equipment = (item.equipment ?? parts[1] ?? "").toLocaleUpperCase("pt-BR");
+  const muscle = (item.muscle ?? parts[2] ?? "").toLocaleUpperCase("pt-BR");
+  const name = item.name.toLocaleLowerCase("pt-BR");
+  if (!name.includes("femal") || equipment === "CARDIO" || muscle === "GERAL") return "geral";
+  return "feminino";
+}
+
+function gifAudienceLabel(audience: GifCatalogAudience) {
+  return audience === "feminino" ? "Feminino" : audience === "masculino" ? "Masculino" : "Geral / neutro";
+}
 
 function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle, usedGifPaths, onClose, onSelect }: { open: boolean; initialQuery: string; initialEquipment: string; initialMuscle: string; usedGifPaths: string[]; onClose: () => void; onSelect: (item: GifCatalogItem) => Promise<void> }) {
   const [items, setItems] = useState<GifCatalogItem[]>([]);
-  const [profileFilter, setProfileFilter] = useState<"" | "masculino" | "feminino">("");
+  const [profileFilter, setProfileFilter] = useState<"" | GifCatalogAudience>("");
   const [equipment, setEquipment] = useState("");
   const [muscle, setMuscle] = useState("");
   const [query, setQuery] = useState("");
@@ -2986,28 +3182,32 @@ function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle,
     Promise.all([fetch("/gif-catalog.json"), fetch("/gif-catalog-feminine.json")]).then(async ([maleResponse, femaleResponse]) => {
       const male = maleResponse.ok ? await maleResponse.json() as Array<Omit<GifCatalogItem, "profile">> : [];
       const female = femaleResponse.ok ? await femaleResponse.json() as Array<Omit<GifCatalogItem, "profile">> : [];
-      setItems([...male.map((item) => ({ ...item, profile: "masculino" as const })), ...female.map((item) => ({ ...item, profile: "feminino" as const }))]);
+      setItems([
+        ...male.map((item) => ({ ...item, profile: "masculino" as const, audience: "masculino" as const })),
+        ...female.map((item) => ({ ...item, profile: "feminino" as const, audience: classifyFemaleCatalogItem(item) })),
+      ]);
     }).catch(() => setItems([])).finally(() => setLoading(false));
   }, [items.length, open]);
   useEffect(() => { if (open) { setProfileFilter(""); setQuery(initialQuery); setEquipment(initialEquipment); setMuscle(initialMuscle); } }, [initialEquipment, initialMuscle, initialQuery, open]);
   if (!open) return null;
   const normalized = query.trim().toLocaleLowerCase("pt-BR");
   const usedPaths = new Set(usedGifPaths.map((path) => path.replace(/^\/+/, "")));
-  const scopedItems = items.filter((item) => !profileFilter || item.profile === profileFilter);
+  const scopedItems = items.filter((item) => !profileFilter || item.audience === profileFilter);
   const equipmentFolders = Array.from(new Set(scopedItems.map((item) => item.equipment))).sort();
   const muscleFolders = Array.from(new Set(scopedItems.filter((item) => !equipment || item.equipment === equipment).map((item) => item.muscle))).sort();
-  const filtered = scopedItems.filter((item) => (!equipment || item.equipment === equipment) && (!muscle || item.muscle === muscle) && (!normalized || `${item.name} ${item.equipment} ${item.muscle} ${item.profile}`.toLocaleLowerCase("pt-BR").includes(normalized))).slice(0, 48);
+  const filtered = scopedItems.filter((item) => (!equipment || item.equipment === equipment) && (!muscle || item.muscle === muscle) && (!normalized || matchesSearch(query, item.name, item.equipment, item.muscle, item.profile, item.audience))).slice(0, 48);
   const usedCount = items.filter((item) => usedPaths.has(gifLibraryStoragePath(item.file))).length;
-  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · TODOS OS PERFIS</span><h3>Escolher demonstração</h3><p>Navegue pelas pastas de perfil, equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando os catálogos masculino e feminino…</p> : <><div className="gif-catalog-summary" aria-label="Resumo da biblioteca"><div><small>CATÁLOGO TOTAL</small><strong>{items.length.toLocaleString("pt-BR")}</strong><span>GIFs disponíveis</span></div><div><small>EM USO NESTA ACADEMIA</small><strong>{usedCount.toLocaleString("pt-BR")}</strong><span>já vinculados a exercícios</span></div><div><small>DISPONÍVEIS</small><strong>{Math.max(0, items.length - usedCount).toLocaleString("pt-BR")}</strong><span>prontos para usar</span></div></div><p className="panel-helper">Escolha uma pasta de perfil para separar os GIFs masculinos e femininos, ou mantenha “Todos” para pesquisar a biblioteca completa.</p><div className="gif-folder-browser"><div><small>1 · PERFIL DA DEMONSTRAÇÃO</small><div className="gif-folder-list"><button type="button" className={!profileFilter ? "active" : ""} onClick={() => { setProfileFilter(""); setEquipment(""); setMuscle(""); setQuery(""); }}>TODOS OS GIFS</button><button type="button" className={profileFilter === "masculino" ? "active" : ""} onClick={() => { setProfileFilter("masculino"); setEquipment(""); setMuscle(""); setQuery(""); }}>MASCULINO</button><button type="button" className={profileFilter === "feminino" ? "active" : ""} onClick={() => { setProfileFilter("feminino"); setEquipment(""); setMuscle(""); setQuery(""); }}>FEMININO</button></div></div><div><small>2 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>3 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca opcional: shoulder, bench press, squat..." />{!equipment && <p className="panel-helper">Escolha uma pasta de equipamento para refinar os movimentos.</p>}<div className="gif-catalog-grid">{filtered.map((item) => { const inUse = usedPaths.has(gifLibraryStoragePath(item.file)); return <button type="button" className={inUse ? "is-in-use" : ""} key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><CatalogGifPreview item={item} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{item.profile === "feminino" ? "Feminino" : "Masculino"} · {item.equipment} · {item.muscle}</small><em className={inUse ? "gif-use-badge used" : "gif-use-badge"}>{inUse ? "Em uso" : "Disponível"}</em></span></button>; })}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
+  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · TODOS OS PERFIS</span><h3>Escolher demonstração</h3><p>Navegue pelas pastas de perfil, equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando os catálogos masculino, feminino e geral…</p> : <><div className="gif-catalog-summary" aria-label="Resumo da biblioteca"><div><small>CATÁLOGO TOTAL</small><strong>{items.length.toLocaleString("pt-BR")}</strong><span>GIFs disponíveis</span></div><div><small>EM USO NESTA ACADEMIA</small><strong>{usedCount.toLocaleString("pt-BR")}</strong><span>já vinculados a exercícios</span></div><div><small>DISPONÍVEIS</small><strong>{Math.max(0, items.length - usedCount).toLocaleString("pt-BR")}</strong><span>prontos para usar</span></div></div><p className="panel-helper">Escolha Masculino, Feminino ou Geral / neutro para separar as demonstrações sem misturar perfis.</p><div className="gif-folder-browser"><div><small>1 · PERFIL DA DEMONSTRAÇÃO</small><div className="gif-folder-list"><button type="button" className={!profileFilter ? "active" : ""} onClick={() => { setProfileFilter(""); setEquipment(""); setMuscle(""); setQuery(""); }}>TODOS OS GIFS</button><button type="button" className={profileFilter === "masculino" ? "active" : ""} onClick={() => { setProfileFilter("masculino"); setEquipment(""); setMuscle(""); setQuery(""); }}>MASCULINO</button><button type="button" className={profileFilter === "feminino" ? "active" : ""} onClick={() => { setProfileFilter("feminino"); setEquipment(""); setMuscle(""); setQuery(""); }}>FEMININO</button><button type="button" className={profileFilter === "geral" ? "active" : ""} onClick={() => { setProfileFilter("geral"); setEquipment(""); setMuscle(""); setQuery(""); }}>GERAL / NEUTRO</button></div></div><div><small>2 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>3 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} type="search" aria-label="Buscar GIF por nome, equipamento ou músculo" placeholder="Buscar GIF, equipamento ou músculo…" />{!equipment && <p className="panel-helper">Escolha uma pasta de equipamento para refinar os movimentos.</p>}<div className="gif-catalog-grid">{filtered.map((item) => { const inUse = usedPaths.has(gifLibraryStoragePath(item.file)); return <button type="button" className={inUse ? "is-in-use" : ""} key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><CatalogGifPreview item={item} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{gifAudienceLabel(item.audience)} · {item.equipment} · {item.muscle}</small><em className={inUse ? "gif-use-badge used" : "gif-use-badge"}>{inUse ? "Em uso" : "Disponível"}</em></span></button>; })}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
 }
 
 function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTemplate, onEditWorkout, onRemoveWorkout, onPreviewTemplate, onPreviewWorkout, onPrintTemplate, onSeedGeneralPrograms, targetStudentId, targetStudentName, onAssignTemplate }: { templates: WorkoutTemplateRecord[]; workouts: WorkoutRecord[]; onEditTemplate: (template: WorkoutTemplateRecord) => void; onRemoveTemplate: (template: WorkoutTemplateRecord) => void; onEditWorkout: (workout: WorkoutRecord) => void; onRemoveWorkout: (workout: WorkoutRecord) => void; onPreviewTemplate: (template: WorkoutTemplateRecord) => void; onPreviewWorkout: (workout: WorkoutRecord) => void; onPrintTemplate: (template: WorkoutTemplateRecord) => void; onSeedGeneralPrograms: () => void; targetStudentId?: string; targetStudentName?: string; onAssignTemplate?: (template: WorkoutTemplateRecord) => void }) {
+  const [search, setSearch] = useState("");
   const visibleWorkouts = targetStudentId ? workouts.filter((workout) => workout.studentRecordId === targetStudentId || workout.studentId === targetStudentId || workout.studentUserId === targetStudentId) : workouts;
   const empty = templates.length === 0 && visibleWorkouts.length === 0;
   const [audienceFilter, setAudienceFilter] = useState<"Todos" | WorkoutTemplateAudience>("Todos");
   const [levelFilter, setLevelFilter] = useState<"Todos" | WorkoutLevel>("Todos");
   const letterFromName = (name: string) => name.match(/(?:treino|ficha)\s*([A-G])\b/i)?.[1]?.toUpperCase() ?? null;
-  const filteredTemplates = templates.filter((template) => (audienceFilter === "Todos" || (template.audience ?? "Geral") === audienceFilter) && (levelFilter === "Todos" || (template.level ?? "Fundação") === levelFilter));
+  const filteredTemplates = templates.filter((template) => matchesSearch(search, template.name, template.level, template.targetStudentName) && (audienceFilter === "Todos" || (template.audience ?? "Geral") === audienceFilter) && (levelFilter === "Todos" || (template.level ?? "Fundação") === levelFilter));
   const orderedTemplates = [...filteredTemplates].sort((first, second) => {
     const levelDifference = workoutLevelOrder.indexOf(first.level ?? "Fundação") - workoutLevelOrder.indexOf(second.level ?? "Fundação");
     if (levelDifference !== 0) return levelDifference;
@@ -3022,6 +3222,14 @@ function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTempla
   const assignedTemplateIds = new Set(visibleWorkouts.map((workout) => workout.sourceTemplateId).filter(Boolean));
   const templateGroups = workoutLevelOrder.map((level) => ({ level, templates: orderedTemplates.filter((template) => (template.level ?? "Fundação") === level) })).filter((group) => group.templates.length > 0);
   const hasStudentContext = Boolean(targetStudentId || targetStudentName);
+  const [expanded, setExpanded] = useState(hasStudentContext);
+  const [sentExpanded, setSentExpanded] = useState(hasStudentContext);
+  useEffect(() => {
+    if (!hasStudentContext) return;
+    setExpanded(true);
+    setSentExpanded(true);
+    scrollToContent(".published-workouts", true);
+  }, [hasStudentContext, targetStudentId]);
   const actionMenu = (label: string, onPrint: () => void, onEdit: () => void, onRemove: () => void) => <details className="published-actions-menu"><summary aria-label={label} title="Mais ações"><MoreHorizontal size={17} /></summary><div className="published-actions-popover"><button type="button" onClick={onPrint}><Printer size={13} /> Imprimir</button><button type="button" onClick={onEdit}>Editar</button><button type="button" className="danger" onClick={onRemove}>Excluir</button></div></details>;
   const renderTemplate = (template: WorkoutTemplateRecord, fallbackIndex = 0) => {
     const audience = template.audience ?? "Geral";
@@ -3041,10 +3249,10 @@ function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTempla
     const duration = estimatedWorkoutDurationLabel(workout.exerciseDetails ?? [], workout.exerciseIds.length);
     return <div className="published-template-row" key={workout.id}><div className="published-template-copy"><strong>Treino {code}</strong><small className="published-template-name">{displayWorkoutCardName(workout.name)}</small><div className="published-template-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {day}</span><span className="template-chip template-chip-audience personalized"><Users size={12} /> {audience}</span><span className="template-chip template-chip-count"><ClipboardList size={12} /> {workout.exerciseIds.length} exercícios</span><span className="template-chip template-chip-duration"><Clock3 size={12} /> {duration}</span></div><small>{workout.studentName}</small></div><div className="published-item-actions has-status"><em>Enviado</em><button type="button" onClick={() => onPreviewWorkout(workout)}><Eye size={13} /> Visualizar</button>{actionMenu(`Ações do Treino ${code}`, () => printWorkoutSheet(workout), () => onEditWorkout(workout), () => onRemoveWorkout(workout))}</div></div>;
   };
-  return <details className="workspace-panel published-workouts training-collapsible-card"><summary className="training-card-summary"><span><small>4 · MODELOS E PUBLICADOS</small><strong>{templates.length} modelos · {visibleWorkouts.length} fichas enviadas{targetStudentName ? ` para ${targetStudentName}` : ""}</strong><em>{targetStudentName ? `Escolha um modelo geral para adicionar a ${targetStudentName}.` : "Use filtros para encontrar rapidamente um programa geral ou personalizado."}</em></span><ChevronDown /></summary><div className="training-card-content">{empty ? <div className="directory-empty"><Dumbbell /><p>Crie um programa-base para reutilizá-lo com novos alunos.</p><button className="detail-secondary" type="button" onClick={onSeedGeneralPrograms}>Criar grade geral · 28 programas · 11 exercícios</button></div> : <>
-    {(hasStudentContext || visibleWorkouts.length > 0) && <details className="published-sent-list published-student-workouts">
+  return <details className="workspace-panel published-workouts training-collapsible-card" open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}><summary className="training-card-summary"><span><small>4 · MODELOS E PUBLICADOS</small><strong>{templates.length} modelos · {visibleWorkouts.length} fichas enviadas{targetStudentName ? ` para ${targetStudentName}` : ""}</strong><em>{targetStudentName ? `Escolha um modelo geral para adicionar a ${targetStudentName}.` : "Use filtros para encontrar rapidamente um programa geral ou personalizado."}</em></span><ChevronDown /></summary><div className="training-card-content"><label className="workspace-search"><Search /><input type="search" aria-label="Buscar modelos e fichas" placeholder="Buscar treino, programa ou aluno do modelo…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>{empty ? <div className="directory-empty"><Dumbbell /><p>Crie um programa-base para reutilizá-lo com novos alunos.</p><button className="detail-secondary" type="button" onClick={onSeedGeneralPrograms}>Criar grade geral · 28 programas · 11 exercícios</button></div> : <>
+    {(hasStudentContext || visibleWorkouts.length > 0) && <details className="published-sent-list published-student-workouts" open={sentExpanded} onToggle={(event) => setSentExpanded(event.currentTarget.open)}>
       <summary><span><Users size={14} /> Fichas já enviadas{targetStudentName ? ` para ${targetStudentName}` : ""}</span><strong>{visibleWorkouts.length}</strong><ChevronDown /></summary>
-      {visibleWorkouts.length > 0 ? <div className="published-list">{orderedVisibleWorkouts.map(renderWorkout)}</div> : <div className="published-list-empty"><Users /><p>Nenhuma ficha foi enviada para este aluno ainda.</p><small>Escolha um modelo abaixo e clique em Adicionar.</small></div>}
+      {visibleWorkouts.length > 0 ? <div className="published-list">{orderedVisibleWorkouts.filter((workout) => matchesSearch(search, workout.name, workout.level)).map(renderWorkout)}</div> : <div className="published-list-empty"><Users /><p>Nenhuma ficha foi enviada para este aluno ainda.</p><small>Escolha um modelo abaixo e clique em Adicionar.</small></div>}
     </details>}
     <section className="published-models-section">
       <header className="published-section-heading"><div><span>PROGRAMAS REUTILIZÁVEIS</span><strong>Modelos disponíveis</strong><small>Organizados por nível para facilitar a escolha do professor.</small></div><Dumbbell size={18} /></header>
@@ -3193,7 +3401,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [templates, setTemplates] = useState<WorkoutTemplateRecord[]>([]);
   const [exerciseSnapshotReady, setExerciseSnapshotReady] = useState(false);
   const [librarySyncAttempted, setLibrarySyncAttempted] = useState(false);
-  const autoLinkedExerciseIds = useRef(new Set<string>());
   const [exerciseName, setExerciseName] = useState("");
   const [exerciseEquipment, setExerciseEquipment] = useState("");
   const [muscleGroup, setMuscleGroup] = useState("");
@@ -3205,9 +3412,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [selectedCatalogGif, setSelectedCatalogGif] = useState<SelectedCatalogGif | null>(null);
   const [gifProfile, setGifProfile] = useState<"masculino" | "feminino">("masculino");
   const [uploadingGif, setUploadingGif] = useState(false);
-  const [syncingVerifiedGifs, setSyncingVerifiedGifs] = useState(false);
-  const [gifSyncProgress, setGifSyncProgress] = useState<{ total: number; completed: number; failed: number; current: string } | null>(null);
-  const [gifSyncErrors, setGifSyncErrors] = useState<string[]>([]);
   const [gifCatalogOpen, setGifCatalogOpen] = useState(false);
   const [bodyRegion, setBodyRegion] = useState<BodyRegion>("Membros superiores");
   const [phase, setPhase] = useState<ExercisePhase>("Treino principal");
@@ -3242,7 +3446,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; userId?: string | null; authUid?: string | null; uid?: string | null; teacherId?: string | null }; return { id: student.id, userId: data.userId ?? data.authUid ?? data.uid ?? student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifOptimizedUrl: data.gifOptimizedUrl ?? "", gifOptimizedPath: data.gifOptimizedPath ?? "", gifMaleOptimizedUrl: data.gifMaleOptimizedUrl ?? "", gifMaleOptimizedPath: data.gifMaleOptimizedPath ?? "", gifFemaleOptimizedUrl: data.gifFemaleOptimizedUrl ?? "", gifFemaleOptimizedPath: data.gifFemaleOptimizedPath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
       setExerciseSnapshotReady(true);
     });
     const unsubscribeMachines = onSnapshot(query(collection(db, "academies", access.academyId, "stockItems"), where("kind", "==", "machine")), (snapshot) => setStockMachines(snapshot.docs.map((item) => { const data = item.data() as { name?: string; machineCode?: string }; return { id: item.id, name: data.name ?? "Máquina", machineCode: data.machineCode }; })));
@@ -3302,7 +3506,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   function openTrainingCard(selector: string) {
     const card = document.querySelector<HTMLDetailsElement>(selector);
     if (card) card.open = true;
-    window.requestAnimationFrame(() => (card ?? document.querySelector<HTMLElement>(selector))?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    scrollToContent(selector, true);
   }
 
   function editExercise(exercise: ExerciseRecord) {
@@ -3344,7 +3548,8 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function chooseGifFromCatalog(item: GifCatalogItem) {
     try {
-      setGifProfile(item.profile);
+      const selectedProfile = item.audience === "geral" ? gifProfile : item.profile;
+      setGifProfile(selectedProfile);
       let sourceUrl = item.url;
       let globalPath = "";
       if (storage) {
@@ -3355,7 +3560,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       if (!response.ok) throw new Error("Não foi possível abrir este GIF.");
       if (globalPath) {
         setGifFile(null);
-        setSelectedCatalogGif({ url: sourceUrl, path: globalPath, profile: item.profile });
+        setSelectedCatalogGif({ url: sourceUrl, path: globalPath, profile: selectedProfile });
         setGifCatalogOpen(false);
         onFeedback("GIF global selecionado. Salve o exercício para vincular sem novo envio.");
         return;
@@ -3366,50 +3571,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setGifCatalogOpen(false);
       onFeedback("GIF selecionado. Salve as alterações para vinculá-lo ao exercício.");
     } catch { onFeedback("Não foi possível selecionar o GIF da biblioteca."); }
-  }
-
-  async function syncVerifiedGifLibrary() {
-    if (!db || !functions || access.role !== "admin") { onFeedback("Entre como gestão no ambiente local para enviar a biblioteca revisada."); return; }
-    const pending = exercises.filter((exercise) => Boolean(verifiedGifDefinition(exercise.name)) && !exercise.gifMaleUrl && !exercise.gifUrl);
-    if (!pending.length) { onFeedback("Todos os GIFs revisados já foram enviados para a biblioteca da academia."); return; }
-    if (!window.confirm(`Enviar ${pending.length} GIFs revisados ao Firebase Storage? Isso os disponibiliza também na Vercel e no celular.`)) return;
-    setSyncingVerifiedGifs(true);
-    setGifSyncErrors([]);
-    setGifSyncProgress({ total: pending.length, completed: 0, failed: 0, current: pending[0]?.name ?? "" });
-    let completed = 0;
-    let failed = 0;
-    for (const exercise of pending) {
-      setGifSyncProgress({ total: pending.length, completed, failed, current: exercise.name });
-      try {
-        const source = verifiedExerciseGif(exercise.name);
-        const response = await fetch(source);
-        if (!response.ok) throw new Error("Arquivo local indisponível");
-        const file = new File([await response.blob()], source.split("/").pop() || "demonstracao.gif", { type: "image/gif" });
-        if (file.size > 10 * 1024 * 1024) throw new Error("Arquivo acima do limite");
-        if (!functions) throw new Error("O serviço seguro de mídia não está configurado.");
-        const result = await httpsCallable<{ academyId: string; exerciseId: string; fileName: string; contentType: string; base64: string; profile: "masculino" }, { ok: boolean; path: string; url: string }>(functions, "uploadExerciseGif")({ academyId: access.academyId, exerciseId: exercise.id, fileName: file.name, contentType: "image/gif", profile: "masculino", base64: await fileAsBase64(file) });
-        const { path, url } = result.data;
-        await updateDoc(doc(db, "academies", access.academyId, "exercises", exercise.id), { gifUrl: url, gifPath: path, gifMaleUrl: url, gifMalePath: path, updatedAt: serverTimestamp(), updatedBy: access.userId });
-        completed += 1;
-      } catch (error) {
-        failed += 1;
-        const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
-        const message = code === "storage/unauthorized"
-          ? "Sem permissão no Firebase Storage para esta conta de gestão."
-          : code === "storage/unauthenticated"
-            ? "Sua sessão expirou. Entre novamente no sistema."
-            : code === "storage/quota-exceeded"
-              ? "O limite do Firebase Storage foi atingido."
-              : code === "storage/retry-limit-exceeded"
-                ? "A conexão caiu durante o envio."
-                : error instanceof Error ? error.message : "Falha desconhecida no envio.";
-        setGifSyncErrors((current) => [...current, `${exercise.name}: ${message}`].slice(-3));
-      }
-      setGifSyncProgress({ total: pending.length, completed, failed, current: exercise.name });
-    }
-    setSyncingVerifiedGifs(false);
-    setGifSyncProgress({ total: pending.length, completed, failed, current: "Concluído" });
-    onFeedback(failed ? `${completed} GIFs enviados; ${failed} precisam de revisão.` : `${completed} GIFs revisados enviados para a academia.`);
   }
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
@@ -3485,7 +3646,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   async function seedStarterExercises() {
     if (!db) {
       const existingNames = new Set(exercises.map((exercise) => exercise.name.trim().toLocaleLowerCase("pt-BR")));
-      const seeded = allStarterExerciseSeeds.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => { const equipmentName = equipmentForExercise(name); const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name); return { id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...(expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType, ...expansionGifMedia(name) } : starterClassification(name, muscleGroup)) }; });
+      const seeded = allStarterExerciseSeeds.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => { const equipmentName = equipmentForExercise(name); const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name); return { id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...(expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType } : starterClassification(name, muscleGroup)) }; });
       const missing = seeded.filter((exercise) => !existingNames.has(exercise.name.toLocaleLowerCase("pt-BR")));
       const nextExercises = exercises.length ? [...exercises, ...missing] : seeded;
       setExercises(nextExercises);
@@ -3506,7 +3667,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name);
       const classification = expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType } : starterClassification(name, primary);
       const equipmentName = equipmentForExercise(name);
-      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, ...expansionGifMedia(name), createdBy: access.userId, createdAt: serverTimestamp(), source: expansion ? "gif-library-expansion" : "starter-library" });
+      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, createdBy: access.userId, createdAt: serverTimestamp(), source: expansion ? "gif-library-expansion" : "starter-library" });
     });
     try {
       await batch.commit();
@@ -3521,63 +3682,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     setLibrarySyncAttempted(true);
     void seedStarterExercises();
   }, [access.role, exerciseSnapshotReady, librarySyncAttempted]);
-
-  useEffect(() => {
-    if (!db || !storage || !exerciseSnapshotReady || !["admin", "teacher"].includes(access.role)) return;
-    const firestore = db;
-    const firebaseStorage = storage;
-    const pending = exercises.filter((exercise) => {
-      const key = exerciseGifKey(exercise.name);
-      const verified = verifiedGifDefinition(exercise.name);
-      const needsMale = !exercise.gifMaleUrl && !exercise.gifUrl;
-      const needsFemale = Boolean(verifiedFemaleGifUrls[key]) && !exercise.gifFemaleUrl;
-      return Boolean(verified) && (needsMale || needsFemale) && !autoLinkedExerciseIds.current.has(exercise.id);
-    });
-    if (!pending.length) return;
-    pending.forEach((exercise) => autoLinkedExerciseIds.current.add(exercise.id));
-    void (async () => {
-      const resolved = await Promise.all(pending.map(async (exercise) => {
-        const key = exerciseGifKey(exercise.name);
-        const verified = verifiedGifDefinition(exercise.name);
-        if (!verified) return null;
-        const femaleUrl = verifiedFemaleGifUrls[key] || verified.femaleUrl || "";
-        const existingMaleUrl = exercise.gifMaleUrl || exercise.gifUrl || "";
-        const existingMalePath = exercise.gifMalePath || exercise.gifPath || "";
-        if (existingMaleUrl) return { exercise, path: existingMalePath, url: existingMaleUrl, femaleUrl };
-        try {
-          const path = gifLibraryStoragePath(verified.maleFile);
-          const url = await getDownloadURL(storageRef(firebaseStorage, path));
-          return { exercise, path, url, femaleUrl };
-        } catch {
-          return femaleUrl ? { exercise, path: "", url: "", femaleUrl } : null;
-        }
-      }));
-      const available = resolved.filter((item): item is NonNullable<typeof item> => Boolean(item));
-      if (!available.length) return;
-      const batch = writeBatch(firestore);
-      available.forEach(({ exercise, path, url, femaleUrl }) => {
-        const verified = verifiedGifDefinition(exercise.name);
-        const mediaPatch = {
-          ...(url ? { gifUrl: url, gifMaleUrl: url } : {}),
-          ...(path ? { gifPath: path, gifMalePath: path } : {}),
-          ...(femaleUrl ? { gifFemaleUrl: femaleUrl } : {}),
-        };
-        batch.set(doc(firestore, "academies", access.academyId, "exercises", exercise.id), {
-          ...mediaPatch,
-          gifLinkedFrom: "global-library",
-          gifMatch: verified?.match ?? "exact",
-          updatedAt: serverTimestamp(),
-          updatedBy: access.userId,
-        }, { merge: true });
-      });
-      try {
-        await batch.commit();
-        onFeedback(`${available.length} GIFs revisados foram vinculados automaticamente.`);
-      } catch {
-        available.forEach(({ exercise }) => autoLinkedExerciseIds.current.delete(exercise.id));
-      }
-    })();
-  }, [access.academyId, access.role, access.userId, exerciseSnapshotReady, exercises, onFeedback]);
 
   function toggleExercise(exercise: ExerciseRecord) {
     const selected = selectedExercises.includes(exercise.id);
@@ -3603,7 +3707,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (!student) { onFeedback("Aluno não encontrado."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, gifOptimizedUrl: exercise?.gifOptimizedUrl, gifOptimizedPath: exercise?.gifOptimizedPath, gifMaleOptimizedUrl: exercise?.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise?.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise?.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise?.gifFemaleOptimizedPath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     const focusLabel = Array.from(new Set(details.map((detail) => detail.muscleGroup).filter((value): value is string => Boolean(value)))).slice(0, 2).join(" + ") || "Treino personalizado";
     if (!db) {
@@ -3683,7 +3787,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const finisherExercises = exercises.filter((exercise) => exercise.phase === "Finalização" || exercise.phase === "Cardio");
     const mainExercises = exercises.filter((exercise) => exercise.phase !== "Preparação" && exercise.phase !== "Finalização" && exercise.phase !== "Cardio");
     const existingByKey = new Map(templates.filter((template) => template.seedKey).map((template) => [template.seedKey as string, template]));
-    const templateExerciseDetails = (exercise: ExerciseRecord): WorkoutExerciseDetail => ({ exerciseId: exercise.id, name: exercise.name, muscleGroup: exercise.muscleGroup, secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exercise.gifUrl, gifPath: exercise.gifPath, gifMaleUrl: exercise.gifMaleUrl, gifMalePath: exercise.gifMalePath, gifFemaleUrl: exercise.gifFemaleUrl, gifFemalePath: exercise.gifFemalePath, equipmentName: exercise.equipmentName, machineCode: exercise.machineCode, bodyRegion: exercise.bodyRegion, phase: exercise.phase, exerciseType: exercise.exerciseType, ...defaultExerciseDetails(exercise) });
+    const templateExerciseDetails = (exercise: ExerciseRecord): WorkoutExerciseDetail => ({ exerciseId: exercise.id, name: exercise.name, muscleGroup: exercise.muscleGroup, secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exercise.gifUrl, gifPath: exercise.gifPath, gifMaleUrl: exercise.gifMaleUrl, gifMalePath: exercise.gifMalePath, gifFemaleUrl: exercise.gifFemaleUrl, gifFemalePath: exercise.gifFemalePath, gifOptimizedUrl: exercise.gifOptimizedUrl, gifOptimizedPath: exercise.gifOptimizedPath, gifMaleOptimizedUrl: exercise.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise.gifFemaleOptimizedPath, equipmentName: exercise.equipmentName, machineCode: exercise.machineCode, bodyRegion: exercise.bodyRegion, phase: exercise.phase, exerciseType: exercise.exerciseType, ...defaultExerciseDetails(exercise) });
     const createdTemplates: WorkoutTemplateRecord[] = [];
     const updatedTemplates: WorkoutTemplateRecord[] = [];
     levels.forEach((level, levelIndex) => dayFocus.forEach((day, dayIndex) => {
@@ -3762,7 +3866,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, gifOptimizedUrl: exercise?.gifOptimizedUrl, gifOptimizedPath: exercise?.gifOptimizedPath, gifMaleOptimizedUrl: exercise?.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise?.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise?.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise?.gifFemaleOptimizedPath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
       const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, audience: templateAudience, scheduleDay: "Flexível", targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId, createdAt: editingTemplateId ? templates.find((item) => item.id === editingTemplateId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -3852,14 +3956,10 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     catch { onFeedback("Não foi possível excluir o treino."); }
   }
 
-  const linkedGifCount = exercises.filter((exercise) => Boolean(exerciseGifSource(exercise))).length;
-  const pendingGifCount = Math.max(0, exercises.length - linkedGifCount);
   const usedGifPaths = exercises.flatMap((exercise) => [exercise.gifPath, exercise.gifMalePath, exercise.gifFemalePath].filter((path): path is string => Boolean(path)));
 
   return <div className="workspace-content module-view">
     <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Monte uma ficha por etapas, salve modelos e publique para um aluno quando estiver pronta.</p></div></section>
-     {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
-     {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
     <section className="training-layout training-layout-redesigned">
       <details className="workspace-panel training-form-panel workout-builder-panel training-collapsible-card">
         <summary className="training-card-summary"><span><small>1 · PROGRAMA E FICHA</small><strong>Monte uma vez. Use sempre.</strong><em>Crie um programa-base por nível e publique para um aluno quando precisar.</em></span><ChevronDown /></summary>
@@ -4164,7 +4264,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
     }, (error) => console.error("Não foi possível carregar os professores.", error));
   }, [access.academyId]);
 
-  const filteredTeachers = teachers.filter((teacher) => `${teacher.name} ${teacher.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const filteredTeachers = teachers.filter((teacher) => matchesSearch(search, teacher.name, teacher.email, teacher.phone, teacher.cpf));
   const selectedTeacher = teachers.find((teacher) => teacher.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -4228,7 +4328,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
       <section className="directory-layout">
         <article className="workspace-panel directory-panel">
           <header><div><span>PROFESSORES CADASTRADOS</span><h3>{teachers.length} {teachers.length === 1 ? "professor" : "professores"}</h3></div></header>
-          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
+          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} type="search" aria-label="Buscar por nome, e-mail, CPF ou telefone" placeholder="Nome, e-mail, CPF ou telefone" /></div>
           <div className="directory-list">
             {filteredTeachers.length === 0 ? <div className="directory-empty"><UserRoundCheck /><p>{teachers.length === 0 ? "Nenhum professor cadastrado ainda." : "Nenhum professor encontrado."}</p></div> : filteredTeachers.map((teacher) => (
               <button className={selectedId === teacher.id ? "directory-row selected" : "directory-row"} key={teacher.id} onClick={() => { setSelectedId(teacher.id); scrollToContent(".student-detail-panel"); }}>
@@ -4293,6 +4393,69 @@ function StudentWhatsAppPanel({ student, onFeedback }: { student: RegisteredStud
   }
 
   return <section className="student-whatsapp-panel"><header><div><span>WHATSAPP DO ALUNO</span><h3>Contato e lembretes</h3><p>Abra uma conversa pronta ou programe um aviso para este cadastro.</p></div><MessageCircle /></header>{directHref ? <a className="student-whatsapp-open" href={directHref} target="_blank" rel="noreferrer"><MessageCircle size={16} /> Abrir WhatsApp com mensagem pronta</a> : <p className="student-profile-empty">Cadastre um telefone com WhatsApp para habilitar o contato direto.</p>}<div className="student-whatsapp-schedule"><label>Modelo<select value={template} onChange={(event) => setTemplate(event.target.value as typeof template)}><option value="payment">Lembrete de pagamento</option><option value="birthday">Aniversário</option><option value="news">Novidade da academia</option><option value="custom">Mensagem personalizada</option></select></label>{template === "custom" && <label>Mensagem<textarea value={customMessage} onChange={(event) => setCustomMessage(event.target.value)} maxLength={600} placeholder="Escreva a mensagem que será enviada." /></label>}<label>Programar para (opcional)<input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></label><button type="button" className="detail-secondary" onClick={() => void scheduleMessage()} disabled={access.role !== "admin" || !scheduledAt || !message}>Programar lembrete</button></div><small className="student-whatsapp-note">O envio automático usa a API oficial do WhatsApp Business quando as credenciais da academia estiverem configuradas.</small></section>;
+}
+
+const emptyAnamnesis: Omit<AnamnesisRecord, "id" | "studentId" | "studentName" | "updatedAt" | "updatedBy"> = {
+  goal: "",
+  healthConditions: "",
+  medications: "",
+  injuries: "",
+  surgeries: "",
+  medicalClearance: "Não informado",
+  emergencyName: "",
+  emergencyPhone: "",
+  consent: false,
+};
+
+function StudentAnamnesisPanel({ student, onFeedback }: { student: RegisteredStudent; onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [form, setForm] = useState(emptyAnamnesis);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    setLoaded(false);
+    if (!db) {
+      const current = readLocalCollection<AnamnesisRecord>(access.academyId, "anamneses").find((item) => item.studentId === student.id);
+      setForm(current ? { ...emptyAnamnesis, ...current } : emptyAnamnesis);
+      setLoaded(true);
+      return;
+    }
+    return onSnapshot(doc(db, "academies", access.academyId, "anamneses", student.id), (snapshot) => {
+      const data = snapshot.exists() ? snapshot.data() as Partial<AnamnesisRecord> : null;
+      setForm(data ? { ...emptyAnamnesis, ...data } : emptyAnamnesis);
+      setLoaded(true);
+    }, () => setLoaded(true));
+  }, [access.academyId, student.id]);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form.consent) {
+      onFeedback("Registre o consentimento do aluno antes de salvar a anamnese.");
+      return;
+    }
+    setSaving(true);
+    const record = { ...form, id: student.id, studentId: student.id, studentName: student.name, updatedBy: access.userId };
+    try {
+      if (!db) {
+        const current = readLocalCollection<AnamnesisRecord>(access.academyId, "anamneses").filter((item) => item.studentId !== student.id);
+        writeLocalCollection(access.academyId, "anamneses", [{ ...record, updatedAt: new Date().toISOString() }, ...current]);
+      } else {
+        await setDoc(doc(db, "academies", access.academyId, "anamneses", student.id), { ...record, updatedAt: serverTimestamp() }, { merge: true });
+      }
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_anamnesis_updated", label: "Ficha de anamnese atualizada", details: student.name });
+      onFeedback("Ficha de anamnese salva com segurança.");
+    } catch {
+      onFeedback("Não foi possível salvar a ficha de anamnese.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function update<K extends keyof typeof emptyAnamnesis>(key: K, value: (typeof emptyAnamnesis)[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  return <details className="student-anamnesis-panel"><summary><span><small>SAÚDE E SEGURANÇA</small><strong>Ficha de anamnese</strong><em>{loaded && form.consent ? "Preenchida" : "Pendente"}</em></span><ChevronDown /></summary><form className="student-anamnesis-form" onSubmit={save}><p>Registre somente informações necessárias para orientar o treino. O acesso fica restrito à equipe autorizada da academia.</p><label>Objetivo principal<select value={form.goal} onChange={(event) => update("goal", event.target.value)}><option value="">Selecione</option><option>Saúde e qualidade de vida</option><option>Emagrecimento</option><option>Hipertrofia</option><option>Força e performance</option><option>Reabilitação orientada</option><option>Outro</option></select></label><label>Condições de saúde<textarea value={form.healthConditions} onChange={(event) => update("healthConditions", event.target.value)} placeholder="Ex.: hipertensão, diabetes, asma…" /></label><label>Medicamentos e alergias<textarea value={form.medications} onChange={(event) => update("medications", event.target.value)} placeholder="Informe somente o que impacta o treino." /></label><label>Lesões, dores ou limitações atuais<textarea value={form.injuries} onChange={(event) => update("injuries", event.target.value)} placeholder="Região, intensidade e movimentos que devem ser evitados." /></label><label>Cirurgias ou restrições médicas<textarea value={form.surgeries} onChange={(event) => update("surgeries", event.target.value)} /></label><label>Liberação para treinar<select value={form.medicalClearance} onChange={(event) => update("medicalClearance", event.target.value)}><option>Não informado</option><option>Sim</option><option>Não</option><option>Com restrições</option></select></label><div className="student-anamnesis-emergency"><label>Contato de emergência<input value={form.emergencyName} onChange={(event) => update("emergencyName", event.target.value)} placeholder="Nome completo" /></label><label>Telefone<input value={form.emergencyPhone} onChange={(event) => update("emergencyPhone", maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label></div><label className="student-anamnesis-consent"><input type="checkbox" checked={form.consent} onChange={(event) => update("consent", event.target.checked)} /><span>Aluno autorizou o registro dessas informações para acompanhamento do treino.</span></label><button className="detail-save" type="submit" disabled={saving || !loaded}>{saving ? "Salvando..." : "Salvar anamnese"}</button></form></details>;
 }
 
 function StudentWorkoutFeedbackPanel({ feedbacks }: { feedbacks: WorkoutFeedbackRecord[] }) {
@@ -4416,7 +4579,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeTeachers(); unsubscribePlans(); };
   }, [access.academyId, access.role, access.userId]);
 
-  const filteredStudents = students.filter((student) => `${student.name} ${student.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const filteredStudents = students.filter((student) => matchesSearch(search, student.name, student.email, student.phone, student.cpf));
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
   const isStudentOnline = (student: RegisteredStudent) => {
     const member = studentPresence.find((item) => item.id === student.userId || item.id === student.id || item.userId === student.userId);
@@ -4471,7 +4634,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       setStudentFeedback(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutFeedbackRecord, "id">) })).sort((a, b) => workoutExecutionTime(b.createdAt as WorkoutExecution["completedAt"]) - workoutExecutionTime(a.createdAt as WorkoutExecution["completedAt"])));
     });
     const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
-      setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+      setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
     });
     return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeAttendance(); unsubscribeFeedback(); unsubscribeMessages(); };
   }, [access.academyId, access.role, selectedId]);
@@ -4566,6 +4729,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       onFeedback("Escreva uma mensagem antes de enviar.");
       return;
     }
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     if (!db) {
       const message: InternalMessage = {
         id: `local-message-${crypto.randomUUID()}`,
@@ -4573,6 +4737,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         senderId: access.userId,
         senderName: accountName(access.user.displayName, access.user.email),
         body: messageBody.trim(),
+        createdAt: new Date().toISOString(),
+        expiresAt: expiresAt.toISOString(),
       };
       const messages = readLocalCollection<InternalMessage>(access.academyId, "messages");
       writeLocalCollection(access.academyId, "messages", [message, ...messages]);
@@ -4582,7 +4748,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }
     setSendingMessage(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "messages"), { studentId: selectedStudent.id, senderId: access.userId, senderName: accountName(access.user.displayName, access.user.email), body: messageBody.trim(), createdAt: serverTimestamp(), read: false });
+      await addDoc(collection(db, "academies", access.academyId, "messages"), { studentId: selectedStudent.id, senderId: access.userId, senderName: accountName(access.user.displayName, access.user.email), body: messageBody.trim(), createdAt: serverTimestamp(), expiresAt, read: false });
       setMessageBody(""); onFeedback("Mensagem enviada ao aluno.");
     } catch { onFeedback("Não foi possível enviar a mensagem."); }
     finally { setSendingMessage(false); }
@@ -4637,10 +4803,10 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       <section className="directory-layout">
         <article className="workspace-panel directory-panel">
           <header><div><span>CADASTROS ATIVOS</span><h3>{students.length} {students.length === 1 ? "aluno" : "alunos"}</h3></div></header>
-          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
+          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} type="search" aria-label="Buscar por nome, e-mail, CPF ou telefone" placeholder="Nome, e-mail, CPF ou telefone" /></div>
           <div className="directory-list">
             {filteredStudents.length === 0 ? <div className="directory-empty"><Users /><p>{students.length === 0 ? "Nenhum aluno cadastrado ainda." : "Nenhum aluno encontrado."}</p></div> : filteredStudents.map((student) => (
-              <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => { setSelectedId(student.id); scrollToContent(".student-detail-panel"); }}>
+              <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => { setSelectedId(student.id); scrollToContent(".student-detail-panel", true); }}>
                 <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small></span><span className="directory-row-meta"><em className={student.active === false ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.plan}</em>{access.role === "admin" && <small className={isStudentOnline(student) ? "directory-online online" : "directory-online"}><i aria-hidden="true" />{isStudentOnline(student) ? "Online agora" : "Offline"}</small>}</span><ChevronRight />
               </button>
             ))}
@@ -4656,6 +4822,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
             {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <StudentWhatsAppPanel student={selectedStudent} onFeedback={onFeedback} />
+            <StudentAnamnesisPanel student={selectedStudent} onFeedback={onFeedback} />
             {access.role === "admin" && selectedStudent.accessBlocked && <button className="detail-toggle" type="button" onClick={() => void releaseFinancialAccess()} disabled={releasingAccess}>{releasingAccess ? "Liberando..." : "Liberar acesso manualmente"}</button>}
             <StudentWorkoutFeedbackPanel feedbacks={studentFeedback} />
             <details className="student-profile-collapse"><summary><span><small>CADASTRO E ACESSO</small><strong>Dados pessoais, plano e permissões</strong></span><ChevronDown /></summary><div className="student-profile-collapse-content">
@@ -4722,9 +4889,15 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
       cnpj: maskCnpj(form.cnpj ?? ""),
       cpf: maskCpf(form.cpf ?? ""),
       whatsappUrl: normalizeWhatsappLink(form.whatsappUrl),
+      whatsappGroupUrl: normalizeWhatsappLink(form.whatsappGroupUrl),
     };
     if (form.whatsappUrl?.trim() && !normalized.whatsappUrl) {
       onFeedback("Use um link HTTPS do WhatsApp ou do grupo da academia.");
+      setSaving(false);
+      return;
+    }
+    if (form.whatsappGroupUrl?.trim() && !normalized.whatsappGroupUrl) {
+      onFeedback("Use um link HTTPS válido para o grupo da academia.");
       setSaving(false);
       return;
     }
@@ -4734,12 +4907,12 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
         const settingsKey = `orquestra-fit:${access.academyId}:academy-settings`;
         let currentSettings: Record<string, unknown> = {};
         try { currentSettings = JSON.parse(window.localStorage.getItem(settingsKey) ?? "{}") as Record<string, unknown>; } catch { currentSettings = {}; }
-        window.localStorage.setItem(settingsKey, JSON.stringify({ ...currentSettings, name: normalized.name, phone: normalized.phone, instagramUrl: normalized.instagramUrl, siteUrl: normalized.siteUrl, whatsappUrl: normalized.whatsappUrl }));
+        window.localStorage.setItem(settingsKey, JSON.stringify({ ...currentSettings, name: normalized.name, phone: normalized.phone, instagramUrl: normalized.instagramUrl, siteUrl: normalized.siteUrl, whatsappUrl: normalized.whatsappUrl, whatsappGroupUrl: normalized.whatsappGroupUrl }));
         window.dispatchEvent(new Event("orquestra-fit:profile-updated"));
         window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
       } else {
         await setDoc(doc(db, "users", access.userId), { ...normalized, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, whatsappUrl: normalized.whatsappUrl || null, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, whatsappUrl: normalized.whatsappUrl || null, whatsappGroupUrl: normalized.whatsappGroupUrl || null, updatedAt: serverTimestamp() }, { merge: true });
       }
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "profile_updated", label: isManager ? "Perfil da academia atualizado" : "Perfil profissional atualizado" });
       onFeedback("Perfil atualizado.");
@@ -4767,7 +4940,8 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
       <form className="student-detail-form" onSubmit={save}>
         {form.photoUrl && <img className="manager-profile-photo" src={form.photoUrl} alt="Foto do gestor" />}
         <label>Foto do perfil<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importPhoto} disabled={photoSaving} /><small>{photoSaving ? "Importando..." : "Importe uma imagem do dispositivo."}</small></label>
-        {(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl", ...(isManager ? ["whatsappUrl" as const] : [])] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site", whatsappUrl: "WhatsApp ou grupo da academia" } as Record<string, string>)[key]}<input type={key === "whatsappUrl" ? "url" : undefined} value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} placeholder={key === "whatsappUrl" ? "https://chat.whatsapp.com/..." : undefined} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}
+        {(["name", "phone", ...(!isManager ? ["cnpj" as const] : []), "cpf", "instagramUrl", "siteUrl", ...(isManager ? ["whatsappUrl" as const, "whatsappGroupUrl" as const] : [])] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site", whatsappUrl: "WhatsApp da academia", whatsappGroupUrl: "Grupo da academia" } as Record<string, string>)[key]}<input type={key === "whatsappUrl" || key === "whatsappGroupUrl" ? "url" : undefined} value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} placeholder={key === "whatsappGroupUrl" ? "https://chat.whatsapp.com/..." : key === "whatsappUrl" ? "https://wa.me/5511999999999" : undefined} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}
+        {isManager && <CompanyFields value={form} onChange={update} onFill={(patch, key, expected) => setForm((current) => { if ((current[key] ?? "") !== expected) return current; const next = { ...current }; for (const [field, value] of Object.entries(patch)) { const name = field as keyof CompanyFieldsValue; if (!next[name]?.trim() && value) next[name] = value; } return next; })} />}
         <div className="form-actions"><button className="detail-save" type="submit" disabled={saving || photoSaving}>{saving ? "Salvando..." : "Salvar perfil"}</button><button className="secondary-action" type="button" onClick={() => void logout()}>Sair da conta</button></div>
       </form>
       {isManager && <div className="manager-profile-hours"><AcademyHoursSettings onFeedback={onFeedback} /></div>}
@@ -4896,15 +5070,10 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           ...(roleToAdd === "admin" ? { academyName: academyName.trim() } : {}),
           active: true, createdBy: access.userId, createdAt: serverTimestamp(),
         });
-        await addDoc(collection(db, "auditLogs"), {
+        if (functions) await httpsCallable(functions, "recordAuditEvent")({
           academyId,
-          userId: access.userId,
-          userName: access.user.displayName ?? access.user.email ?? "Desenvolvedor",
-          userEmail: access.user.email ?? null,
-          role: "developer",
           action: roleToAdd === "admin" ? "academy_provisioned" : "invite_created",
-          label: roleToAdd === "admin" ? "Nova academia provisionada" : `Convite de ${roleToAdd === "teacher" ? "professor" : "aluno"} criado`,
-          createdAt: serverTimestamp(),
+          details: null,
         });
       }
       setGeneratedCode(code);
@@ -5114,7 +5283,7 @@ function DeveloperConsolePanel({ onFeedback, fullScreen = false, onClose }: { on
     setSaving(true);
     try {
       await updateDoc(doc(firestore, "academies", selectedId), { plan: plan.trim() || "basic", billingDueDate: dueDate || null, billingStatus: status, status: status === "suspended" ? "suspended" : "active", monthlyAmount: parseCurrency(amount), updatedAt: serverTimestamp(), updatedBy: access.userId });
-      await addDoc(collection(firestore, "auditLogs"), { academyId: selectedId, userId: access.userId, userName: access.user.displayName ?? access.user.email ?? "Desenvolvedor", userEmail: access.user.email ?? null, role: "developer", action: "academy_billing_update", label: "Controle da academia atualizado", createdAt: serverTimestamp() });
+      if (functions) await httpsCallable(functions, "recordAuditEvent")({ academyId: selectedId, action: "academy_billing_update", details: null });
       setEditing(false);
       onFeedback("Controle da academia atualizado.");
     } catch {
@@ -5400,7 +5569,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
       setSaving(false);
     }
   }
-  const inviteWhatsappHref = phone ? whatsappMessageHref(phone, `Olá ${name.trim() || "!"}. Seu acesso à Orquestra Fit foi criado pela academia. Use o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://orquestra-fit.vercel.app"} e toque em “Ativar minha conta” para começar.`) : "";
+  const inviteWhatsappHref = phone ? whatsappMessageHref(phone, `Olá ${name.trim() || "!"}. Seu acesso à Orquestra Fit foi criado pela academia. Use o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://fit.orquestracs.com"} e toque em “Ativar minha conta” para começar.`) : "";
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-student-title">
       <section className="student-modal">
@@ -5543,38 +5712,41 @@ function ManagerAnnouncementComposer() {
   const [body, setBody] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [visibility, setVisibility] = useState<"7" | "30" | "welcome">("7");
   async function publish(event: React.FormEvent) {
     event.preventDefault();
     if (!title.trim() || !body.trim()) { feedback("Informe o título e o texto do comunicado."); return; }
     setSending(true);
     const senderName = profile?.name || profile?.displayName || accountName(access.user.displayName, access.user.email);
+    const expiresAt = new Date(Date.now() + (visibility === "welcome" ? 1 : Number(visibility)) * 24 * 60 * 60 * 1000);
+    const isWelcome = visibility === "welcome";
     try {
       if (!db) {
-        const announcement: AcademyAnnouncement = { id: editingId ?? `local-announcement-${Date.now()}`, title: capitalizeName(title.trim()), body: body.trim(), senderName };
+        const announcement: AcademyAnnouncement = { id: editingId ?? `local-announcement-${Date.now()}`, title: capitalizeName(title.trim()), body: body.trim(), senderName, createdAt: editingId ? announcements.find((item) => item.id === editingId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), expiresAt: expiresAt.toISOString(), isWelcome };
         writeLocalCollection(access.academyId, "announcements", editingId ? announcements.map((item) => item.id === editingId ? announcement : item) : [announcement, ...announcements]);
       } else {
-        const data = { title: capitalizeName(title.trim()), body: body.trim(), senderName, senderId: access.userId, updatedAt: serverTimestamp() };
+        const data = { title: capitalizeName(title.trim()), body: body.trim(), senderName, senderId: access.userId, expiresAt, isWelcome, updatedAt: serverTimestamp() };
         if (editingId) await updateDoc(doc(db, "academies", access.academyId, "announcements", editingId), data);
         else await addDoc(collection(db, "academies", access.academyId, "announcements"), { ...data, createdAt: serverTimestamp() });
       }
-      setTitle(""); setBody(""); setEditingId(null); feedback(editingId ? "Comunicado atualizado." : "Comunicado publicado para toda a academia.");
+      setTitle(""); setBody(""); setEditingId(null); setVisibility("7"); feedback(editingId ? "Comunicado atualizado." : "Comunicado publicado para toda a academia.");
     } catch { feedback("Não foi possível publicar o comunicado."); }
     finally { setSending(false); }
   }
-  function editAnnouncement(item: AcademyAnnouncement) { setEditingId(item.id); setTitle(item.title); setBody(item.body); scrollToContent(".announcement-composer"); }
+  function editAnnouncement(item: AcademyAnnouncement) { setEditingId(item.id); setTitle(item.title); setBody(item.body); setVisibility(item.isWelcome ? "welcome" : "7"); scrollToContent(".announcement-composer"); }
   async function removeAnnouncement(item: AcademyAnnouncement) {
     if (!window.confirm(`Excluir o comunicado “${item.title}”?`)) return;
     try {
       if (!db) writeLocalCollection(access.academyId, "announcements", announcements.filter((current) => current.id !== item.id));
       else await deleteDoc(doc(db, "academies", access.academyId, "announcements", item.id));
-      if (editingId === item.id) { setEditingId(null); setTitle(""); setBody(""); }
+      if (editingId === item.id) { setEditingId(null); setTitle(""); setBody(""); setVisibility("7"); }
       feedback("Comunicado excluído.");
     } catch { feedback("Não foi possível excluir o comunicado."); }
   }
   return <section className="workspace-panel announcement-composer">
     <header><div><span>COMUNICAÇÃO GERAL</span><h3>Comunicado da academia</h3><p>O aviso aparece na página inicial e nas notificações de todos.</p></div><Bell /></header>
-    <form onSubmit={publish}><label>Título<input value={title} onChange={(event) => setTitle(capitalizeName(event.target.value))} placeholder="Ex.: Horário especial neste sábado" maxLength={80} /></label><label>Mensagem<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Escreva um aviso curto e objetivo." maxLength={280} /></label><button type="submit" disabled={sending || !title.trim() || !body.trim()}>{sending ? "Salvando..." : editingId ? "Salvar comunicado" : "Publicar para todos"}</button></form>
-    {announcements.slice(0, 5).map((item) => <div className="announcement-latest" key={item.id}><span>COMUNICADO PUBLICADO</span><strong>{item.title}</strong><p>{item.body}</p><div className="announcement-actions"><button type="button" onClick={() => editAnnouncement(item)}>Editar</button><button type="button" onClick={() => void removeAnnouncement(item)}>Excluir</button></div></div>)}
+    <form onSubmit={publish}><label>Título<input value={title} onChange={(event) => setTitle(capitalizeName(event.target.value))} placeholder="Ex.: Horário especial neste sábado" maxLength={80} /></label><label>Mensagem<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Escreva um aviso curto e objetivo." maxLength={280} /></label><label>Exibir por<select value={visibility} onChange={(event) => setVisibility(event.target.value as "7" | "30" | "welcome")}><option value="7">7 dias</option><option value="30">30 dias</option><option value="welcome">Primeiro acesso (boas-vindas)</option></select></label><small className="announcement-expiry-help">Depois desse prazo o card e a notificação deixam de aparecer para os alunos.</small><button type="submit" disabled={sending || !title.trim() || !body.trim()}>{sending ? "Salvando..." : editingId ? "Salvar comunicado" : "Publicar para todos"}</button></form>
+    {announcements.slice(0, 5).map((item) => <div className="announcement-latest" key={item.id}><span>COMUNICADO PUBLICADO · {item.isWelcome ? "PRIMEIRO ACESSO" : item.expiresAt ? `ATÉ ${dateTimeLabel(item.expiresAt)}` : "SEM EXPIRAÇÃO"}</span><strong>{item.title}</strong><p>{item.body}</p><div className="announcement-actions"><button type="button" onClick={() => editAnnouncement(item)}>Editar</button><button type="button" onClick={() => void removeAnnouncement(item)}>Excluir</button></div></div>)}
   </section>;
 }
 
@@ -5589,7 +5761,7 @@ function AcademyFooter() {
   const siteUrl = academy.siteUrl || profileFallback?.siteUrl;
   const whatsappNumber = contactPhone?.replace(/\D/g, "");
   const whatsappDestination = whatsappNumber?.startsWith("55") ? whatsappNumber : `55${whatsappNumber}`;
-  return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div>{whatsappNumber && <a href={`https://wa.me/${whatsappDestination}`} target="_blank" rel="noreferrer">WhatsApp · {contactPhone}</a>}{instagramUrl && <a href={instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{siteUrl && <a href={siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div></footer>;
+  return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div className="academy-footer-links">{whatsappNumber && <a href={`https://wa.me/${whatsappDestination}`} target="_blank" rel="noreferrer">WhatsApp · {contactPhone}</a>}{instagramUrl && <a href={instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{siteUrl && <a href={siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div><div className="academy-footer-brand" aria-label="Assinatura digital Orquestra CS"><img src="/branding/orquestra-cs/symbol-o.png" alt="" /><span><small>ASSINATURA DIGITAL</small><strong>Orquestra.cs</strong></span></div></footer>;
 }
 
 

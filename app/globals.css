@@ -40,7 +40,8 @@ body { margin: 0; background: #050606; color: var(--paper); font-family: var(--f
 @media (max-width: 640px) { .pwa-install-prompt { right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); } }
 .student-scroll { scrollbar-width: none; }
 button, input { font: inherit; }
-button { cursor: pointer; transition: border-color .18s ease, background-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease; }
+button { min-inline-size: 0; max-inline-size: 100%; cursor: pointer; overflow-wrap: anywhere; touch-action: manipulation; transition: border-color .18s ease, background-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease; }
+button > svg { flex: 0 0 auto; }
 button:not(:disabled):active { transform: translateY(1px); }
 button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px; }
 
@@ -123,7 +124,22 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .student-invite-result h3 { margin: 8px 0; color: var(--paper); font-size: 22px; }
 .student-invite-result .generated-code { margin: 22px 0; }
 .student-modal-close { width: 100%; }
-.module-view { min-height: calc(100vh - 90px); }
+.module-view { min-height: calc(100vh - 90px); scroll-margin-top: 18px; }
+.module-view:focus { outline: none; }
+.module-loading { display: flex; min-height: 45vh; align-items: center; justify-content: center; gap: 12px; color: var(--steel-400); }
+.orquestra-loader { display: inline-flex; align-items: center; gap: 12px; color: var(--steel-300); font-size: 13px; font-weight: 700; }
+.orquestra-loader-mark { display: grid; place-items: center; width: 42px; height: 42px; overflow: hidden; border: 1px solid rgba(94, 210, 255, .42); border-radius: 50%; background: #071625; box-shadow: 0 0 22px rgba(65, 190, 255, .22); animation: orquestra-loader-spin 1.15s linear infinite; }
+.orquestra-loader-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.orquestra-loader > span:last-child { min-width: 0; }
+.module-loading-spinner { width: 22px; height: 22px; border: 2px solid rgba(205,150,82,.24); border-top-color: var(--bronze-300); border-radius: 50%; animation: module-loading-spin .7s linear infinite; }
+@keyframes module-loading-spin { to { transform: rotate(360deg); } }
+@keyframes orquestra-loader-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .module-loading-spinner, .orquestra-loader-mark { animation: none; } }
+.published-template-row,
+.workout-library-card,
+.directory-row,
+.history-movement-row,
+.finance-account-rows > article { content-visibility: auto; contain-intrinsic-size: auto 112px; }
 .module-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
 .module-card { padding: 22px; }
 .module-card > span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
@@ -1071,6 +1087,8 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .workout-copy > p { color: var(--steel-300); margin: 0 0 17px; font-size: 15px; }
 .workout-meta { display: flex; gap: 14px; color: var(--steel-500); font-size: 11px; margin-bottom: 22px; }
 .workout-meta span { display: flex; align-items: center; gap: 5px; }
+.workout-meta { color: #6df392; text-shadow: 0 0 12px rgba(109, 243, 146, .16); }
+.workout-meta svg { color: #6df392; filter: drop-shadow(0 0 6px rgba(109, 243, 146, .34)); }
 .student-workout-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
 .workout-copy button {
   height: 48px; border: 0; background: var(--bronze-400); color: #15100b;
@@ -1131,7 +1149,8 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .academy-note span { color: var(--bronze-400); font-size: 8px; font-weight: 900; letter-spacing: 1px; }
 .academy-note h3 { font-size: 14px; margin: 4px 0; }
 .academy-note p { color: var(--steel-500); font-size: 10px; line-height: 1.4; margin: 0; }
-.academy-note > svg { width: 18px; color: #666c70; }
+.academy-note-dismiss { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid rgba(139, 151, 156, .24); border-radius: 50%; background: transparent; color: #8b969a; }
+.academy-note-dismiss:hover { color: var(--paper); border-color: var(--bronze-500); }
 
 .page-intro { margin-bottom: 26px; }
 .page-intro h1 { font-size: 34px; }
@@ -1485,6 +1504,9 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .anatomy-muscle-overlay path { stroke-width: .65; }
 .anatomy-muscle-overlay .muscle-primary { stroke: #ffc0b9; }
 .anatomy-muscle-overlay .muscle-secondary { stroke: #ffe0ae; }
+.anatomy-callout path { fill: none; stroke: #aeeaff; stroke-width: 1; stroke-dasharray: 3 3; opacity: .92; }
+.anatomy-callout circle { fill: #e8fbff; stroke: #4bd3fb; stroke-width: 1.3; filter: drop-shadow(0 0 5px #45cfff); }
+.anatomy-callout text { fill: #e8fbff; font-size: 9px; font-family: var(--font-sans, Arial, sans-serif); font-weight: 800; letter-spacing: .75px; text-transform: uppercase; paint-order: stroke; stroke: #071014; stroke-width: 3px; stroke-linejoin: round; }
 .muscle-legend { display: grid; gap: 10px; margin-bottom: 18px; }
 .muscle-legend > div { min-height: 68px; padding: 13px 14px; border: 1px solid #2d414a; background: rgba(8, 15, 19, .78); display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 10px; }
 .muscle-legend i { grid-row: 1 / 3; width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 16px currentColor; }
@@ -1492,10 +1514,25 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .muscle-legend i.secondary { color: #ff982f; background: #ff982f; }
 .muscle-legend span { color: #a7b0b5; font-size: 11px; }
 .muscle-legend strong { align-self: start; color: #f6f7f7; font-size: 14px; }
-.anatomy-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; padding-top: 18px; border-top: 1px solid #34505a; }
-.anatomy-metrics > div { min-height: 128px; padding: 14px 7px; border: 1px solid #2d414a; background: rgba(8, 15, 19, .78); display: grid; justify-items: center; align-content: center; gap: 5px; text-align: center; }
-.anatomy-metrics svg { width: 28px; height: 28px; margin-bottom: 8px; color: var(--neon); }
-.anatomy-metrics strong { font-size: 27px; line-height: 1; }
+.anatomy-insight { margin: 0 0 14px; border: 1px solid #34515c; background: linear-gradient(145deg, rgba(18, 38, 47, .93), rgba(8, 14, 18, .9)); box-shadow: inset 0 1px #8de4ff20, 0 12px 30px #0004; }
+.anatomy-insight > header { padding: 16px 16px 14px; border-bottom: 1px solid #36525c; }
+.anatomy-insight > header span, .anatomy-curiosity > div > span { color: #8ee6ff; font-size: 10px; font-weight: 900; letter-spacing: 1.1px; }
+.anatomy-insight > header h3 { margin: 6px 0 6px; color: #fff; font-family: var(--font-display, Georgia, serif); font-size: 24px; line-height: 1; }
+.anatomy-insight > header p { margin: 0; color: #b9c9ce; font-size: 12px; line-height: 1.5; }
+.anatomy-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.anatomy-facts > div { min-height: 154px; padding: 15px 13px; border-right: 1px solid #27404a; border-bottom: 1px solid #27404a; display: grid; align-content: start; gap: 7px; }
+.anatomy-facts > div:nth-child(2n), .anatomy-facts > div:last-child { border-right: 0; }
+.anatomy-facts > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.anatomy-facts svg { width: 18px; height: 18px; color: #ffb760; }
+.anatomy-facts span { color: #9bb1ba; font-size: 9px; font-weight: 900; letter-spacing: .8px; }
+.anatomy-facts strong { color: #edf5f7; font-size: 12px; font-weight: 600; line-height: 1.48; }
+.anatomy-curiosity { display: grid; grid-template-columns: 42px 1fr; gap: 11px; margin: 0 0 18px; padding: 14px; border: 1px solid #705a3a; background: linear-gradient(110deg, #21170c, #121517); }
+.anatomy-curiosity > svg { width: 24px; height: 24px; color: #ffc16c; }
+.anatomy-curiosity p { margin: 5px 0 0; color: #f1ddbf; font-size: 12px; line-height: 1.5; }
+.anatomy-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding-top: 18px; border-top: 1px solid #34505a; }
+.anatomy-metrics > div { min-height: 110px; padding: 12px 5px; border: 1px solid #2d414a; background: rgba(8, 15, 19, .78); display: grid; justify-items: center; align-content: center; gap: 5px; text-align: center; }
+.anatomy-metrics svg { width: 22px; height: 22px; margin-bottom: 5px; color: var(--neon); }
+.anatomy-metrics strong { max-width: 100%; overflow-wrap: anywhere; font-size: clamp(16px, 5vw, 23px); line-height: 1; }
 .anatomy-metrics span { color: #a7b0b5; font-size: 11px; }
 .anatomy-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; margin: 0 0 16px; padding: 0 3px; color: #8d9aa0; font-size: 10px; }
 .anatomy-controls span { max-width: 195px; line-height: 1.35; }
@@ -1852,6 +1889,8 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
   filter: grayscale(.95) contrast(1.18) brightness(.78);
   opacity: .96;
 }
+[data-theme="ferro"] .workout-meta { color: #157a50; text-shadow: none; }
+[data-theme="ferro"] .workout-meta svg { color: #157a50; filter: none; }
 [data-theme="ferro"] .workspace-rail {
   box-shadow: 8px 0 28px #27313720;
 }
@@ -1934,8 +1973,13 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 }
 .academy-footer { width: min(100% - 40px, 1120px); margin: 0 auto; padding: 16px 0 26px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--steel-500); font-size: 10px; }
 .academy-footer > span::before { content: "CONTATO · "; color: var(--bronze-500); font-size: 8px; letter-spacing: .1em; }
-.academy-footer div { display: flex; gap: 16px; }
+.academy-footer-links { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .academy-footer a { color: var(--bronze-300); text-decoration: none; }
+.academy-footer-brand { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; color: var(--steel-500); }
+.academy-footer-brand img { width: 23px; height: 23px; object-fit: contain; opacity: .82; filter: saturate(.9) drop-shadow(0 0 8px rgba(76, 170, 236, .18)); }
+.academy-footer-brand > span { display: grid; gap: 2px; }
+.academy-footer-brand small { color: var(--steel-500); font-size: 7px; letter-spacing: .14em; line-height: 1; }
+.academy-footer-brand strong { color: #8cccf0; font-size: 10px; font-weight: 700; letter-spacing: .03em; line-height: 1; }
 .workspace-content { padding: 24px 28px 68px; max-width: 1500px; margin: 0 auto; }
 .workspace-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 19px; }
 .workspace-intro > div > span { color: var(--bronze-400); font-size: 8px; letter-spacing: 1.4px; font-weight: 900; }
@@ -2305,10 +2349,12 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 }
 .announcement-composer { margin: 0 0 15px; }
 .announcement-composer > header > svg { width: 22px; color: var(--bronze-300); }
-.announcement-composer > form { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(260px, 1.3fr) auto; gap: 10px; align-items: end; padding: 16px 20px; }
+.announcement-composer > form { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(260px, 1.3fr) minmax(150px, .65fr) auto; gap: 10px; align-items: end; padding: 16px 20px; }
 .announcement-composer label { display: grid; gap: 6px; color: var(--steel-300); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 .announcement-composer input, .announcement-composer textarea { width: 100%; min-height: 42px; border: 1px solid #34393b; background: #0b0e0f; color: var(--paper); padding: 10px 11px; outline: 0; font: 11px var(--font-sans); resize: vertical; }
+.announcement-composer select { width: 100%; min-height: 42px; border: 1px solid #34393b; background: #0b0e0f; color: var(--paper); padding: 0 11px; outline: 0; font: 11px var(--font-sans); }
 .announcement-composer input:focus, .announcement-composer textarea:focus { border-color: #7b5938; box-shadow: 0 0 0 2px rgba(208,154,92,.08); }
+.announcement-expiry-help { grid-column: 1 / -1; color: var(--steel-500); font-size: 9px; }
 .announcement-composer button { min-height: 42px; border: 1px solid #e1ad69; background: linear-gradient(135deg, #dca35e, #ae6b31); color: #1b1007; padding: 0 15px; font-size: 10px; font-weight: 900; box-shadow: inset 0 1px rgba(255,255,255,.25), 0 6px 14px rgba(0,0,0,.28); }
 .announcement-composer button:disabled { opacity: .42; cursor: not-allowed; box-shadow: none; }
 .announcement-latest { display: grid; gap: 4px; margin: 0 20px 16px; padding: 12px 14px; border-left: 2px solid var(--bronze-500); background: rgba(182,129,73,.07); }
@@ -3528,8 +3574,8 @@ input, select, textarea { border-radius: 10px; }
   z-index: 0;
   background:
     linear-gradient(180deg, rgba(0, 12, 17, .08), rgba(0, 12, 17, .18)),
-    url('/branding/orquestra-fit-login-bg-v2.png') center center / auto 100% no-repeat,
-    url('/branding/orquestra-fit-login-bg-v2.png') center center / cover no-repeat;
+    url('/branding/orquestra-fit-login-bg-gym.png') center center / auto 100% no-repeat,
+    url('/branding/orquestra-fit-login-bg-gym.png') center center / cover no-repeat;
   opacity: 1;
   content: "";
 }
@@ -3917,6 +3963,28 @@ input, select, textarea { border-radius: 10px; }
 .student-whatsapp-schedule textarea { min-height: 76px; resize: vertical; }
 .student-whatsapp-schedule button { justify-self: start; }
 .student-whatsapp-note { color: var(--steel-500); font-size: 10px; line-height: 1.45; }
+.student-anamnesis-panel { margin-top: 16px; border: 1px solid #59462e; border-radius: 14px; overflow: hidden; background: linear-gradient(145deg, rgba(40, 31, 22, .72), #111415 70%); }
+.student-anamnesis-panel > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 17px; cursor: pointer; list-style: none; }
+.student-anamnesis-panel > summary::-webkit-details-marker { display: none; }
+.student-anamnesis-panel > summary > span { display: grid; gap: 4px; min-width: 0; }
+.student-anamnesis-panel > summary small { color: #d4a35f; font-size: 9px; font-weight: 900; letter-spacing: .13em; }
+.student-anamnesis-panel > summary strong { color: var(--paper); font-size: 16px; }
+.student-anamnesis-panel > summary em { color: #89d7a7; font-size: 10px; font-style: normal; }
+.student-anamnesis-panel > summary > svg { flex: 0 0 auto; color: #d4a35f; transition: transform .2s ease; }
+.student-anamnesis-panel[open] > summary { border-bottom: 1px solid #59462e; background: rgba(204, 148, 75, .08); }
+.student-anamnesis-panel[open] > summary > svg { transform: rotate(180deg); }
+.student-anamnesis-form { display: grid; gap: 11px; padding: 16px 17px 18px; }
+.student-anamnesis-form > p { margin: 0 0 3px; color: var(--steel-400); font-size: 10px; line-height: 1.5; }
+.student-anamnesis-form > label,
+.student-anamnesis-emergency label { display: grid; gap: 5px; color: var(--steel-300); font-size: 10px; font-weight: 800; }
+.student-anamnesis-form select,
+.student-anamnesis-form input,
+.student-anamnesis-form textarea { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: #0c1011; color: var(--paper); font: inherit; }
+.student-anamnesis-form textarea { min-height: 62px; resize: vertical; }
+.student-anamnesis-emergency { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.student-anamnesis-consent { display: flex !important; grid-template-columns: none; align-items: flex-start; gap: 8px !important; color: var(--steel-400) !important; font-weight: 500 !important; line-height: 1.4; }
+.student-anamnesis-consent input { width: 16px; min-height: 16px; flex: 0 0 auto; margin: 0; accent-color: var(--bronze-400); }
+.student-anamnesis-form .detail-save { justify-self: start; }
 .billing-automation-note { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 14px; color: #9ee8bf; font-size: 10px; font-weight: 750; }
 .billing-automation-note svg { color: #62dda4; }
 @media (max-width: 600px) { .student-whatsapp-schedule { grid-template-columns: 1fr; } .student-whatsapp-schedule label:last-of-type { grid-column: auto; } }
@@ -4083,6 +4151,7 @@ input, select, textarea { border-radius: 10px; }
 [data-theme="ferro"] .stock-form input,
 [data-theme="ferro"] .stock-form textarea,
 [data-theme="ferro"] .announcement-composer input,
+[data-theme="ferro"] .announcement-composer select,
 [data-theme="ferro"] .announcement-composer textarea,
 [data-theme="ferro"] .student-form input,
 [data-theme="ferro"] .student-form select,
@@ -4190,6 +4259,18 @@ input, select, textarea { border-radius: 10px; }
 [data-theme="ferro"] .student-profile-collapse,
 [data-theme="ferro"] .student-profile-messages,
 [data-theme="ferro"] .student-message-inbox { background: #ffffff; color: var(--paper); }
+[data-theme="ferro"] .student-anamnesis-panel { border-color: #c9a574; background: linear-gradient(145deg, #fff8ec, #ffffff 72%); }
+[data-theme="ferro"] .student-anamnesis-panel[open] > summary { border-bottom-color: #e3d4c2; background: #fbf1e4; }
+[data-theme="ferro"] .student-anamnesis-panel > summary strong { color: #243941; }
+[data-theme="ferro"] .student-anamnesis-panel > summary small { color: #89591e; }
+[data-theme="ferro"] .student-anamnesis-panel > summary > svg { color: #9d6b2f; }
+[data-theme="ferro"] .student-anamnesis-form > p,
+[data-theme="ferro"] .student-anamnesis-form > label,
+[data-theme="ferro"] .student-anamnesis-emergency label,
+[data-theme="ferro"] .student-anamnesis-consent { color: #60737c !important; }
+[data-theme="ferro"] .student-anamnesis-form select,
+[data-theme="ferro"] .student-anamnesis-form input,
+[data-theme="ferro"] .student-anamnesis-form textarea { background: #fffdf9; border-color: #cbd6db; color: #243941; }
 [data-theme="ferro"] .profile-detail-card strong,
 [data-theme="ferro"] .student-plan-grid b { color: #1c3038; }
 [data-theme="ferro"] .powered-by span,
@@ -4410,6 +4491,18 @@ input, select, textarea { border-radius: 10px; }
 }
 [data-theme="ferro"] .workout-flow .workout-exercise.is-open { background: #f8f0e5; border-color: #b99058; }
 [data-theme="ferro"] .workout-flow .workout-exercise.is-complete { background: #edf5eb; border-color: #8eb18f; }
+[data-theme="ferro"] .workout-overview {
+  border-color: #c8ac82;
+  background: linear-gradient(135deg, #f8f0e5, #fffaf3 74%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 14px 34px rgba(101,76,48,.12);
+}
+[data-theme="ferro"] .workout-overview::after { background: radial-gradient(circle, rgba(182, 132, 76, .18), transparent 67%); }
+[data-theme="ferro"] .workout-overview h1 { color: #24363d; }
+[data-theme="ferro"] .workout-overview > p { color: #66767b; }
+[data-theme="ferro"] .workout-progress-label { color: #65767b; }
+[data-theme="ferro"] .workout-progress-label strong { color: #98692f; }
+[data-theme="ferro"] .workout-progress { background: #e0d4c5; }
+[data-theme="ferro"] .workout-progress > span { background: linear-gradient(90deg, #9d6a30, #d3a45f); }
 [data-theme="ferro"] .workout-set-labels { color: #718087; }
 [data-theme="ferro"] .workout-set { border-color: #e0d4c5; }
 [data-theme="ferro"] .workout-set input {
@@ -4418,35 +4511,470 @@ input, select, textarea { border-radius: 10px; }
   color: #25343b;
   box-shadow: inset 0 1px 2px rgba(101,76,48,.08);
 }
-[data-theme="ferro"] .workout-set button {
-  position: relative;
-  width: 46px;
-  height: 42px;
-  border: 1px solid #b89362;
-  border-radius: 11px;
-  background: linear-gradient(145deg, #fffaf2, #e7d6bd);
-  color: #8a622d;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 2px 0 #b9a083, 0 5px 11px rgba(102,75,42,.15);
-  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+[data-theme="ferro"] .workout-set-toggle { border-color: #c3b39e; background: #d5cec3; box-shadow: inset 0 1px 3px rgba(101,76,48,.22); }
+[data-theme="ferro"] .workout-set-toggle .workout-set-toggle-thumb { background: #fffdf8; box-shadow: 0 1px 3px rgba(101,76,48,.25); }
+[data-theme="ferro"] .workout-set-toggle[aria-pressed="true"] { border-color: #4cae68; background: #43d56a; box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), 0 0 10px rgba(63,190,94,.18); }
+[data-theme="ferro"] .workout-set-toggle[aria-pressed="true"] .workout-set-toggle-thumb { background: #f7fff8; }
+[data-theme="ferro"] .workout-set-toggle:active { transform: scale(.97); }
+[data-theme="ferro"] .workout-set.is-done input { background: #f0eadf; border-color: #b9c8ba; color: #597263; }
+[data-theme="ferro"] .workout-set { border: 0; background: rgba(241,232,220,.76); box-shadow: none; }
+[data-theme="ferro"] .workout-set > span { border: 0; background: #f8efe3; color: #5b6870; }
+[data-theme="ferro"] .workout-stepper { border: 0; background: #fffaf3; box-shadow: none; }
+[data-theme="ferro"] .workout-stepper input { background: transparent; border: 0; color: #25343b; }
+[data-theme="ferro"] .workout-stepper-arrows { border-left: 0; }
+[data-theme="ferro"] .workout-stepper-arrows button { background: transparent; color: #8a6a42; }
+[data-theme="ferro"] .workout-stepper-arrows button:hover,
+[data-theme="ferro"] .workout-stepper-arrows button:active { background: rgba(178,132,76,.14); color: #6c4a23; }
+[data-theme="ferro"] .workout-set.is-done { border-color: #9bbba1; background: linear-gradient(110deg, #e8f2e8, #f4f8ef); }
+[data-theme="ferro"] .workout-set.is-done .workout-stepper { border-color: #b9c8ba; background: #f0eadf; }
+[data-theme="ferro"] .workout-rest { border-color: #b99058; background: linear-gradient(105deg, #f1e5d5, #fbf7ef); color: #4d5c61; box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 5px 12px rgba(101,76,48,.12); }
+[data-theme="ferro"] .workout-rest strong { color: #81541f; }
+[data-theme="ferro"] .workout-rest:hover { border-color: #95652c; background: linear-gradient(105deg, #f7ead9, #fffaf3); }
+[data-theme="ferro"] .workout-rest.is-running { border-color: #6eaa83; background: linear-gradient(105deg, #e7f2e8, #f4f9f2); }
+
+/* Tema escuro vivo: grafite, luz ambiente e referências discretas à academia. */
+[data-theme="forja"] {
+  --iron-950: #0c1214;
+  --iron-900: #121a1d;
+  --iron-850: #182125;
+  --iron-800: #1d292d;
+  --steel-500: #98a5aa;
+  --steel-300: #d0d7d8;
+  --line: #304046;
 }
-[data-theme="ferro"] .workout-set button::before {
+
+[data-theme="forja"].v3-page {
+  background:
+    radial-gradient(circle at 14% 7%, rgba(52, 146, 145, .14), transparent 30%),
+    radial-gradient(circle at 88% 35%, rgba(193, 129, 65, .12), transparent 27%),
+    radial-gradient(circle at 46% 96%, rgba(79, 139, 119, .09), transparent 30%),
+    linear-gradient(155deg, #11191c, #090e10 66%, #0d1416);
+}
+
+[data-theme="forja"] .student-app,
+[data-theme="forja"] .student-scroll,
+[data-theme="forja"] .workspace-shell,
+[data-theme="forja"] .workspace-main {
+  background:
+    radial-gradient(circle at 7% 16%, rgba(55, 141, 140, .09), transparent 26%),
+    radial-gradient(circle at 94% 42%, rgba(191, 126, 61, .08), transparent 24%),
+    linear-gradient(160deg, #11191c, #0b1113 68%, #0e1618);
+}
+
+[data-theme="forja"] .workspace-content,
+[data-theme="forja"] .student-view {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-theme="forja"] .workspace-content::before,
+[data-theme="forja"] .student-view::before {
   content: "";
   position: absolute;
-  inset: 5px;
-  border: 1px solid rgba(151,106,53,.28);
-  border-radius: 7px;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 10% 18%, rgba(87, 183, 173, .065), transparent 18%),
+    radial-gradient(circle at 88% 62%, rgba(222, 158, 85, .055), transparent 20%);
+}
+
+[data-theme="forja"] .workspace-panel,
+[data-theme="forja"] .metric-card,
+[data-theme="forja"] .module-card,
+[data-theme="forja"] .directory-panel,
+[data-theme="forja"] .student-detail-panel,
+[data-theme="forja"] .billing-overview,
+[data-theme="forja"] .charges-panel,
+[data-theme="forja"] .plan-form-panel,
+[data-theme="forja"] .plans-list-panel,
+[data-theme="forja"] .training-form-panel,
+[data-theme="forja"] .published-workouts,
+[data-theme="forja"] .weekly-card,
+[data-theme="forja"] .academy-note,
+[data-theme="forja"] .program-summary,
+[data-theme="forja"] .evolution-hero,
+[data-theme="forja"] .evolution-grid article,
+[data-theme="forja"] .history-panel,
+[data-theme="forja"] .latest-assessment,
+[data-theme="forja"] .class-card,
+[data-theme="forja"] .student-plan-grid > div,
+[data-theme="forja"] .protected-field,
+[data-theme="forja"] .finance-panel,
+[data-theme="forja"] .finance-entry-form,
+[data-theme="forja"] .finance-list,
+[data-theme="forja"] .finance-history,
+[data-theme="forja"] .finance-purchase-form,
+[data-theme="forja"] .finance-account-list,
+[data-theme="forja"] .financial-report,
+[data-theme="forja"] .stock-panel,
+[data-theme="forja"] .stock-form,
+[data-theme="forja"] .stock-list,
+[data-theme="forja"] .stock-history,
+[data-theme="forja"] .stock-summary > article {
+  border-color: #34474d;
+  background:
+    radial-gradient(circle at 100% 0, rgba(68, 143, 137, .06), transparent 34%),
+    linear-gradient(145deg, rgba(26, 36, 39, .98), rgba(16, 23, 26, .98));
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .24), inset 0 1px rgba(184, 221, 217, .045);
+}
+
+[data-theme="forja"] .status-grid article:not(.overdue):not(.dueSoon),
+[data-theme="forja"] .workout-library-card:not(.is-in-progress):not(.is-completed):not(.is-locked),
+[data-theme="forja"] .workout-list > button:not(.active) {
+  border-color: #33454b;
+  background: linear-gradient(145deg, #192225, #11191c);
+}
+
+[data-theme="forja"] .workspace-topbar,
+[data-theme="forja"] .student-header {
+  background:
+    radial-gradient(circle at 82% 0, rgba(72, 154, 150, .12), transparent 28%),
+    linear-gradient(108deg, #202a2d, #151d20 52%, #111719);
+  border-bottom-color: #45575d;
+}
+
+[data-theme="forja"] .today-workout {
+  border-color: #4c4033;
+  background:
+    radial-gradient(circle at 84% 26%, rgba(218, 163, 91, .13), transparent 29%),
+    linear-gradient(145deg, #1a2427, #111719 72%);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .42), inset 0 1px rgba(233, 191, 129, .06);
+}
+
+[data-theme="forja"] .today-workout::before {
+  background:
+    linear-gradient(90deg, rgba(17, 24, 27, .98) 0 43%, rgba(17, 24, 27, .78) 61%, rgba(17, 24, 27, .08)),
+    linear-gradient(0deg, rgba(11, 17, 19, .96) 0, transparent 64%);
+}
+
+[data-theme="forja"] .today-workout::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+  background:
+    conic-gradient(from 204deg at 93% -8%, transparent 0 39%, rgba(255, 221, 164, .19) 46%, rgba(255, 215, 145, .055) 57%, transparent 67%),
+    radial-gradient(ellipse at 78% 27%, rgba(239, 187, 111, .22), rgba(174, 113, 49, .07) 26%, transparent 48%);
+  mix-blend-mode: screen;
+}
+
+[data-theme="forja"] .today-workout .workout-art {
+  background: radial-gradient(circle at 58% 30%, #26383a, #111719 64%);
+}
+
+[data-theme="forja"] .today-workout .workout-art img {
+  filter: grayscale(.2) contrast(1.15) brightness(.84) drop-shadow(0 0 22px rgba(231, 178, 104, .18));
+  opacity: .92;
+}
+[data-theme="forja"] .workout-meta { color: #6df392; }
+[data-theme="forja"] .workout-meta svg { color: #6df392; }
+
+/* Silhueta de pesos e anilhas no rodapé das três áreas. */
+[data-theme="forja"] .academy-footer {
+  position: relative;
+  isolation: isolate;
+  min-height: 104px;
+  overflow: hidden;
+  padding: 22px 18px 34px;
+  border-top: 1px solid rgba(100, 124, 132, .22);
+  border-radius: 18px 18px 0 0;
+  background:
+    radial-gradient(ellipse at 50% 112%, rgba(63, 132, 126, .13), transparent 58%),
+    linear-gradient(180deg, rgba(16, 23, 26, .18), rgba(10, 16, 18, .72));
+}
+
+[data-theme="forja"] .academy-footer::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: auto 0 0;
+  height: 88px;
+  opacity: .42;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, transparent 0 10px, rgba(144, 164, 169, .42) 11px 15px, transparent 16px),
+    radial-gradient(circle, transparent 0 15px, rgba(144, 164, 169, .34) 16px 21px, transparent 22px),
+    linear-gradient(rgba(126, 147, 153, .34) 0 0),
+    linear-gradient(90deg, rgba(126, 147, 153, .4) 0 5px, transparent 5px 11px, rgba(126, 147, 153, .4) 11px 16px),
+    radial-gradient(ellipse, transparent 0 17px, rgba(185, 132, 73, .3) 18px 23px, transparent 24px),
+    radial-gradient(ellipse, transparent 0 10px, rgba(185, 132, 73, .24) 11px 15px, transparent 16px);
+  background-repeat: no-repeat;
+  background-size: 34px 34px, 48px 48px, 190px 4px, 16px 45px, 54px 42px, 38px 30px;
+  background-position: 7% 68%, 16% 74%, 10% 68%, 88% 78%, 94% 74%, 83% 83%;
+  filter: drop-shadow(0 0 12px rgba(80, 164, 157, .08));
+}
+
+[data-theme="forja"] .academy-footer::after {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  left: 12%;
+  right: 12%;
+  bottom: -34px;
+  height: 68px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(77, 157, 148, .16), transparent 68%);
+  filter: blur(8px);
+}
+
+[data-theme="forja"] .academy-footer > span,
+[data-theme="forja"] .academy-footer > div {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 640px) {
+  [data-theme="forja"] .academy-footer {
+    min-height: 132px;
+    align-items: flex-start;
+    padding: 20px 14px 90px;
+  }
+  [data-theme="forja"] .academy-footer::before {
+    height: 80px;
+    background-position: 3% 72%, 17% 78%, 7% 72%, 82% 80%, 96% 76%, 76% 85%;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-theme="forja"] .today-workout::after { animation: workout-spotlight 7s ease-in-out infinite alternate; }
+}
+
+@keyframes workout-spotlight {
+  from { opacity: .76; transform: translateX(-1.5%); }
+  to { opacity: 1; transform: translateX(1.5%); }
+}
+
+/* Botões com relevo tátil e resposta visual consistente. */
+[data-theme="forja"] button:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.12),
+    0 2px 0 rgba(0,0,0,.46),
+    0 7px 15px rgba(0,0,0,.2);
+}
+
+[data-theme="ferro"] button:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    0 2px 0 rgba(144,112,73,.3),
+    0 7px 15px rgba(93,70,43,.13);
+}
+
+:is([data-theme="forja"], [data-theme="ferro"]) button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+:is([data-theme="forja"], [data-theme="ferro"]) button:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.24), 0 1px 0 rgba(0,0,0,.3);
+}
+
+/* Navegação e linhas expansíveis permanecem planas para preservar a hierarquia. */
+:is([data-theme="forja"], [data-theme="ferro"]) :is(
+  .student-nav button,
+  .workspace-rail nav button,
+  .rail-settings,
+  .workout-exercise-toggle,
+  .workout-exercise-complete-summary,
+  .section-heading button,
+  .profile-link,
+  .training-card-summary,
+  .training-subcard-summary,
+  .exercise-card-title,
+  .workout-open,
+  .app-guide-dots button,
+  .workout-rating button
+) {
+  box-shadow: none;
+}
+
+:is([data-theme="forja"], [data-theme="ferro"]) :is(.icon-button, .workspace-actions > button, .workout-back) {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.14),
+    0 2px 0 rgba(0,0,0,.34),
+    0 5px 10px rgba(0,0,0,.18);
+}
+
+/* O login mantém o piso e a iluminação originais; a nova arte apenas acrescenta os elementos do treino. */
+.auth-page::before {
+  background-image:
+    linear-gradient(180deg, rgba(0, 12, 17, .08), rgba(0, 12, 17, .18)),
+    url('/branding/orquestra-fit-login-bg-gym.png');
+  background-position: center center, center center;
+  background-size: auto 100%, cover;
+  background-repeat: no-repeat;
+}
+
+/* Relevo consistente também no tema escuro; a navegação continua plana para não competir com o conteúdo. */
+[data-theme="forja"] button:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.14),
+    inset 0 -1px 0 rgba(0,0,0,.3),
+    0 2px 0 rgba(0,0,0,.62),
+    0 8px 18px rgba(0,0,0,.26);
+}
+
+[data-theme="forja"] button:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.17),
+    inset 0 -1px 0 rgba(0,0,0,.28),
+    0 3px 0 rgba(0,0,0,.62),
+    0 12px 24px rgba(0,0,0,.3);
+}
+
+[data-theme="forja"] button:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.34), 0 1px 0 rgba(0,0,0,.56);
+}
+
+[data-theme="forja"] :is(
+  .student-nav button,
+  .workspace-rail nav button,
+  .rail-settings,
+  .workout-exercise-toggle,
+  .workout-exercise-complete-summary,
+  .section-heading button,
+  .profile-link,
+  .training-card-summary,
+  .training-subcard-summary,
+  .exercise-card-title,
+  .workout-open,
+  .app-guide-dots button,
+  .workout-rating button
+) {
+  box-shadow: none !important;
+}
+
+/* Cards de treino do aluno: imagem temática apagada e acento neon por foco muscular. */
+[data-theme="forja"] .workout-library-card {
+  --workout-level-neon: #d99a50;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--workout-level-neon) 38%, #33454b) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--workout-level-neon) 16%, transparent),
+    0 14px 28px rgba(0,0,0,.25),
+    inset 0 1px 0 rgba(255,255,255,.05) !important;
+}
+
+[data-theme="forja"] .workout-library-card::after {
+  position: absolute;
+  z-index: 0;
+  inset: auto 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--workout-level-neon), transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--workout-level-neon) 48%, transparent);
+  content: "";
   pointer-events: none;
 }
-[data-theme="ferro"] .workout-set button:hover {
-  transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 3px 0 #b9a083, 0 8px 15px rgba(102,75,42,.2);
+
+[data-theme="forja"] .workout-library-card[data-level="fundacao"] {
+  --workout-level-neon: #d99a50;
 }
-[data-theme="ferro"] .workout-set button:active { transform: translateY(1px); box-shadow: inset 0 2px 4px rgba(92,61,25,.2), 0 1px 0 #b9a083; }
-[data-theme="ferro"] .workout-set.is-done button {
-  border-color: #8c5f29;
-  background: linear-gradient(145deg, #c4914d, #98662e);
-  color: #fffaf0;
-  box-shadow: inset 0 1px 0 rgba(255,245,218,.45), 0 2px 0 #70491e, 0 5px 14px rgba(135,87,28,.25);
+
+[data-theme="forja"] .workout-library-card[data-level="evolucao"] {
+  --workout-level-neon: #dce5ec;
 }
-[data-theme="ferro"] .workout-set.is-done button::before { border-color: rgba(255,245,218,.34); }
-[data-theme="ferro"] .workout-set.is-done input { background: #f0eadf; border-color: #b9c8ba; color: #597263; }
+
+[data-theme="forja"] .workout-library-card[data-level="performance"] {
+  --workout-level-neon: #f4c955;
+}
+
+[data-theme="forja"] .workout-library-card[data-level="elite"] {
+  --workout-level-neon: #bdf3ff;
+  background:
+    linear-gradient(135deg, rgba(141, 225, 244, .13), transparent 42%),
+    linear-gradient(145deg, #1d292d, #11191c 72%);
+}
+
+[data-theme="forja"] .workout-library-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+[data-theme="forja"] .workout-library-card .workout-index,
+[data-theme="forja"] .workout-library-card .play-button {
+  color: var(--workout-level-neon) !important;
+  border-color: color-mix(in srgb, var(--workout-level-neon) 58%, #445258) !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--workout-level-neon) 56%, transparent);
+}
+
+[data-theme="forja"] .workout-library-card.is-locked {
+  --workout-level-neon: #87959a;
+  box-shadow: 0 0 0 1px rgba(135,149,154,.1) !important;
+}
+
+/* A interface voltou ao acabamento plano: sem relevo ou salto nos botões. */
+:is([data-theme="forja"], [data-theme="ferro"]) button {
+  box-shadow: none !important;
+}
+
+:is([data-theme="forja"], [data-theme="ferro"]) button:not(:disabled):hover,
+:is([data-theme="forja"], [data-theme="ferro"]) button:not(:disabled):active {
+  transform: none;
+  box-shadow: none !important;
+}
+
+/* Base geométrica dos botões: o relevo não pode alterar nem extrapolar a grade. */
+:is(.detail-save, .detail-secondary, .detail-toggle, .secondary-action, .workout-print) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  min-height: 40px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+/* Ações dentro de formulários, modais e barras já possuem o próprio espaçamento. */
+:is(
+  .form-actions,
+  .training-actions,
+  .exercise-form-actions,
+  .stock-form-actions,
+  .payment-modal-actions,
+  .student-modal-actions,
+  .workout-completion-actions,
+  .gif-library-import-actions
+) > .detail-save {
+  margin: 0;
+}
+
+.academy-hours-section > .detail-save,
+.qr-modal .detail-save,
+.finance-purchase-form > .detail-save {
+  width: 100%;
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .form-actions,
+  .training-actions,
+  .exercise-form-actions,
+  .stock-form-actions,
+  .payment-modal-actions,
+  .student-modal-actions,
+  .workout-completion-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :is(
+    .form-actions,
+    .training-actions,
+    .exercise-form-actions,
+    .stock-form-actions,
+    .payment-modal-actions,
+    .student-modal-actions,
+    .workout-completion-actions
+  ) > button {
+    width: 100%;
+    min-width: 0;
+  }
+}

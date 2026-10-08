@@ -7,6 +7,7 @@ import { addDoc, collection, doc, getDoc, getDocFromServer, serverTimestamp, set
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
 import { auth, db, functions } from "@/lib/firebase/client";
 import { AccessProvider, AccessRole } from "./access-context";
+import { OrquestraLoader } from "@/components/ui/orquestra-loader";
 
 type AcademyGateProps = { user: User; children: ReactNode };
 
@@ -97,7 +98,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
     };
   }, [user]);
 
-  if (resolvedUserId !== user.uid || profile === undefined || member === undefined || passwordChangeRequired === undefined) return <main className="auth-loading">Preparando seu acesso...</main>;
+  if (resolvedUserId !== user.uid || profile === undefined || member === undefined || passwordChangeRequired === undefined) return <main className="auth-loading"><OrquestraLoader label="Preparando seu acesso" /></main>;
   if (loadError) return <main className="auth-loading">Não foi possível confirmar seu acesso agora. Atualize a página para tentar novamente.</main>;
   if (!profile?.activeAcademyId) {
     return isDeveloperAccount(user)

@@ -22,6 +22,7 @@ type ExerciseGifPayload = {
   base64?: unknown;
   profile?: unknown;
 };
+type PrepareExerciseGifPayload = { academyId?: unknown; exerciseId?: unknown; profile?: unknown };
 type ClassReservationPayload = { academyId?: unknown; classId?: unknown };
 
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
@@ -78,6 +79,60 @@ async function audit(academyId: string, actorId: string, type: string, targetUse
     createdAt: FieldValue.serverTimestamp(),
   });
 }
+
+const auditLabels: Record<string, string> = {
+  teacher_updated: "Cadastro de professor atualizado",
+  teacher_access_updated: "Acesso do professor atualizado",
+  student_anamnesis_updated: "Ficha de anamnese atualizada",
+  student_updated: "Cadastro de aluno atualizado",
+  student_access_updated: "Acesso do aluno atualizado",
+  financial_access_released: "Acesso liberado manualmente",
+  profile_updated: "Perfil atualizado",
+  academy_hours_updated: "Funcionamento da academia atualizado",
+  academy_provisioned: "Nova academia provisionada",
+  invite_created: "Convite de acesso criado",
+  academy_billing_update: "Controle da academia atualizado",
+};
+
+type AuditEventPayload = { academyId?: unknown; action?: unknown; details?: unknown };
+
+export const recordAuditEvent = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para registrar esta alteração.");
+  const payload = (request.data ?? {}) as AuditEventPayload;
+  const academyId = readString(payload.academyId, "a academia");
+  const action = readString(payload.action, "o tipo de alteração");
+  const label = auditLabels[action];
+  if (!label) throw new HttpsError("invalid-argument", "Este tipo de alteração não pode ser registrado.");
+  const details = payload.details == null ? null : readString(payload.details, "os detalhes");
+  if (details && details.length > 160) throw new HttpsError("invalid-argument", "Os detalhes excedem o limite permitido.");
+
+  const uid = request.auth.uid;
+  const [userSnapshot, membershipSnapshot] = await Promise.all([
+    firestore.doc(`users/${uid}`).get(),
+    firestore.doc(`academies/${academyId}/members/${uid}`).get(),
+  ]);
+  const developer = userSnapshot.data()?.accountType === "developer";
+  const membership = membershipSnapshot.data();
+  if (!developer && (!membershipSnapshot.exists || membership?.active !== true || !["admin", "teacher"].includes(String(membership.role)))) {
+    throw new HttpsError("permission-denied", "Somente gestão e professores ativos podem registrar alterações.");
+  }
+
+  const token = request.auth.token;
+  const userName = typeof token.name === "string" ? token.name.slice(0, 120) : typeof token.email === "string" ? token.email.slice(0, 160) : "Usuário";
+  const role = developer ? "developer" : String(membership?.role);
+  await firestore.collection("auditLogs").add({
+    academyId,
+    userId: uid,
+    userName,
+    userEmail: typeof token.email === "string" ? token.email.slice(0, 160) : null,
+    role,
+    action,
+    label,
+    details,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  return { ok: true };
+});
 
 function isoDate(value: unknown) {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -518,4 +573,88 @@ export const uploadExerciseGif = onCall({ region, timeoutSeconds: 120, memory: "
     });
   }));
   return { ok: true, path, url, ...media };
+});
+
+function optimizedGifFields(profile: "masculino" | "feminino", url: string, path: string) {
+  return profile === "feminino"
+    ? { gifFemaleOptimizedUrl: url, gifFemaleOptimizedPath: path }
+    : { gifOptimizedUrl: url, gifOptimizedPath: path, gifMaleOptimizedUrl: url, gifMaleOptimizedPath: path };
+}
+
+type StorageFileForUrl = {
+  getMetadata: (...args: any[]) => Promise<any>;
+  setMetadata: (...args: any[]) => Promise<any>;
+  bucket: { name: string };
+};
+
+async function storageDownloadUrl(file: StorageFileForUrl, path: string) {
+  const [metadata] = await file.getMetadata();
+  const tokenValue = metadata.metadata?.firebaseStorageDownloadTokens;
+  let token = typeof tokenValue === "string" ? tokenValue.split(",")[0] : undefined;
+  if (!token) {
+    token = randomUUID();
+    const currentMetadata = Object.fromEntries(Object.entries(metadata.metadata ?? {}).map(([key, value]) => [key, String(value)]));
+    await file.setMetadata({ metadata: { ...currentMetadata, firebaseStorageDownloadTokens: token } });
+  }
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(file.bucket.name)}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+}
+
+export const prepareExerciseGif = onCall({ region, timeoutSeconds: 120, memory: "1GiB" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para preparar a demonstração.");
+  const data = (request.data ?? {}) as PrepareExerciseGifPayload;
+  const academyId = readString(data.academyId, "a academia");
+  const exerciseId = readString(data.exerciseId, "o exercício");
+  const profile = data.profile === "feminino" ? "feminino" : "masculino";
+  await activeMembership(academyId, request.auth.uid);
+
+  const exerciseRef = firestore.doc(`academies/${academyId}/exercises/${exerciseId}`);
+  const snapshot = await exerciseRef.get();
+  if (!snapshot.exists) throw new HttpsError("not-found", "Exercício não encontrado.");
+  const exercise = snapshot.data() as Record<string, unknown>;
+  const existingUrl = profile === "feminino"
+    ? (exercise.gifFemaleOptimizedUrl || exercise.gifOptimizedUrl)
+    : (exercise.gifMaleOptimizedUrl || exercise.gifOptimizedUrl);
+  const existingPath = profile === "feminino"
+    ? (exercise.gifFemaleOptimizedPath || exercise.gifOptimizedPath)
+    : (exercise.gifMaleOptimizedPath || exercise.gifOptimizedPath);
+  if (typeof existingUrl === "string" && existingUrl && typeof existingPath === "string" && existingPath) {
+    return { ok: true, url: existingUrl, path: existingPath, profile };
+  }
+
+  const sourcePathValue = profile === "feminino"
+    ? (exercise.gifFemalePath || exercise.gifPath)
+    : (exercise.gifMalePath || exercise.gifPath);
+  const isAcademyMedia = typeof sourcePathValue === "string" && sourcePathValue.startsWith(`academies/${academyId}/exercise-media/`);
+  const isGlobalLibrary = typeof sourcePathValue === "string" && sourcePathValue.startsWith("gif-library/");
+  if (typeof sourcePathValue !== "string" || (!isAcademyMedia && !isGlobalLibrary) || !sourcePathValue.toLowerCase().endsWith(".gif")) {
+    throw new HttpsError("failed-precondition", "Este exercício ainda não possui um GIF armazenado para otimizar.");
+  }
+
+  const bucket = getStorage().bucket();
+  const sourceFile = bucket.file(sourcePathValue);
+  const [sourceExists] = await sourceFile.exists();
+  if (!sourceExists) throw new HttpsError("not-found", "O arquivo original da demonstração não foi encontrado.");
+  const optimizedPath = sourcePathValue.replace(/\.gif$/i, ".optimized.webp");
+  const optimizedFile = bucket.file(optimizedPath);
+  const [optimizedExists] = await optimizedFile.exists();
+  if (!optimizedExists) {
+    const [sourceBuffer] = await sourceFile.download();
+    const { default: sharp } = await import("sharp");
+    const optimizedBuffer = await sharp(sourceBuffer, { animated: true })
+      .resize({ width: 560, withoutEnlargement: true })
+      .webp({ quality: 60, effort: 1, loop: 0 })
+      .toBuffer();
+    await optimizedFile.save(optimizedBuffer, {
+      resumable: false,
+      metadata: {
+        contentType: "image/webp",
+        cacheControl: "public,max-age=31536000,immutable",
+        metadata: { sourcePath: sourcePathValue, optimizedFor: "workout-mobile" },
+      },
+    });
+  }
+  const url = await storageDownloadUrl(optimizedFile, optimizedPath);
+  const media = optimizedGifFields(profile, url, optimizedPath);
+  await exerciseRef.set(media, { merge: true });
+  return { ok: true, url, path: optimizedPath, profile };
 });

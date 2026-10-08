@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/maqaGC389nHK0gK6KcwY",
+  "fields": {
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "exerciseType": {
+      "stringValue": "Alongamento"
+    },
+    "muscleGroup": {
+      "stringValue": "Peito"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Ombros"
+    },
+    "name": {
+      "stringValue": "Alongamento de peitoral"
+    },
+    "phase": {
+      "stringValue": "Preparação"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "anatomyRegion": {
+      "stringValue": "Peitoral"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "bodyRegion": {
+      "stringValue": "Tronco anterior"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

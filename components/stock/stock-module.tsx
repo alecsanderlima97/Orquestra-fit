@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { matchesSearch } from "@/lib/search";
 import {
   addDoc,
   collection,
@@ -100,6 +101,7 @@ export function StockModule({
   const [items, setItems] = useState<StockItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [search, setSearch] = useState("");
   const [kind, setKind] = useState<StockKind>("product");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -211,12 +213,7 @@ export function StockModule({
   const machines = items.filter((item) => item.kind === "machine");
   const internalItems = items.filter((item) => item.kind === "internal");
   const lowStock = products.filter((item) => item.quantity <= item.minimum);
-  const visibleItems =
-    categoryFilter === "Todas"
-      ? items
-      : items.filter(
-          (item) => (item.category || "Sem categoria") === categoryFilter,
-        );
+  const visibleItems = items.filter((item) => (categoryFilter === "Todas" || (item.category || "Sem categoria") === categoryFilter) && matchesSearch(search, item.name, item.category, item.supplier, item.barcode, item.brand, item.model, item.serialNumber));
   function write(name: string, data: unknown[]) {
     localStorage.setItem(key(access.academyId, name), JSON.stringify(data));
   }
@@ -322,6 +319,17 @@ export function StockModule({
             : "Produto cadastrado. Registre uma entrada para atualizar o saldo.",
     );
   }
+  useEffect(() => {
+    if (!editingId) return;
+    const form = document.querySelector<HTMLElement>(".stock-form");
+    if (!form) return;
+    const disclosure = form.closest("details");
+    if (disclosure) disclosure.open = true;
+    form.tabIndex = -1;
+    form.focus({ preventScroll: true });
+    form.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [editingId]);
+
   function editItem(item: StockItem) {
     setEditingId(item.id);
     setKind(item.kind);
@@ -608,6 +616,8 @@ export function StockModule({
         </article>
       </div>
       <div className="stock-layout">
+        <details className="stock-registration">
+          <summary className="detail-secondary">Cadastrar ou editar item</summary>
         <form className="workspace-panel stock-form" onSubmit={saveItem}>
           <header>
             <div>
@@ -785,6 +795,7 @@ export function StockModule({
             </button>
           </div>
         </form>
+        </details>
         <section className="workspace-panel stock-list">
           <header>
             <div>
@@ -801,6 +812,8 @@ export function StockModule({
               ))}
             </select>
           </header>
+          <label className="workspace-search"><input type="search" aria-label="Buscar no estoque" placeholder="Nome, fornecedor, marca ou código…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          {!visibleItems.length && <p>Nenhum item encontrado.</p>}
           {visibleItems.map((item) => (
             <article
               key={item.id}

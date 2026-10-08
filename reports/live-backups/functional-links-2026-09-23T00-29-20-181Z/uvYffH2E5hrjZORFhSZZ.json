@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/uvYffH2E5hrjZORFhSZZ",
+  "fields": {
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Glúteos, posteriores"
+    },
+    "muscleGroup": {
+      "stringValue": "Quadríceps"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "anatomyRegion": {
+      "stringValue": "Coxas e glúteos"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "name": {
+      "stringValue": "Agachamento com peso corporal"
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "exerciseType": {
+      "stringValue": "Peso corporal"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "phase": {
+      "stringValue": "Treino principal"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}
