@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/branding/orquestra-cs/system-icon-192.png", type: "image/png", sizes: "192x192" },
-      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/branding/orquestra-cs/system-icon-512.png", type: "image/png", sizes: "512x512" },
     ],
     shortcut: "/branding/orquestra-cs/system-icon-192.png",
     apple: "/branding/orquestra-cs/system-icon-180.png",

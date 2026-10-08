@@ -4,6 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Orquestra Fit",
     short_name: "Orquestra Fit",
+    id: "/",
     description: "Gestão, treinos e evolução para academias.",
     start_url: "/",
     scope: "/",
@@ -17,6 +18,12 @@ export default function manifest(): MetadataRoute.Manifest {
       {
         src: "/branding/orquestra-cs/system-icon-192.png",
         sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/branding/orquestra-cs/system-icon-512.png",
+        sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
