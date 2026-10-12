@@ -778,7 +778,6 @@ export default function Home() {
   const [sessionOpen, setSessionOpen] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutRecord | null>(null);
   const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
-  const [completedSets, setCompletedSets] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const canSwitchRole = access.accountType === "developer" || access.role === "admin";
 
@@ -822,8 +821,6 @@ export default function Home() {
     if (workout?.isLocked) return;
     setActiveWorkout(workout ?? null);
     setActiveWorkoutId(workout?.id ?? null);
-    const savedProgress = workout ? readWorkoutProgress(access.academyId, access.userId, workout.id) : null;
-    setCompletedSets(savedProgress?.completedSets ?? []);
     if (workout) window.sessionStorage.setItem(workoutInProgressKey(access.academyId, access.userId), workout.id);
     setSessionOpen(true);
   }
@@ -861,14 +858,8 @@ export default function Home() {
           {sessionOpen ? (
             <WorkoutSession
               workout={activeWorkout ?? undefined}
-              completedSets={completedSets}
               onBack={() => { setSessionOpen(false); navigateStudentTab("treinos"); }}
               onCompleted={finishStudentWorkout}
-              onToggleSet={(id) =>
-                setCompletedSets((current) =>
-                  current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-                )
-              }
             />
           ) : (
             <>
@@ -1412,23 +1403,33 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
   const [workoutSearch, setWorkoutSearch] = useState("");
   const executions = useStudentWorkoutExecutions();
   const [levelFilter, setLevelFilter] = useState<"Todos" | WorkoutLevel>("Todos");
-  function workoutHistory(workoutId: string) { return executions.filter((execution) => execution.workoutId === workoutId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)); }
+  const executionsByWorkout = useMemo(() => {
+    const grouped = new Map<string, WorkoutExecution[]>();
+    executions.forEach((execution) => {
+      const history = grouped.get(execution.workoutId) ?? [];
+      history.push(execution);
+      grouped.set(execution.workoutId, history);
+    });
+    return grouped;
+  }, [executions]);
   const currentProgram = publishedWorkouts.find((workout) => workout.id === activeWorkoutId)?.level ?? publishedWorkouts.find((workout) => !workout.isLocked)?.level ?? "Fundação";
-  const orderedWorkouts = [...publishedWorkouts].sort((first, second) => {
+  const orderedWorkouts = useMemo(() => [...publishedWorkouts].sort((first, second) => {
     const programDifference = Number((first.level ?? "Fundação") !== currentProgram) - Number((second.level ?? "Fundação") !== currentProgram);
     if (programDifference !== 0) return programDifference;
     const levelDifference = workoutLevelOrder.indexOf(first.level ?? "Fundação") - workoutLevelOrder.indexOf(second.level ?? "Fundação");
     if (levelDifference !== 0) return levelDifference;
     return first.name.localeCompare(second.name, "pt-BR");
-  });
-  const programCounts = new Map<string, number>();
-  const workoutCodes = new Map(orderedWorkouts.map((workout) => {
-    const level = workout.level ?? "Fundação";
-    const index = programCounts.get(level) ?? 0;
-    programCounts.set(level, index + 1);
-    return [workout.id, String.fromCharCode(65 + (index % 26))];
-  }));
-  const visibleWorkouts = orderedWorkouts.filter((workout) => (levelFilter === "Todos" || (workout.level ?? "Fundação") === levelFilter) && matchesSearch(workoutSearch, workout.name, workout.level, `Treino ${workoutCodes.get(workout.id)}`));
+  }), [currentProgram, publishedWorkouts]);
+  const workoutCodes = useMemo(() => {
+    const programCounts = new Map<string, number>();
+    return new Map(orderedWorkouts.map((workout) => {
+      const level = workout.level ?? "Fundação";
+      const index = programCounts.get(level) ?? 0;
+      programCounts.set(level, index + 1);
+      return [workout.id, String.fromCharCode(65 + (index % 26))];
+    }));
+  }, [orderedWorkouts]);
+  const visibleWorkouts = useMemo(() => orderedWorkouts.filter((workout) => (levelFilter === "Todos" || (workout.level ?? "Fundação") === levelFilter) && matchesSearch(workoutSearch, workout.name, workout.level, `Treino ${workoutCodes.get(workout.id)}`)), [levelFilter, orderedWorkouts, workoutCodes, workoutSearch]);
   return (
     <div className="student-view">
       <PageIntro kicker="MEU PROGRAMA ATUAL" title="Seus treinos" copy="Comece pelo treino recomendado e escolha outra ficha quando precisar." />
@@ -1446,7 +1447,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
       <div className="workout-list">
         {visibleWorkouts.length > 0 ? visibleWorkouts.map((workout, index) => (
           (() => {
-            const history = workoutHistory(workout.id);
+            const history = executionsByWorkout.get(workout.id) ?? [];
             const latest = history[0];
             const previous = history[1];
             const isLocked = Boolean(workout.isLocked);
@@ -1476,7 +1477,6 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
 
 function Evolution() {
   const access = useAccess();
-  const { workouts: publishedWorkouts } = useStudentPublishedWorkouts();
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
   const [period, setPeriod] = useState<7 | 30 | 90 | 365>(30);
@@ -1564,20 +1564,22 @@ function Evolution() {
     const sets = (execution.sets ?? []).filter((item) => item.exerciseName === selectedExercise);
     return { id: execution.id, date: workoutExecutionTime(execution.completedAt), load: Math.max(...sets.map((item) => Number(item.load.replace(",", ".")) || 0)), reps: Math.max(...sets.map((item) => Number(item.reps.replace(",", ".")) || 0)) };
   }).sort((a, b) => b.date - a.date);
-  const accessibleLevels = Array.from(new Set(publishedWorkouts.filter((workout) => !workout.isLocked).map((workout) => workout.level ?? "Fundação")));
-  const orderedAccessibleLevels = accessibleLevels.sort((first, second) => workoutLevelOrder.indexOf(first) - workoutLevelOrder.indexOf(second));
-  const currentLevel = orderedAccessibleLevels[orderedAccessibleLevels.length - 1] ?? "Fundação";
-  const currentLevelIndex = workoutLevelOrder.indexOf(currentLevel);
-  const nextLevel = workoutLevelOrder[currentLevelIndex + 1];
-  const levelTier = currentLevel === "Fundação" ? "Bronze" : currentLevel === "Evolução" ? "Prata" : currentLevel === "Performance" ? "Dourado" : "Diamante";
-  const levelProgress = ((currentLevelIndex + 1) / workoutLevelOrder.length) * 100;
+  const rankTiers = ["Bronze", "Prata", "Ouro", "Diamante"] as const;
+  const rankMilestones = [0, 10, 30, 60] as const;
+  const completedWorkoutCount = executions.length;
+  const currentRankIndex = rankMilestones.reduce<number>((rankIndex, milestone, index) => completedWorkoutCount >= milestone ? index : rankIndex, 0);
+  const currentRank = rankTiers[currentRankIndex];
+  const nextRank = rankTiers[currentRankIndex + 1];
+  const nextRankMilestone = rankMilestones[currentRankIndex + 1];
+  const rankProgress = nextRankMilestone === undefined ? 100 : Math.min(100, ((completedWorkoutCount - rankMilestones[currentRankIndex]) / (nextRankMilestone - rankMilestones[currentRankIndex])) * 100);
+  const rankStyleLevel = workoutLevelOrder[currentRankIndex] ?? workoutLevelOrder[0];
   return (
     <div className="student-view">
       <PageIntro kicker="ACOMPANHAMENTO" title="Sua evolução" copy="Consistência que aparece nos números." />
-      <section className={`evolution-level-card level-${machineCode(currentLevel)}`} aria-label={`Nível atual ${levelTier}`}>
-        <div className="evolution-level-copy"><span>NÍVEL DEFINIDO PELA EQUIPE</span><h2>{levelTier}</h2><strong>Programa {currentLevel}</strong><p>O professor libera novos níveis conforme sua evolução e preparo.</p></div>
-        <div className="evolution-level-medal"><Trophy size={28} /><small>{currentLevelIndex + 1}/{workoutLevelOrder.length}</small></div>
-        <div className="evolution-level-progress"><div><span>Progresso da jornada</span><strong>{nextLevel ? `Próximo: ${nextLevel}` : "Nível máximo alcançado"}</strong></div><i><b style={{ width: `${levelProgress}%` }} /></i></div>
+      <section className={`evolution-level-card level-${machineCode(rankStyleLevel)}`} aria-label={`Rank atual ${currentRank}`}>
+        <div className="evolution-level-copy"><span>SEU RANK</span><h2>{currentRank}</h2><strong>{completedWorkoutCount} treinos concluídos</strong><p>Seu rank sobe automaticamente conforme você conclui treinos.</p></div>
+        <div className="evolution-level-medal"><Trophy size={28} /><small>{currentRankIndex + 1}/{rankTiers.length}</small></div>
+        <div className="evolution-level-progress"><div><span>Jornada de treino</span><strong>{nextRank && nextRankMilestone !== undefined ? `Faltam ${nextRankMilestone - completedWorkoutCount} treinos para ${nextRank}` : "Rank máximo alcançado"}</strong></div><i><b style={{ width: `${rankProgress}%` }} /></i></div>
       </section>
       <div className="evolution-period" role="group" aria-label="Período da evolução">{([7, 30, 90, 365] as const).map((days) => <button type="button" key={days} className={period === days ? "active" : ""} onClick={() => setPeriod(days)}>{days === 7 ? "7 dias" : days === 30 ? "30 dias" : days === 90 ? "3 meses" : "1 ano"}</button>)}</div>
       <div className="evolution-hero"><span>TREINOS CONCLUÍDOS</span><strong>{periodExecutions.length}</strong><p>{workoutDelta === null ? "Ainda não há período anterior para comparação." : `${workoutDelta >= 0 ? "↑" : "↓"} ${Math.abs(workoutDelta)}% em relação ao período anterior`}</p><div><i style={{ width: `${Math.min(periodExecutions.length * 16, 100)}%` }} /></div></div>
@@ -1957,11 +1959,12 @@ function MachineQrReader({ exercises, onClose, onSelect }: { exercises: SessionE
   </div>;
 }
 
-function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onCompleted: () => void; onToggleSet: (id: string) => void }) {
+function WorkoutSession({ workout, onBack, onCompleted }: { workout?: WorkoutRecord; onBack: () => void; onCompleted: () => void }) {
   const access = useAccess();
   const feedback = useFeedback();
   const persistedProgress = useMemo(() => typeof window === "undefined" ? null : readWorkoutProgress(access.academyId, access.userId, workout?.id), [access.academyId, access.userId, workout?.id]);
   const [clock] = useState(() => createSessionClock(persistedProgress?.seconds ?? 0));
+  const [completedSets, setCompletedSets] = useState<string[]>(() => persistedProgress?.completedSets ?? []);
   const [machineReaderOpen, setMachineReaderOpen] = useState(false);
   const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>(() => persistedProgress?.setValues ?? {});
   const [saving, setSaving] = useState(false);
@@ -1972,12 +1975,12 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
   const [gifPreparation, setGifPreparation] = useState<Record<string, "loading" | "ready" | "failed">>({});
   const sessionMounted = useRef(true);
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(null);
-  const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
+  const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; endsAt: number } | null>(null);
   const [completionSummary, setCompletionSummary] = useState<WorkoutCompletionSummary | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
   useEffect(() => () => { sessionMounted.current = false; }, []);
   const exerciseIdsKey = (workout?.exerciseDetails ?? []).map((exercise) => exercise.exerciseId).filter(Boolean).join("|");
-  const exercises = useMemo<SessionExercise[]>(() => workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); const merged = { ...exercise, ...currentMedia, name: exercise.name }; const directGif = exerciseGifSource(merged, anatomyProfile); const hasStoredGif = Boolean(merged.gifPath || merged.gifMalePath || merged.gifFemalePath || currentMedia.gifPath); const preparation = gifPreparation[exercise.exerciseId]; const gifLoading = Boolean(db && functions && hasStoredGif && !merged.gifOptimizedUrl && !merged.gifMaleOptimizedUrl && !merged.gifFemaleOptimizedUrl && preparation !== "failed"); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: gifLoading ? "" : directGif, gifLoading, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode })), [workout?.exerciseDetails, exerciseMedia, anatomyProfile, gifPreparation]);
+  const exercises = useMemo<SessionExercise[]>(() => workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); const merged = { ...exercise, ...currentMedia, name: exercise.name }; const directGif = exerciseGifSource(merged, anatomyProfile); const hasStoredGif = Boolean(merged.gifPath || merged.gifMalePath || merged.gifFemalePath || currentMedia.gifPath); const preparation = gifPreparation[exercise.exerciseId]; const gifLoading = Boolean(db && functions && hasStoredGif && !merged.gifOptimizedUrl && !merged.gifMaleOptimizedUrl && !merged.gifFemaleOptimizedUrl && preparation !== "failed"); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: gifLoading ? "" : directGif, gifLoading, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode })), [workout, exerciseMedia, anatomyProfile, gifPreparation]);
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const previousExecutions = useStudentWorkoutExecutions();
   const previousSets = useMemo(() => {
@@ -2070,23 +2073,21 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
   }, [access.academyId, anatomyProfile, exerciseMedia, gifPreparation, openExerciseIndex, workout]);
   useEffect(() => {
     if (!restTimer) return;
-    if (restTimer.remaining <= 0) {
-      setRestTimer(null);
+    const timer = window.setTimeout(() => {
+      setRestTimer((current) => current?.endsAt === restTimer.endsAt ? null : current);
       feedback("Descanso concluído. Bora para a próxima série.");
-      return;
-    }
-    const timer = window.setTimeout(() => setRestTimer((current) => current ? { ...current, remaining: current.remaining - 1 } : null), 1000);
+    }, Math.max(0, restTimer.endsAt - Date.now()));
     return () => window.clearTimeout(timer);
   }, [restTimer, feedback]);
   function startRest(exerciseIndex: number) {
     const configuredSeconds = Math.max(1, Number(String(exercises[exerciseIndex].rest).replace(/[^0-9]/g, "")) || 60);
-    setRestTimer({ exerciseIndex, total: configuredSeconds, remaining: configuredSeconds });
+    setRestTimer({ exerciseIndex, total: configuredSeconds, endsAt: Date.now() + configuredSeconds * 1000 });
   }
   function toggleSet(exerciseIndex: number, setIndex: number) {
     const id = `${exerciseIndex}-${setIndex}`;
     const done = completedSets.includes(id);
     const completedBefore = Array.from({ length: exercises[exerciseIndex].sets }).filter((_, index) => completedSets.includes(`${exerciseIndex}-${index}`)).length;
-    onToggleSet(id);
+    setCompletedSets((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
     if (!done) {
       startRest(exerciseIndex);
       if (completedBefore + 1 === exercises[exerciseIndex].sets) {

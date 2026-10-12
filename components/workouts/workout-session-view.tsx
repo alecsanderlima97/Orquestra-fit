@@ -26,7 +26,7 @@ type Props = {
   completedSets: string[];
   openIndex: number | null;
   setValues: Record<string, { load: string; reps: string }>;
-  restTimer: { exerciseIndex: number; total: number; remaining: number } | null;
+  restTimer: { exerciseIndex: number; total: number; endsAt: number } | null;
   saving: boolean;
   previousSets?: Record<string, { load: string; reps: string }>;
   onBack: () => void;
@@ -42,43 +42,26 @@ type Props = {
 
 const MovementDemo = memo(function MovementDemo({ src, name }: { src: string; name: string }) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
   const [pageVisible, setPageVisible] = useState(true);
   const figure = useRef<HTMLElement>(null);
   useEffect(() => {
-    // Do not start decoding while the card is still opening. GIF decoding happens
-    // outside React but can still compete with the first touch/scroll on entry-level
-    // phones, so give the browser an idle window after the interaction settles.
-    let cancelled = false;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const startDecoding = () => {
-      if (!cancelled) setReady(true);
-    };
-    const idleHandle = idleWindow.requestIdleCallback?.(startDecoding, { timeout: 900 });
-    const readyTimer = idleHandle === undefined ? window.setTimeout(startDecoding, 480) : undefined;
     const updateVisibility = () => setPageVisible(!document.hidden);
     updateVisibility();
     document.addEventListener("visibilitychange", updateVisibility);
-    const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: "150px" });
+    const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: "220px" });
     if (figure.current) observer?.observe(figure.current);
     return () => {
-      cancelled = true;
-      if (readyTimer !== undefined) window.clearTimeout(readyTimer);
-      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle);
       observer?.disconnect();
       document.removeEventListener("visibilitychange", updateVisibility);
     };
   }, []);
-  const playing = ready && visible && pageVisible;
+  const playing = visible && pageVisible;
   return <figure className="workout-demo" ref={figure}>
     <div className="workout-demo-stage">
       {failedSource === src ? <p>Não foi possível carregar a demonstração.<button type="button" onClick={() => setFailedSource(null)}>Tentar novamente</button></p> : <>
-        {playing && <img src={src} loading="lazy" fetchPriority="low" decoding="async" alt={`Como executar ${name}`} onLoad={() => setLoadedSource(src)} onError={() => setFailedSource(src)} />}
+        {playing && <img src={src} loading="eager" fetchPriority="high" decoding="async" alt={`Como executar ${name}`} onLoad={() => setLoadedSource(src)} onError={() => setFailedSource(src)} />}
         {(!playing || loadedSource !== src) && <span className="workout-demo-status" role="status">{!visible || !pageVisible ? "Demonstração pausada fora da tela" : "Carregando demonstração…"}</span>}
       </>}
     </div>
@@ -101,6 +84,18 @@ function WorkoutTime({ clock }: { clock: SessionClock }) {
   }, [clock]);
   const elapsed = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   return <span className="workout-time" aria-label={`Tempo de treino: ${elapsed}`}><Clock3 size={15} />{elapsed}</span>;
+}
+
+function RestCountdown({ endsAt }: { endsAt: number }) {
+  const [remaining, setRemaining] = useState(() => Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+  useEffect(() => {
+    const update = () => setRemaining(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [endsAt]);
+  const label = `${String(Math.floor(remaining / 60)).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`;
+  return <>{label}</>;
 }
 
 function parseMetricValue(value: string) {
@@ -159,7 +154,6 @@ export function WorkoutSessionView(props: Props) {
   const totalSets = exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
   const doneSets = exercises.reduce((sum, exercise, index) => sum + Array.from({ length: exercise.sets }).filter((_, set) => completedSets.includes(`${index}-${set}`)).length, 0);
   const progress = totalSets ? Math.round(doneSets / totalSets * 100) : 0;
-  const restLabel = restTimer ? `${String(Math.floor(restTimer.remaining / 60)).padStart(2, "0")}:${String(restTimer.remaining % 60).padStart(2, "0")}` : "";
 
   return <div className="workout-flow">
     <header className="workout-topbar">
@@ -179,7 +173,7 @@ export function WorkoutSessionView(props: Props) {
     <button type="button" className="workout-scan" onClick={props.onScan}><QrCode size={21} /><span>Ler QR da máquina</span><ChevronRight size={17} /></button>
 
     {restTimer && <aside className="workout-rest-banner" aria-label="Descanso em andamento">
-      <Clock3 size={20} /><div><span>Recupere o fôlego</span><strong role="timer" aria-live="off">{restLabel}</strong></div>
+      <Clock3 size={20} /><div><span>Recupere o fôlego</span><strong role="timer" aria-live="off"><RestCountdown endsAt={restTimer.endsAt} /></strong></div>
       <button type="button" onClick={props.onStopRest}>Encerrar descanso</button>
     </aside>}
 
@@ -189,7 +183,8 @@ export function WorkoutSessionView(props: Props) {
         const isOpen = openIndex === index;
         const completed = Array.from({ length: exercise.sets }).filter((_, set) => completedSets.includes(`${index}-${set}`)).length;
         const isComplete = completed === exercise.sets;
-        const isResting = restTimer?.exerciseIndex === index;
+        const activeRest = restTimer?.exerciseIndex === index ? restTimer : null;
+        const isResting = Boolean(activeRest);
         const instructions = exercise.instructions?.trim();
         const hasInstructions = instructions && instructions !== "Orientação objetiva será adicionada pelo professor.";
         const metricLabels = exercise.metricMode === "cardio"
@@ -234,7 +229,7 @@ export function WorkoutSessionView(props: Props) {
                 </button>
               </div>;
             })}
-            <button type="button" className={`workout-rest${isResting ? " is-running" : ""}`} onClick={() => isResting ? props.onStopRest() : props.onRest(index)}><Clock3 size={18} /><span>{isResting ? `Descanso · ${restLabel}` : `Descanso de ${exercise.rest}`}</span><strong>{isResting ? "Encerrar" : "Iniciar"}</strong></button>
+            <button type="button" className={`workout-rest${isResting ? " is-running" : ""}`} onClick={() => isResting ? props.onStopRest() : props.onRest(index)}><Clock3 size={18} /><span>{activeRest ? <>Descanso · <RestCountdown endsAt={activeRest.endsAt} /></> : `Descanso de ${exercise.rest}`}</span><strong>{isResting ? "Encerrar" : "Iniciar"}</strong></button>
           </div>}
         </article>;
       })}
