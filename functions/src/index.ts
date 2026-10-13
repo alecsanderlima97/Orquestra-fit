@@ -86,6 +86,7 @@ const auditLabels: Record<string, string> = {
   student_anamnesis_updated: "Ficha de anamnese atualizada",
   student_updated: "Cadastro de aluno atualizado",
   student_access_updated: "Acesso do aluno atualizado",
+  student_rank_promoted: "Rank do aluno atualizado",
   financial_access_released: "Acesso liberado manualmente",
   profile_updated: "Perfil atualizado",
   academy_hours_updated: "Funcionamento da academia atualizado",

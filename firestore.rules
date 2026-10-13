@@ -25,6 +25,12 @@ service cloud.firestore {
       return belongsToAcademy(academyId) && membership(academyId).data.role == 'student';
     }
 
+    function isNextStudentRank(currentRank, nextRank) {
+      return (currentRank == 'Bronze' && nextRank == 'Prata') ||
+        (currentRank == 'Prata' && nextRank == 'Ouro') ||
+        (currentRank == 'Ouro' && nextRank == 'Diamante');
+    }
+
     function isDeveloper() {
       return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountType == 'developer';
     }
@@ -116,7 +122,13 @@ service cloud.firestore {
         (studentId == request.auth.uid &&
           request.resource.data.activationCodeId is string &&
           validInvitation(request.resource.data.activationCodeId, academyId, 'student'));
-      allow update: if isAdmin(academyId);
+      allow update: if isAdmin(academyId) ||
+        (isTeacher(academyId) && resource.data.teacherId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvedRank', 'rankApprovedAt', 'rankApprovedBy']) &&
+          request.resource.data.get('approvedRank', null) in ['Bronze', 'Prata', 'Ouro', 'Diamante'] &&
+          request.resource.data.get('rankApprovedAt', null) is timestamp &&
+          request.resource.data.get('rankApprovedBy', null) == request.auth.uid &&
+          isNextStudentRank(resource.data.get('approvedRank', 'Bronze'), request.resource.data.get('approvedRank', null)));
       allow delete: if isAdmin(academyId);
     }
 
