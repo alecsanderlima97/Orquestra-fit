@@ -1039,26 +1039,46 @@ export function StockModule({
           </div>
         </header>
         {movements.length ? (
-          movements.slice(0, 30).map((item) => (
-            <p key={item.id}>
-              <span>
-                <strong>{item.itemName}</strong>
-                <small>
-                  {item.type} · {item.note || "Sem observação"}
-                  {item.buyerName
-                    ? ` · comprador: ${item.buyerName} · ${item.paymentMethod || ""} · ${money(item.totalAmount || 0)}`
-                    : ""}{" "}
-                  · {new Date(item.date).toLocaleDateString("pt-BR")}
-                </small>
-              </span>
-              <b className={item.type}>
-                {item.type === "entrada" ? "+" : "−"}
-                {item.quantity} · saldo {item.balance ?? "—"}
-              </b>
-            </p>
-          ))
+          <div className="stock-history-list">
+            {movements.slice(0, 30).map((item) => {
+              const isSale = item.note?.startsWith("Venda no balcão");
+              const movementNote = isSale
+                ? "Venda no balcão"
+                : item.note || (item.type === "entrada" ? "Entrada registrada" : "Saída registrada");
+              return (
+                <article className="stock-history-row" key={item.id}>
+                  <div className="stock-history-main">
+                    <div className="stock-history-heading">
+                      <strong>{item.itemName}</strong>
+                      <span className={`stock-history-type ${item.type}`}>
+                        {item.type === "entrada" ? "Entrada" : "Saída"}
+                      </span>
+                    </div>
+                    <p className="stock-history-note">{movementNote}</p>
+                    <div className="stock-history-meta">
+                      {item.buyerName && (
+                        <span className="stock-history-buyer">
+                          <small>Comprador</small>{item.buyerName}
+                        </span>
+                      )}
+                      {item.paymentMethod && <span>{item.paymentMethod}</span>}
+                      {item.totalAmount != null && <strong>{money(item.totalAmount)}</strong>}
+                      <time dateTime={item.date}>{new Date(item.date).toLocaleDateString("pt-BR")}</time>
+                    </div>
+                  </div>
+                  <div className="stock-history-balance">
+                    <strong className={item.type}>
+                      {item.type === "entrada" ? "+" : "−"}{item.quantity}
+                      <small>{item.quantity === 1 ? "unidade" : "unidades"}</small>
+                    </strong>
+                    <span>Saldo: {item.balance ?? "—"}</span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         ) : (
-          <p>Nenhuma movimentação registrada.</p>
+          <p className="stock-history-empty">Nenhuma movimentação registrada.</p>
         )}
       </section>
       {posOpen && (
