@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/QrdDx1rCHXUrwNSlEbeV",
+  "fields": {
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "exerciseType": {
+      "stringValue": "Força"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "name": {
+      "stringValue": "Glúteo quatro apoios"
+    },
+    "anatomyRegion": {
+      "stringValue": "Glúteos"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "secondaryMuscles": {
+      "stringValue": "Posteriores"
+    },
+    "muscleGroup": {
+      "stringValue": "Glúteos"
+    },
+    "phase": {
+      "stringValue": "Treino principal"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

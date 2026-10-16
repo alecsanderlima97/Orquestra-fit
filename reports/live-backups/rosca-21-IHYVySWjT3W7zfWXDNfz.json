@@ -1,0 +1,67 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/G1R5dsWttbUgRUWMGGdX/exercises/IHYVySWjT3W7zfWXDNfz",
+  "fields": {
+    "phase": {
+      "stringValue": "Treino principal"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Antebraço"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-12T19:06:37.982Z"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "gifPath": {
+      "stringValue": "academies/G1R5dsWttbUgRUWMGGdX/exercise-media/IHYVySWjT3W7zfWXDNfz/1790081489702-1d3ec7da-bbfe-483d-98aa-c794d61f0ad0-Dumbbell-Biceps-Curl-with-Overhead-Extension-on-St_converted.gif"
+    },
+    "updatedBy": {
+      "stringValue": "8OLCHYCJ3rSxvTDYacsXG3egZ2f1"
+    },
+    "updatedAt": {
+      "timestampValue": "2026-09-22T12:51:31.499Z"
+    },
+    "name": {
+      "stringValue": "Rosca 21"
+    },
+    "createdBy": {
+      "stringValue": "8OLCHYCJ3rSxvTDYacsXG3egZ2f1"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros superiores"
+    },
+    "muscleGroup": {
+      "stringValue": "Bíceps"
+    },
+    "gifMaleUrl": {
+      "stringValue": "https://firebasestorage.googleapis.com/v0/b/orquestra-fit.firebasestorage.app/o/academies%2FG1R5dsWttbUgRUWMGGdX%2Fexercise-media%2FIHYVySWjT3W7zfWXDNfz%2F1790081489702-1d3ec7da-bbfe-483d-98aa-c794d61f0ad0-Dumbbell-Biceps-Curl-with-Overhead-Extension-on-St_converted.gif?alt=media&token=7b1d362d-dcc5-4303-a1fc-b2c264e9be1d"
+    },
+    "gifMalePath": {
+      "stringValue": "academies/G1R5dsWttbUgRUWMGGdX/exercise-media/IHYVySWjT3W7zfWXDNfz/1790081489702-1d3ec7da-bbfe-483d-98aa-c794d61f0ad0-Dumbbell-Biceps-Curl-with-Overhead-Extension-on-St_converted.gif"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "anatomyRegion": {
+      "stringValue": "Parte frontal do braço"
+    },
+    "gifUrl": {
+      "stringValue": "https://firebasestorage.googleapis.com/v0/b/orquestra-fit.firebasestorage.app/o/academies%2FG1R5dsWttbUgRUWMGGdX%2Fexercise-media%2FIHYVySWjT3W7zfWXDNfz%2F1790081489702-1d3ec7da-bbfe-483d-98aa-c794d61f0ad0-Dumbbell-Biceps-Curl-with-Overhead-Extension-on-St_converted.gif?alt=media&token=7b1d362d-dcc5-4303-a1fc-b2c264e9be1d"
+    },
+    "exerciseType": {
+      "stringValue": "Força"
+    }
+  },
+  "createTime": "2026-09-12T19:06:38.334453Z",
+  "updateTime": "2026-09-22T12:51:31.583242Z"
+}

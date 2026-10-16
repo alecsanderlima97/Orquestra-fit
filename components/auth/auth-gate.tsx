@@ -1,15 +1,17 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, updateProfile, User } from "firebase/auth";
+import { GoogleAuthProvider, browserLocalPersistence, inMemoryPersistence, signOut, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, updateProfile, User } from "firebase/auth";
 import { Activity, ArrowRight, Dumbbell, Eye, EyeOff, HeartPulse, LockKeyhole, LogIn, Mail, PersonStanding, Trophy } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
 import { AccessProvider } from "./access-context";
+import { KioskSession } from "@/components/kiosk/kiosk-session";
+import { OrquestraLoader } from "@/components/ui/orquestra-loader";
 
-type AuthGateProps = { children: ReactNode };
+type AuthGateProps = { children: ReactNode; kiosk?: boolean };
 
-export function AuthGate({ children }: AuthGateProps) {
+export function AuthGate({ children, kiosk = false }: AuthGateProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(isFirebaseConfigured);
   const [redirectError, setRedirectError] = useState<string | null>(null);
@@ -26,6 +28,25 @@ export function AuthGate({ children }: AuthGateProps) {
     if (!auth) return;
     const firebaseAuth = auth;
     let mounted = true;
+    if (kiosk) {
+      let unsubscribe = () => {};
+      // Never reuse a personal session when this shared terminal is opened.
+      void (async () => {
+        await firebaseAuth.authStateReady();
+        if (!mounted) return;
+        await signOut(firebaseAuth);
+        await setPersistence(firebaseAuth, inMemoryPersistence);
+        if (!mounted) return;
+        unsubscribe = onAuthStateChanged(firebaseAuth, (nextUser) => {
+          if (!mounted) return;
+          setUser(nextUser);
+          setLoading(false);
+        });
+      })().catch(() => {
+        if (mounted) setRedirectError("Não foi possível preparar o acesso temporário. Atualize a página para tentar novamente.");
+      });
+      return () => { mounted = false; unsubscribe(); };
+    }
     let redirectChecked = false;
     void setPersistence(firebaseAuth, browserLocalPersistence);
     const unsubscribe = onAuthStateChanged(firebaseAuth, (nextUser) => {
@@ -58,14 +79,17 @@ export function AuthGate({ children }: AuthGateProps) {
       mounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [kiosk]);
 
   if (!isFirebaseConfigured) {
+    if (kiosk) return <LoginPanel kiosk unavailable />;
     if (localLoggedOut) return <main className="auth-loading"><div><h1>Sessão encerrada</h1><p>O modo local está pronto para uma nova demonstração.</p><button className="detail-save" onClick={() => setLocalLoggedOut(false)}>Entrar no modo demonstração</button></div></main>;
     return <AccessProvider value={{ user: { uid: "local-demo", displayName: "Gestor", email: "gestor@orquestra.fit" } as User, userId: "local-demo", academyId: "local-academy", role: "admin", accountType: "developer" }}>{children}</AccessProvider>;
   }
-  if (loading) return <main className="auth-loading">Carregando acesso seguro...</main>;
-  if (!user) return <LoginPanel initialStatus={redirectError} />;
+  if (loading) return <main className="auth-loading"><OrquestraLoader label={redirectError || "Carregando acesso seguro"} /></main>;
+  if (!user) return <LoginPanel kiosk={kiosk} initialStatus={redirectError} />;
+
+  if (kiosk) return <KioskSession key={user.uid}><AcademyGate user={user}>{children}</AcademyGate></KioskSession>;
 
   return <AcademyGate user={user}>{children}</AcademyGate>;
 }
@@ -91,8 +115,8 @@ function authenticationMessage(code?: string, creating = false) {
     : "Não foi possível entrar. Confira seus dados de acesso.";
 }
 
-function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
-  const [identifier, setIdentifier] = useState(() => window.localStorage.getItem("orquestra_fit_last_email") ?? window.localStorage.getItem("orquestra_fit_last_username") ?? "");
+function LoginPanel({ initialStatus, kiosk = false, unavailable = false }: { initialStatus?: string | null; kiosk?: boolean; unavailable?: boolean }) {
+  const [identifier, setIdentifier] = useState(() => kiosk || typeof window === "undefined" ? "" : window.localStorage.getItem("orquestra_fit_last_email") ?? window.localStorage.getItem("orquestra_fit_last_username") ?? "");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [status, setStatus] = useState<string | null>(initialStatus ?? null);
@@ -112,7 +136,7 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
           setStatus("Use um nome de usuário com 3 a 31 caracteres, sem acentos ou espaços.");
           return;
         }
-        window.localStorage.setItem("orquestra_fit_last_username", normalizedUsername);
+        if (!kiosk) window.localStorage.setItem("orquestra_fit_last_username", normalizedUsername);
         if (mode === "signup") {
           const credential = await createUserWithEmailAndPassword(auth, usernameAuthEmail(normalizedUsername), password);
           await updateProfile(credential.user, { displayName: normalizedUsername });
@@ -120,7 +144,7 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
           await signInWithEmailAndPassword(auth, usernameAuthEmail(normalizedUsername), password);
         }
       } else {
-        window.localStorage.setItem("orquestra_fit_last_email", identifier.trim());
+        if (!kiosk) window.localStorage.setItem("orquestra_fit_last_email", identifier.trim());
         if (mode === "signup") await createUserWithEmailAndPassword(auth, identifier.trim(), password);
         else await signInWithEmailAndPassword(auth, identifier.trim(), password);
       }
@@ -164,7 +188,7 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
         return;
       }
       setStatus(code === "auth/unauthorized-domain"
-        ? "Este endereço não está autorizado no Firebase. Confirme localhost e orquestra-fit.vercel.app nos domínios autorizados."
+        ? "Este endereço não está autorizado no Firebase. Confirme localhost, fit.orquestracs.com e orquestra-fit.vercel.app nos domínios autorizados."
         : `Não foi possível entrar com o Google${code ? ` (${code})` : ""}.`);
     } finally {
       setSubmitting(false);
@@ -172,7 +196,7 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
   }
 
   return (
-    <main className="auth-page">
+    <main className={kiosk ? "auth-page kiosk-login" : "auth-page"}>
       <div className="auth-shell">
         <aside className="auth-visual" aria-label="Orquestra.cs, tecnologia para o esporte">
           <header className="auth-platform-brand">
@@ -192,17 +216,18 @@ function LoginPanel({ initialStatus }: { initialStatus?: string | null }) {
         </aside>
         <section className="auth-form-side">
           <section className="auth-panel" aria-labelledby="login-title">
-            <h1 id="login-title">{mode === "signup" ? "Crie seu acesso" : <>Bem-vindo <b>de volta!</b></>}</h1>
-            <span>{mode === "signup" ? "Cadastre seu acesso e valide o código enviado pela academia." : "Acesse sua conta e continue sua evolução."}</span>
-            <form onSubmit={submit}>
+            <h1 id="login-title">{kiosk ? <>Seu treino.<br /><b>Pronto para você.</b></> : mode === "signup" ? "Crie seu acesso" : <>Bem-vindo <b>de volta!</b></>}</h1>
+            <span>{kiosk ? "Entre para consultar sua ficha, imprimir ou salvar em PDF." : mode === "signup" ? "Cadastre seu acesso e valide o código enviado pela academia." : "Acesse sua conta e continue sua evolução."}</span>
+            <form onSubmit={submit} autoComplete={kiosk ? "off" : "on"}>
               <label className="auth-field"><Mail size={20} /><span className="sr-only">E-mail ou usuário</span><input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" inputMode="email" placeholder="Seu e-mail" aria-label="Seu e-mail ou usuário" required /></label>
               <label className="auth-field"><LockKeyhole size={20} /><span className="sr-only">Senha</span><div className="auth-password-wrap"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={6} placeholder="Sua senha" required /><button className="auth-password-toggle" type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button></div></label>
               {mode === "login" && <button className="auth-forgot" type="button" onClick={resetPassword}>Esqueci minha senha?</button>}
               {status && <p className="auth-status" role="status" aria-live="polite">{status}</p>}
-              <button type="submit" disabled={submitting}><LogIn size={18} /> {submitting ? "Aguarde..." : mode === "signup" ? "Criar acesso" : "Entrar na plataforma"}</button>
+              {unavailable && <p role="status">O acesso aos treinos precisa da conexão com a academia.</p>}
+              <button type="submit" disabled={submitting || unavailable}><LogIn size={18} /> {submitting ? "Aguarde..." : kiosk ? "Acessar meus treinos" : mode === "signup" ? "Criar acesso" : "Entrar na plataforma"}</button>
             </form>
-            {mode === "login" && <><div className="auth-divider"><span>ou</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button></>}
-            <div className="auth-first-access"><span>{mode === "signup" ? "Já possui uma conta?" : "Primeiro acesso?"}</span><button type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Voltar para o login" : "Ativar minha conta"}<ArrowRight size={18} /></button></div>
+            {mode === "login" && !unavailable && <><div className="auth-divider"><span>ou</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button></>}
+            {kiosk ? <p className="kiosk-first-access">Primeiro acesso ou conta Google? Entre com Google aqui ou use o QR code para acessar pelo celular. Se precisar, peça ajuda à recepção.</p> : <div className="auth-first-access"><span>{mode === "signup" ? "Já possui uma conta?" : "Primeiro acesso?"}</span><button type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Voltar para o login" : "Ativar minha conta"}<ArrowRight size={18} /></button></div>}
           </section>
         </section>
       </div>

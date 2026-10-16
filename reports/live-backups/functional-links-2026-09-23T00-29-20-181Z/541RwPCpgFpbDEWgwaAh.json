@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/541RwPCpgFpbDEWgwaAh",
+  "fields": {
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "phase": {
+      "stringValue": "Preparação"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "muscleGroup": {
+      "stringValue": "Panturrilhas"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "name": {
+      "stringValue": "Alongamento de panturrilha"
+    },
+    "exerciseType": {
+      "stringValue": "Alongamento"
+    },
+    "anatomyRegion": {
+      "stringValue": "Panturrilhas"
+    },
+    "secondaryMuscles": {
+      "stringValue": ""
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/32HpnYDI6Cf8fbj6Ygto",
+  "fields": {
+    "muscleGroup": {
+      "stringValue": "Posteriores"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Lombar"
+    },
+    "exerciseType": {
+      "stringValue": "Alongamento"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "name": {
+      "stringValue": "Alongamento de posteriores"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "phase": {
+      "stringValue": "Preparação"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "anatomyRegion": {
+      "stringValue": "Parte posterior da coxa"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

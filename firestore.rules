@@ -25,6 +25,19 @@ service cloud.firestore {
       return belongsToAcademy(academyId) && membership(academyId).data.role == 'student';
     }
 
+    function isStudentInGoodFinancialStanding(academyId) {
+      let studentPath = /databases/$(database)/documents/academies/$(academyId)/students/$(request.auth.uid);
+      return isStudent(academyId) &&
+        membership(academyId).data.get('accessBlocked', false) != true &&
+        exists(studentPath) && get(studentPath).data.get('accessBlocked', false) != true;
+    }
+
+    function isNextStudentRank(currentRank, nextRank) {
+      return (currentRank == 'Bronze' && nextRank == 'Prata') ||
+        (currentRank == 'Prata' && nextRank == 'Ouro') ||
+        (currentRank == 'Ouro' && nextRank == 'Diamante');
+    }
+
     function isDeveloper() {
       return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountType == 'developer';
     }
@@ -46,7 +59,13 @@ service cloud.firestore {
     }
 
     match /accessCodes/{codeId} {
-      allow read: if signedIn() && resource.data.active == true;
+      // O código é um segredo de uso único: permite leitura apenas por ID,
+      // e nunca enumeração da coleção. Convites vinculados a e-mail só podem
+      // ser consultados pela conta convidada.
+      allow get: if signedIn() && resource.data.active == true &&
+        (resource.data.get('invitedEmail', null) == null ||
+          resource.data.get('invitedEmail', null) == request.auth.token.email);
+      allow list: if false;
       allow create: if signedIn() && isAdmin(request.resource.data.academyId) &&
         request.resource.data.active == true &&
         request.resource.data.role in ['admin', 'teacher', 'student'] &&
@@ -110,7 +129,13 @@ service cloud.firestore {
         (studentId == request.auth.uid &&
           request.resource.data.activationCodeId is string &&
           validInvitation(request.resource.data.activationCodeId, academyId, 'student'));
-      allow update: if isAdmin(academyId);
+      allow update: if isAdmin(academyId) ||
+        (isTeacher(academyId) && resource.data.teacherId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvedRank', 'rankApprovedAt', 'rankApprovedBy']) &&
+          request.resource.data.get('approvedRank', null) in ['Bronze', 'Prata', 'Ouro', 'Diamante'] &&
+          request.resource.data.get('rankApprovedAt', null) is timestamp &&
+          request.resource.data.get('rankApprovedBy', null) == request.auth.uid &&
+          isNextStudentRank(resource.data.get('approvedRank', 'Bronze'), request.resource.data.get('approvedRank', null)));
       allow delete: if isAdmin(academyId);
     }
 
@@ -145,14 +170,14 @@ service cloud.firestore {
     }
 
     match /academies/{academyId}/exercises/{exerciseId} {
-      allow read: if isAdmin(academyId) || isTeacher(academyId) || isStudent(academyId);
+      allow read: if isAdmin(academyId) || isTeacher(academyId) || isStudentInGoodFinancialStanding(academyId);
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId);
     }
 
     match /academies/{academyId}/workouts/{workoutId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && (resource.data.studentId == request.auth.uid ||
+        (isStudentInGoodFinancialStanding(academyId) && (resource.data.studentId == request.auth.uid ||
           resource.data.studentUserId == request.auth.uid));
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId) || isTeacher(academyId);
@@ -160,7 +185,7 @@ service cloud.firestore {
 
     match /academies/{academyId}/workoutTemplates/{templateId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && (resource.data.audience == "Geral" ||
+        (isStudentInGoodFinancialStanding(academyId) && (resource.data.audience == "Geral" ||
           resource.data.targetStudentId == request.auth.uid));
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId) || isTeacher(academyId);
@@ -168,20 +193,20 @@ service cloud.firestore {
 
     match /academies/{academyId}/workoutExecutions/{executionId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
-      allow create: if isStudent(academyId) && request.resource.data.studentId == request.auth.uid;
+        (isStudentInGoodFinancialStanding(academyId) && resource.data.studentId == request.auth.uid);
+      allow create: if isStudentInGoodFinancialStanding(academyId) && request.resource.data.studentId == request.auth.uid;
       allow update, delete: if false;
     }
 
     match /academies/{academyId}/classes/{classId} {
-      allow read: if belongsToAcademy(academyId);
+      allow read: if isAdmin(academyId) || isTeacher(academyId) || isStudentInGoodFinancialStanding(academyId);
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId);
     }
 
     match /academies/{academyId}/reservations/{reservationId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+        (isStudentInGoodFinancialStanding(academyId) && resource.data.studentId == request.auth.uid);
       // Reservas de alunos passam pela callable reserveClass/cancelClassReservation,
       // que valida lotação e atualiza o contador da turma em uma transação.
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
@@ -190,7 +215,7 @@ service cloud.firestore {
 
     match /academies/{academyId}/classWaitlist/{waitlistId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
+        (isStudentInGoodFinancialStanding(academyId) && resource.data.studentId == request.auth.uid);
       // A entrada e a promoção são feitas pelas callables, com validação de lotação.
       allow create, update: if isAdmin(academyId) || isTeacher(academyId);
       allow delete: if isAdmin(academyId);
@@ -198,8 +223,8 @@ service cloud.firestore {
 
     match /academies/{academyId}/attendance/{attendanceId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
-      allow create: if isStudent(academyId) && request.resource.data.studentId == request.auth.uid;
+        (isStudentInGoodFinancialStanding(academyId) && resource.data.studentId == request.auth.uid);
+      allow create: if isStudentInGoodFinancialStanding(academyId) && request.resource.data.studentId == request.auth.uid;
       allow update, delete: if false;
     }
 
@@ -243,15 +268,15 @@ service cloud.firestore {
 
     match /academies/{academyId}/workoutFeedback/{feedbackId} {
       allow read: if isAdmin(academyId) || isTeacher(academyId) ||
-        (isStudent(academyId) && resource.data.studentId == request.auth.uid);
-      allow create: if isStudent(academyId) &&
+        (isStudentInGoodFinancialStanding(academyId) && resource.data.studentId == request.auth.uid);
+      allow create: if isStudentInGoodFinancialStanding(academyId) &&
         request.resource.data.studentId == request.auth.uid &&
         request.resource.data.workoutId is string &&
         request.resource.data.rating is int &&
         request.resource.data.rating >= 1 && request.resource.data.rating <= 5 &&
         request.resource.data.comment is string &&
         request.resource.data.comment.size() <= 800;
-      allow update: if isStudent(academyId) &&
+      allow update: if isStudentInGoodFinancialStanding(academyId) &&
         resource.data.studentId == request.auth.uid &&
         request.resource.data.studentId == resource.data.studentId &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']) &&
@@ -276,9 +301,8 @@ service cloud.firestore {
 
     match /auditLogs/{logId} {
       allow read: if isDeveloper() || (resource.data.academyId is string && isAdmin(resource.data.academyId));
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid &&
-        belongsToAcademy(request.resource.data.academyId);
-      allow update, delete: if false;
+      // Escritas passam pela Cloud Function, que deriva ator, papel e horário.
+      allow create, update, delete: if false;
     }
   }
 }

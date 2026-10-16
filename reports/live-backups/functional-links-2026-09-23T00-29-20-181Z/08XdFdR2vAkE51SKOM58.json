@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/08XdFdR2vAkE51SKOM58",
+  "fields": {
+    "name": {
+      "stringValue": "Esteira"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "machineCode": {
+      "stringValue": "esteira-ergometrica"
+    },
+    "exerciseType": {
+      "stringValue": "Cardio"
+    },
+    "anatomyRegion": {
+      "stringValue": "Condicionamento cardiovascular"
+    },
+    "equipmentName": {
+      "stringValue": "Esteira ergométrica"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Pernas"
+    },
+    "phase": {
+      "stringValue": "Cardio"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "muscleGroup": {
+      "stringValue": "Cardio"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

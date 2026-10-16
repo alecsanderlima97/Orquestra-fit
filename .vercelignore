@@ -2,3 +2,14 @@
 # Os GIFs escolhidos para produção são enviados ao Firebase Storage pelo aplicativo.
 public/exercise-gifs
 public/exercise-gifs/**
+
+# Artes experimentais descartadas da interface.
+public/branding/orquestra-fit-footer-gym.png
+public/branding/orquestra-fit-focus-core.png
+public/branding/orquestra-fit-focus-lower.png
+public/branding/orquestra-fit-focus-stretch.png
+public/branding/orquestra-fit-focus-upper.png
+public/branding/orquestra-fit-login-gym-overlay.png
+
+# Arquivo HTML local gerado por uma verificação anterior; não pertence ao app.
+--write-out

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowLeft, Check, ChevronDown, ChevronRight, Clock3, Dumbbell, PersonStanding, Play, QrCode, Trophy } from "lucide-react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { SessionClock } from "@/lib/workouts/session-clock";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, Clock3, Dumbbell, PersonStanding, Play, QrCode, Trophy } from "lucide-react";
 
 export type WorkoutSessionExercise = {
   name: string;
@@ -11,6 +12,7 @@ export type WorkoutSessionExercise = {
   load: string;
   rest: string;
   gifUrl?: string;
+  gifLoading?: boolean;
   videoUrl?: string;
   equipmentName?: string;
   instructions?: string;
@@ -19,12 +21,12 @@ export type WorkoutSessionExercise = {
 
 type Props = {
   name: string;
-  elapsed: string;
+  clock: SessionClock;
   exercises: WorkoutSessionExercise[];
   completedSets: string[];
   openIndex: number | null;
   setValues: Record<string, { load: string; reps: string }>;
-  restTimer: { exerciseIndex: number; total: number; remaining: number } | null;
+  restTimer: { exerciseIndex: number; total: number; endsAt: number } | null;
   saving: boolean;
   previousSets?: Record<string, { load: string; reps: string }>;
   onBack: () => void;
@@ -38,26 +40,132 @@ type Props = {
   onFinish: () => void;
 };
 
-function MovementDemo({ src, name }: { src: string; name: string }) {
+const MovementDemo = memo(function MovementDemo({ src, name }: { src: string; name: string }) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
-  return <figure className="workout-demo">
-    {failedSource === src ? <p>Não foi possível carregar a demonstração.<button type="button" onClick={() => setFailedSource(null)}>Tentar novamente</button></p> : <img src={src} alt={`Como executar ${name}`} onError={() => setFailedSource(src)} />}
+  const [loadedSource, setLoadedSource] = useState<string | null>(null);
+  const [visible, setVisible] = useState(true);
+  const [pageVisible, setPageVisible] = useState(true);
+  const figure = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const updateVisibility = () => setPageVisible(!document.hidden);
+    updateVisibility();
+    document.addEventListener("visibilitychange", updateVisibility);
+    const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: "220px" });
+    if (figure.current) observer?.observe(figure.current);
+    return () => {
+      observer?.disconnect();
+      document.removeEventListener("visibilitychange", updateVisibility);
+    };
+  }, []);
+  const playing = visible && pageVisible;
+  return <figure className="workout-demo" ref={figure}>
+    <div className="workout-demo-stage">
+      {failedSource === src ? <p>Não foi possível carregar a demonstração.<button type="button" onClick={() => setFailedSource(null)}>Tentar novamente</button></p> : <>
+        {playing && <img src={src} loading="eager" fetchPriority="high" decoding="async" alt={`Como executar ${name}`} onLoad={() => setLoadedSource(src)} onError={() => setFailedSource(src)} />}
+        {(!playing || loadedSource !== src) && <span className="workout-demo-status" role="status">{!visible || !pageVisible ? "Demonstração pausada fora da tela" : "Carregando demonstração…"}</span>}
+      </>}
+    </div>
+    <figcaption><Play size={13} /> Demonstração do movimento</figcaption>
+  </figure>;
+});
+
+function MovementDemoPlaceholder() {
+  return <figure className="workout-demo workout-demo-pending">
+    <div className="workout-demo-stage"><span className="workout-demo-status" role="status">Aguarde o carregamento do GIF. Isso depende da internet e das configurações do seu celular.</span></div>
     <figcaption><Play size={13} /> Demonstração do movimento</figcaption>
   </figure>;
 }
 
+function WorkoutTime({ clock }: { clock: SessionClock }) {
+  const [seconds, setSeconds] = useState(() => clock.getSeconds());
+  useEffect(() => {
+    const timer = window.setInterval(() => setSeconds(clock.getSeconds()), 1000);
+    return () => window.clearInterval(timer);
+  }, [clock]);
+  const elapsed = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  return <span className="workout-time" aria-label={`Tempo de treino: ${elapsed}`}><Clock3 size={15} />{elapsed}</span>;
+}
+
+function RestCountdown({ endsAt }: { endsAt: number }) {
+  const [remaining, setRemaining] = useState(() => Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+  useEffect(() => {
+    const update = () => setRemaining(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [endsAt]);
+  const label = `${String(Math.floor(remaining / 60)).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`;
+  return <>{label}</>;
+}
+
+function parseMetricValue(value: string) {
+  const parsed = Number.parseFloat(String(value).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function metricStep(exercise: WorkoutSessionExercise, field: "load" | "reps") {
+  if (field === "load") return exercise.metricMode === "cardio" ? 0.1 : 1;
+  return exercise.metricMode === "timed" ? 5 : 1;
+}
+
+function formatMetricValue(value: number, step: number) {
+  const safeValue = Math.max(0, value);
+  if (step < 1) return safeValue.toFixed(1).replace(".", ",");
+  return String(Math.round(safeValue));
+}
+
+function MetricStepper({
+  id,
+  field,
+  label,
+  value,
+  exercise,
+  onValueChange,
+}: {
+  id: string;
+  field: "load" | "reps";
+  label: string;
+  value: string;
+  exercise: WorkoutSessionExercise;
+  onValueChange: Props["onValueChange"];
+}) {
+  const step = metricStep(exercise, field);
+  const update = (direction: 1 | -1) => {
+    const nextValue = parseMetricValue(value) + direction * step;
+    onValueChange(id, field, formatMetricValue(nextValue, step), exercise);
+  };
+
+  return <div className="workout-stepper">
+    <input
+      aria-label={label}
+      inputMode={field === "load" || exercise.metricMode === "cardio" ? "decimal" : "numeric"}
+      value={value}
+      onChange={(event) => onValueChange(id, field, event.target.value, exercise)}
+    />
+    <span className="workout-stepper-arrows" aria-label={`Ajustar ${label}`}>
+      <button type="button" aria-label={`Aumentar ${label}`} onClick={() => update(1)}><ChevronUp size={13} /></button>
+      <button type="button" aria-label={`Diminuir ${label}`} onClick={() => update(-1)}><ChevronDown size={13} /></button>
+    </span>
+  </div>;
+}
+
 export function WorkoutSessionView(props: Props) {
   const { exercises, completedSets, openIndex, restTimer } = props;
+  const completedSetLookup = useMemo(() => new Set(completedSets), [completedSets]);
   const totalSets = exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
-  const doneSets = exercises.reduce((sum, exercise, index) => sum + Array.from({ length: exercise.sets }).filter((_, set) => completedSets.includes(`${index}-${set}`)).length, 0);
+  const doneSets = exercises.reduce((sum, exercise, index) => {
+    for (let set = 0; set < exercise.sets; set += 1) {
+      if (completedSetLookup.has(`${index}-${set}`)) sum += 1;
+    }
+    return sum;
+  }, 0);
   const progress = totalSets ? Math.round(doneSets / totalSets * 100) : 0;
-  const restLabel = restTimer ? `${String(Math.floor(restTimer.remaining / 60)).padStart(2, "0")}:${String(restTimer.remaining % 60).padStart(2, "0")}` : "";
 
   return <div className="workout-flow">
     <header className="workout-topbar">
       <button type="button" className="workout-back" aria-label="Voltar aos treinos" onClick={props.onBack}><ArrowLeft size={20} /></button>
       <span>Seu treino</span>
-      <span className="workout-time" aria-label={`Tempo de treino: ${props.elapsed}`}><Clock3 size={15} />{props.elapsed}</span>
+      <WorkoutTime clock={props.clock} />
     </header>
 
     <section className="workout-overview" aria-labelledby="workout-heading">
@@ -71,7 +179,7 @@ export function WorkoutSessionView(props: Props) {
     <button type="button" className="workout-scan" onClick={props.onScan}><QrCode size={21} /><span>Ler QR da máquina</span><ChevronRight size={17} /></button>
 
     {restTimer && <aside className="workout-rest-banner" aria-label="Descanso em andamento">
-      <Clock3 size={20} /><div><span>Recupere o fôlego</span><strong role="timer" aria-live="off">{restLabel}</strong></div>
+      <Clock3 size={20} /><div><span>Recupere o fôlego</span><strong role="timer" aria-live="off"><RestCountdown endsAt={restTimer.endsAt} /></strong></div>
       <button type="button" onClick={props.onStopRest}>Encerrar descanso</button>
     </aside>}
 
@@ -79,9 +187,13 @@ export function WorkoutSessionView(props: Props) {
       <div className="workout-list-heading"><h2>Seus exercícios</h2><span>Toque para abrir</span></div>
       {exercises.map((exercise, index) => {
         const isOpen = openIndex === index;
-        const completed = Array.from({ length: exercise.sets }).filter((_, set) => completedSets.includes(`${index}-${set}`)).length;
+        let completed = 0;
+        for (let set = 0; set < exercise.sets; set += 1) {
+          if (completedSetLookup.has(`${index}-${set}`)) completed += 1;
+        }
         const isComplete = completed === exercise.sets;
-        const isResting = restTimer?.exerciseIndex === index;
+        const activeRest = restTimer?.exerciseIndex === index ? restTimer : null;
+        const isResting = Boolean(activeRest);
         const instructions = exercise.instructions?.trim();
         const hasInstructions = instructions && instructions !== "Orientação objetiva será adicionada pelo professor.";
         const metricLabels = exercise.metricMode === "cardio"
@@ -90,21 +202,21 @@ export function WorkoutSessionView(props: Props) {
             ? { sets: "Séries", reps: "Tempo", load: "Intensidade", repsUnit: "s", loadUnit: "" }
             : { sets: "Séries", reps: "Repetições", load: "Carga", repsUnit: "rep.", loadUnit: "kg" };
         const panelId = `workout-exercise-${index}`;
-        if (isComplete && !isOpen) return <article className="workout-exercise is-complete is-collapsed" key={`${index}-${exercise.name}`}>
+        if (isComplete && !isOpen) return <article className="workout-exercise is-complete is-collapsed" data-workout-index={index} key={`${index}-${exercise.name}`}>
           <button className="workout-exercise-complete-summary" type="button" aria-expanded="false" aria-controls={panelId} onClick={() => props.onOpen(index)}>
             <span className="workout-complete-icon"><Check size={17} /></span>
             <span><small>EXERCÍCIO CONCLUÍDO</small><strong>{exercise.name}</strong></span>
             <ChevronRight size={18} aria-hidden="true" />
           </button>
         </article>;
-        return <article className={`workout-exercise ${isOpen ? "is-open" : "is-closed"}${isComplete ? " is-complete" : ""}`} key={`${index}-${exercise.name}`}>
+        return <article className={`workout-exercise ${isOpen ? "is-open" : "is-closed"}${isComplete ? " is-complete" : ""}`} data-workout-index={index} key={`${index}-${exercise.name}`}>
           <button className="workout-exercise-toggle" type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => props.onOpen(isOpen ? null : index)}>
             <span className="workout-exercise-meta"><span className="workout-exercise-number">{isComplete ? <Check size={15} /> : String(index + 1).padStart(2, "0")}</span><span>{exercise.group}</span><span className="workout-exercise-state">{isComplete ? "Concluído" : completed ? `${completed}/${exercise.sets} feitas` : isOpen ? "Em foco" : ""}</span></span>
             <span className="workout-exercise-name">{exercise.name}</span>
             <span className="workout-exercise-bottom"><span className="workout-exercise-prescription">{exercise.sets} {metricLabels.sets.toLocaleLowerCase("pt-BR")} <span aria-hidden="true">×</span> {exercise.reps} {metricLabels.repsUnit}</span><span className="workout-exercise-action">{isOpen ? "Recolher" : isComplete ? "Rever" : completed ? "Continuar" : "Iniciar"}{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span></span>
           </button>
           {isOpen && <div className="workout-exercise-content" id={panelId}>
-            {exercise.gifUrl && <MovementDemo src={exercise.gifUrl} name={exercise.name} />}
+            {exercise.gifLoading ? <MovementDemoPlaceholder /> : exercise.gifUrl && <MovementDemo src={exercise.gifUrl} name={exercise.name} />}
             {exercise.equipmentName && <p className="workout-equipment"><Dumbbell size={16} />{exercise.equipmentName}</p>}
             {hasInstructions && <details className="workout-instructions"><summary>Orientação do professor<ChevronDown size={16} /></summary><p>{instructions}</p></details>}
             <div className="workout-detail-actions">
@@ -116,15 +228,17 @@ export function WorkoutSessionView(props: Props) {
             <div className="workout-set-labels" aria-hidden="true"><span>Série</span><span>{metricLabels.load}{metricLabels.loadUnit ? ` (${metricLabels.loadUnit})` : ""}</span><span>{metricLabels.reps}{metricLabels.repsUnit ? ` (${metricLabels.repsUnit})` : ""}</span><span>Feito</span></div>
             {Array.from({ length: exercise.sets }).map((_, set) => {
               const id = `${index}-${set}`;
-              const done = completedSets.includes(id);
+              const done = completedSetLookup.has(id);
               return <div className={`workout-set${done ? " is-done" : ""}`} key={id}>
                 <span>{String(set + 1).padStart(2, "0")}</span>
-                <input aria-label={`${metricLabels.load} da série ${set + 1} de ${exercise.name}`} inputMode={exercise.metricMode === "cardio" ? "decimal" : "decimal"} value={props.setValues[id]?.load ?? exercise.load} onChange={(event) => props.onValueChange(id, "load", event.target.value, exercise)} />
-                <input aria-label={`${metricLabels.reps} da série ${set + 1} de ${exercise.name}`} inputMode={exercise.metricMode === "cardio" ? "decimal" : "numeric"} value={props.setValues[id]?.reps ?? exercise.reps} onChange={(event) => props.onValueChange(id, "reps", event.target.value, exercise)} />
-                <button type="button" aria-pressed={done} aria-label={`${done ? "Desmarcar" : "Concluir"} série ${set + 1} de ${exercise.name}`} onClick={() => props.onToggleSet(index, set)}><Check size={20} /></button>
+                <MetricStepper id={id} field="load" label={`${metricLabels.load} da série ${set + 1} de ${exercise.name}`} value={props.setValues[id]?.load ?? exercise.load} exercise={exercise} onValueChange={props.onValueChange} />
+                <MetricStepper id={id} field="reps" label={`${metricLabels.reps} da série ${set + 1} de ${exercise.name}`} value={props.setValues[id]?.reps ?? exercise.reps} exercise={exercise} onValueChange={props.onValueChange} />
+                <button className="workout-set-toggle" type="button" aria-pressed={done} aria-label={`${done ? "Desmarcar" : "Concluir"} série ${set + 1} de ${exercise.name}`} onClick={() => props.onToggleSet(index, set)}>
+                  <span className="workout-set-toggle-track" aria-hidden="true"><span className="workout-set-toggle-thumb" /></span>
+                </button>
               </div>;
             })}
-            <button type="button" className={`workout-rest${isResting ? " is-running" : ""}`} onClick={() => isResting ? props.onStopRest() : props.onRest(index)}><Clock3 size={18} /><span>{isResting ? `Descanso · ${restLabel}` : `Descanso de ${exercise.rest}`}</span><strong>{isResting ? "Encerrar" : "Iniciar"}</strong></button>
+            <button type="button" className={`workout-rest${isResting ? " is-running" : ""}`} onClick={() => isResting ? props.onStopRest() : props.onRest(index)}><Clock3 size={18} /><span>{activeRest ? <>Descanso · <RestCountdown endsAt={activeRest.endsAt} /></> : `Descanso de ${exercise.rest}`}</span><strong>{isResting ? "Encerrar" : "Iniciar"}</strong></button>
           </div>}
         </article>;
       })}

@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/znw55i4wUjI72Bdif6k1",
+  "fields": {
+    "secondaryMuscles": {
+      "stringValue": "Ombros, core"
+    },
+    "muscleGroup": {
+      "stringValue": "Cardio"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "name": {
+      "stringValue": "Corda naval"
+    },
+    "equipmentName": {
+      "stringValue": "Corda naval"
+    },
+    "exerciseType": {
+      "stringValue": "Cardio"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "anatomyRegion": {
+      "stringValue": "Condicionamento cardiovascular"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "phase": {
+      "stringValue": "Cardio"
+    },
+    "machineCode": {
+      "stringValue": "corda-naval"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

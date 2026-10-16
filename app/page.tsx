@@ -1,9 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import dynamic from "next/dynamic";
+import { matchesSearch } from "@/lib/search";
+import { CompanyFields, maskCompanyDocument, type CompanyFieldsValue } from "@/components/company-fields";
 import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword, updateProfile } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, documentId, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
   Activity, ArrowLeft, ArrowRight, ArrowUp, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
@@ -12,20 +15,33 @@ import {
   Eye, EyeOff, PersonStanding, QrCode, Share2, ShieldCheck, Sparkles, Trophy, User, UserRoundCheck, Users, WalletCards, MessageCircle, Package, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
-import { ExerciseAnatomyView, type ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
-import { WorkoutSessionView } from "@/components/workouts/workout-session-view";
-import { WorkoutShareCard } from "@/components/workouts/workout-share-card";
-import { FinanceModule } from "@/components/finance/finance-module-v2";
-import { AppGuide } from "@/components/assistant/app-guide";
-import { StockModule } from "@/components/stock/stock-module";
+import { OrquestraLoader } from "@/components/ui/orquestra-loader";
+import type { ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
 import { auth, db, functions, storage } from "@/lib/firebase/client";
+import { createSessionClock } from "@/lib/workouts/session-clock";
+import { nextPendingExercise } from "@/lib/workouts/session-navigation";
+import { exerciseMetricLabels, type ExerciseMetricSource } from "@/lib/workouts/exercise-metrics";
 import { verifiedFemaleGifUrls } from "@/lib/workouts/verified-female-gifs";
+
+const ExerciseAnatomyView = dynamic(() => import("@/components/workouts/exercise-anatomy-view").then((module) => module.ExerciseAnatomyView), { ssr: false });
+const WorkoutSessionView = dynamic(() => import("@/components/workouts/workout-session-view").then((module) => module.WorkoutSessionView), { ssr: false });
+const WorkoutShareCard = dynamic(() => import("@/components/workouts/workout-share-card").then((module) => module.WorkoutShareCard), { ssr: false });
+const FinanceModule = dynamic(() => import("@/components/finance/finance-module-v2").then((module) => module.FinanceModule), { ssr: false, loading: () => <ModuleLoading label="Carregando financeiro" /> });
+const StockModule = dynamic(() => import("@/components/stock/stock-module").then((module) => module.StockModule), { ssr: false, loading: () => <ModuleLoading label="Carregando estoque" /> });
+const AppGuide = dynamic(() => import("@/components/assistant/app-guide").then((module) => module.AppGuide), { ssr: false });
+
+function ModuleLoading({ label }: { label: string }) {
+  return <div className="workspace-content module-view module-loading"><OrquestraLoader label={label} /></div>;
+}
 
 type StudentTab = "inicio" | "treinos" | "evolucao" | "agenda" | "perfil";
 type Role = "aluno" | "professor" | "gestao";
 type Theme = "bronze" | "prata";
-type AccountProfile = { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string; whatsappUrl?: string };
-type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; createdAt?: { toDate?: () => Date } };
+type StudentRank = "Bronze" | "Prata" | "Ouro" | "Diamante";
+const studentRankOrder: StudentRank[] = ["Bronze", "Prata", "Ouro", "Diamante"];
+const studentRankProgram: Record<StudentRank, WorkoutLevel> = { Bronze: "Fundação", Prata: "Evolução", Ouro: "Performance", Diamante: "Elite" };
+type AccountProfile = CompanyFieldsValue & { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string; whatsappUrl?: string; whatsappGroupUrl?: string };
+type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; senderId?: string; createdAt?: unknown; updatedAt?: unknown; expiresAt?: unknown; isWelcome?: boolean };
 type NotificationItem = { id: string; type: "announcement" | "message" | "workout" | "dueSoon" | "overdue"; title: string; detail: string; createdAt?: unknown };
 
 const FeedbackContext = createContext<(message: string) => void>(() => undefined);
@@ -60,6 +76,17 @@ function profileStorageKey(userId: string) {
 
 function localCollectionKey(academyId: string, collectionName: string) {
   return `orquestra-fit:${academyId}:${collectionName}`;
+}
+
+function contentIsActive(expiresAt: unknown, now = Date.now(), createdAt?: unknown) {
+  const expiry = firestoreDate(expiresAt);
+  if (expiry) return expiry.getTime() > now;
+  const created = firestoreDate(createdAt);
+  return !created || now - created.getTime() <= 30 * 24 * 60 * 60 * 1000;
+}
+
+function announcementSeenKey(academyId: string, userId: string, announcementId: string) {
+  return `orquestra-fit:announcement-seen:${academyId}:${userId}:${announcementId}`;
 }
 
 function notificationReadId(userId: string, notificationId: string) {
@@ -132,14 +159,19 @@ type AuditEventInput = {
 };
 
 async function recordAuditEvent(event: AuditEventInput) {
-  const payload = { ...event, createdAt: db ? serverTimestamp() : new Date().toISOString() };
+  const payload = { ...event, createdAt: new Date().toISOString() };
   if (!db) {
     const current = readLocalCollection<AuditEventInput & { id: string; createdAt: unknown }>(event.academyId, "auditLogs");
     writeLocalCollection(event.academyId, "auditLogs", [{ id: `local-audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, ...payload }, ...current].slice(0, 200));
     return;
   }
   try {
-    await addDoc(collection(db, "auditLogs"), payload);
+    if (!functions) return;
+    await httpsCallable(functions, "recordAuditEvent")({
+      academyId: event.academyId,
+      action: event.action,
+      details: event.details ?? null,
+    });
   } catch (error) {
     console.warn("Não foi possível registrar a auditoria.", error);
   }
@@ -173,8 +205,17 @@ function birthdayCountdown(birthDate?: string | null, referenceDate = new Date()
   return Math.round((nextBirthday.getTime() - today.getTime()) / 86400000);
 }
 
-function scrollToContent(selector: string) {
-  window.setTimeout(() => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+function scrollToContent(selector: string, focus = false) {
+  window.setTimeout(() => {
+    const target = document.querySelector<HTMLElement>(selector);
+    if (!target) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    if (focus) {
+      if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
+    }
+  }, 60);
 }
 
 function brazilGreeting() {
@@ -672,12 +713,6 @@ function packagedGifUrl(file: string) {
   return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
 }
 
-function expansionGifMedia(name: string) {
-  const seed = gifLibraryExpansionSeeds.find((item) => item.name === name);
-  if (!seed) return {};
-  return { gifMalePath: seed.file, gifPath: seed.file, gifMatch: "exact" as const };
-}
-
 function verifiedExerciseGif(name: string, profile: "masculino" | "feminino" = "masculino") {
   const key = exerciseGifKey(name);
   const gif = verifiedGifDefinition(name);
@@ -693,8 +728,10 @@ function verifiedGifDefinition(name: string): VerifiedExerciseGif | undefined {
   })();
 }
 
-function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath">, profile: "masculino" | "feminino" = "masculino") {
-  const saved = profile === "feminino" ? (exercise.gifFemaleUrl || exercise.gifUrl) : (exercise.gifMaleUrl || exercise.gifUrl);
+function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">, profile: "masculino" | "feminino" = "masculino") {
+  const saved = profile === "feminino"
+    ? (exercise.gifFemaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifFemaleUrl || exercise.gifUrl)
+    : (exercise.gifMaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifMaleUrl || exercise.gifUrl);
   if (saved) return saved;
   const path = profile === "masculino" ? exercise.gifMalePath : exercise.gifFemalePath;
   return (path ? packagedGifUrl(path) : "") || verifiedExerciseGif(exercise.name, profile);
@@ -739,13 +776,29 @@ export default function Home() {
   const role = access.accountType === "developer" ? demoRole : accountRole;
   const [theme, setTheme] = useState<Theme>("bronze");
   const [activeTab, setActiveTab] = useState<StudentTab>("inicio");
+  const [, startStudentNavigation] = useTransition();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutRecord | null>(null);
   const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
-  const [completedSets, setCompletedSets] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const canSwitchRole = access.accountType === "developer" || access.role === "admin";
+
+  useEffect(() => {
+    const guardId = `orquestra-fit-navigation-${Date.now()}`;
+    const guardedState = { ...(window.history.state ?? {}), orquestraFitGuard: guardId };
+    window.history.pushState(guardedState, document.title, window.location.href);
+    const handleBrowserBack = () => {
+      window.history.pushState(guardedState, document.title, window.location.href);
+      setFeedback("Use a navegação do aplicativo para sair desta tela com segurança.");
+      window.setTimeout(() => setFeedback(null), 2600);
+    };
+    window.addEventListener("popstate", handleBrowserBack);
+    return () => {
+      window.removeEventListener("popstate", handleBrowserBack);
+      if (window.history.state?.orquestraFitGuard === guardId) window.history.back();
+    };
+  }, []);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("orquestra_fit_theme");
@@ -771,8 +824,6 @@ export default function Home() {
     if (workout?.isLocked) return;
     setActiveWorkout(workout ?? null);
     setActiveWorkoutId(workout?.id ?? null);
-    const savedProgress = workout ? readWorkoutProgress(access.academyId, access.userId, workout.id) : null;
-    setCompletedSets(savedProgress?.completedSets ?? []);
     if (workout) window.sessionStorage.setItem(workoutInProgressKey(access.academyId, access.userId), workout.id);
     setSessionOpen(true);
   }
@@ -785,6 +836,16 @@ export default function Home() {
     setSessionOpen(false);
   }
 
+  function navigateStudentTab(tab: StudentTab) {
+    startStudentNavigation(() => setActiveTab(tab));
+  }
+
+  useEffect(() => {
+    if (sessionOpen) return;
+    document.querySelector<HTMLElement>(".student-scroll")?.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeTab, sessionOpen]);
+
   return (
     <FeedbackContext.Provider value={announce}>
       <main
@@ -796,34 +857,30 @@ export default function Home() {
         )}
         {role === "aluno" && (
         <section className={sessionOpen ? "student-app session-active" : "student-app"}>
+          <StudentFinancialGate>
           <BirthdayGreeting />
           {sessionOpen ? (
             <WorkoutSession
               workout={activeWorkout ?? undefined}
-              completedSets={completedSets}
-              onBack={() => setSessionOpen(false)}
+              onBack={() => { setSessionOpen(false); navigateStudentTab("treinos"); }}
               onCompleted={finishStudentWorkout}
-              onToggleSet={(id) =>
-                setCompletedSets((current) =>
-                  current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-                )
-              }
             />
           ) : (
             <>
               <StudentHeader />
               <div className="student-scroll">
-                {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => setActiveTab("evolucao")} onViewWorkouts={() => setActiveTab("treinos")} />}
+                {activeTab === "inicio" && <StudentHome onStart={startStudentWorkout} onEvolution={() => navigateStudentTab("evolucao")} onViewWorkouts={() => navigateStudentTab("treinos")} />}
                 {activeTab === "treinos" && <WorkoutLibrary activeWorkoutId={activeWorkout?.id ?? activeWorkoutId} onStart={startStudentWorkout} />}
                 {activeTab === "evolucao" && <Evolution />}
                 {activeTab === "agenda" && <Agenda />}
-                {activeTab === "perfil" && <Profile onNavigate={setActiveTab} theme={theme} onThemeChange={setTheme} />}
+                {activeTab === "perfil" && <Profile onNavigate={navigateStudentTab} theme={theme} onThemeChange={setTheme} />}
               </div>
-              <StudentNav activeTab={activeTab} onChange={setActiveTab} />
+              <StudentNav activeTab={activeTab} onChange={navigateStudentTab} />
               <AcademyFooter />
             </>
           )}
-          {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={setActiveTab} />}
+          {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={navigateStudentTab} />}
+          </StudentFinancialGate>
         </section>
       )}
         {role === "professor" && <ProfessorWorkspace theme={theme} onThemeChange={setTheme} />}
@@ -1023,20 +1080,59 @@ function useStudentWorkoutExecutions() {
   return executions;
 }
 
+function useStudentApprovedRank() {
+  const access = useAccess();
+  const [rank, setRank] = useState<StudentRank>("Bronze");
+  useEffect(() => {
+    if (!db) {
+      const syncLocalRank = () => {
+        const student = readLocalCollection<RegisteredStudent>(access.academyId, "students").find((item) => item.id === access.userId || item.userId === access.userId);
+        setRank(normalizeStudentRank(student?.approvedRank));
+      };
+      syncLocalRank();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocalRank);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalRank);
+    }
+    return onSnapshot(doc(db, "academies", access.academyId, "students", access.userId), (snapshot) => {
+      setRank(normalizeStudentRank(snapshot.data()?.approvedRank));
+    }, (error) => console.error("Não foi possível carregar o rank aprovado.", error));
+  }, [access.academyId, access.userId]);
+  return rank;
+}
+
+function completedSessionsForWorkout(executions: WorkoutExecution[], workout: WorkoutRecord) {
+  const revision = workout.exerciseRevision ?? 1;
+  return executions.filter((execution) => execution.workoutId === workout.id &&
+    (execution.workoutRevision ?? 1) === revision &&
+    Number(execution.totalSets) > 0 && Number(execution.completedSets) >= Number(execution.totalSets)).length;
+}
+
+function normalizeStudentRank(value: unknown): StudentRank {
+  return studentRankOrder.includes(value as StudentRank) ? value as StudentRank : "Bronze";
+}
+
 function useAcademyAnnouncements() {
   const access = useAccess();
   const [announcements, setAnnouncements] = useState<AcademyAnnouncement[]>([]);
   useEffect(() => {
     if (!db) {
-      const syncLocal = () => setAnnouncements(readLocalCollection<AcademyAnnouncement>(access.academyId, "announcements"));
+      const syncLocal = () => setAnnouncements(readLocalCollection<AcademyAnnouncement>(access.academyId, "announcements")
+        .filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt))
+        .sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
       syncLocal();
       window.addEventListener("orquestra-fit:collection-updated", syncLocal);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
     }
     return onSnapshot(collection(db, "academies", access.academyId, "announcements"), (snapshot) => {
-      setAnnouncements(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AcademyAnnouncement, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+      setAnnouncements(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AcademyAnnouncement, "id">) }))
+        .filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt))
+        .sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
     }, (error) => console.error("Não foi possível carregar os comunicados.", error));
   }, [access.academyId]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setAnnouncements((current) => current.filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt))), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   return announcements;
 }
 
@@ -1047,26 +1143,27 @@ function useStudentNotificationItems(includeStudentData = true) {
   const [messages, setMessages] = useState<InternalMessage[]>([]);
   const [charges, setCharges] = useState<MonthlyCharge[]>([]);
   useEffect(() => {
-    if (!includeStudentData) { setMessages([]); setCharges([]); return; }
     if (!db) {
       const syncLocal = () => {
         const studentId = localStudentId(access.academyId, access.userId);
-        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId));
-        setCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === studentId));
+        setMessages(includeStudentData ? readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId) : []);
+        const allCharges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
+        setCharges(includeStudentData ? allCharges.filter((item) => item.studentId === studentId) : access.role === "admin" ? allCharges : []);
       };
       syncLocal();
       window.addEventListener("orquestra-fit:collection-updated", syncLocal);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
     }
-    const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) }))));
-    const unsubscribeCharges = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => setCharges(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" : "pending" }))));
+    const unsubscribeMessages = includeStudentData ? onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })))) : () => undefined;
+    const chargesQuery = includeStudentData ? query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)) : collection(db, "academies", access.academyId, "monthlyCharges");
+    const unsubscribeCharges = (!includeStudentData && access.role !== "admin") ? () => undefined : onSnapshot(chargesQuery, (snapshot) => setCharges(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" : "pending" }))));
     return () => { unsubscribeMessages(); unsubscribeCharges(); };
-  }, [access.academyId, access.userId, includeStudentData]);
+  }, [access.academyId, access.role, access.userId, includeStudentData]);
   const items: NotificationItem[] = [
-    ...charges.filter((charge) => chargeViewStatus(charge) === "overdue").map((charge) => ({ id: `charge-${charge.id}`, type: "overdue" as const, title: "Mensalidade vencida", detail: `${charge.planName} venceu em ${formatDate(charge.dueDate)}.` })),
-    ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: "Vencimento próximo", detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
+    ...charges.filter((charge) => chargeViewStatus(charge) === "overdue").map((charge) => ({ id: `charge-${charge.id}`, type: "overdue" as const, title: includeStudentData ? "Mensalidade vencida" : `Vencimento em atraso · ${charge.studentName}`, detail: `${charge.planName} venceu em ${formatDate(charge.dueDate)}.` })),
+    ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: includeStudentData ? "Vencimento próximo" : `Mensalidade próxima · ${charge.studentName}`, detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
     ...announcements.map((item) => ({ id: `announcement-${item.id}`, type: "announcement" as const, title: item.title, detail: item.body, createdAt: item.createdAt })),
-    ...messages.map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body, createdAt: item.createdAt })),
+    ...messages.filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt)).map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body, createdAt: item.createdAt })),
     ...workouts.map((item) => ({ id: `workout-${item.id}`, type: "workout" as const, title: "Novo treino disponível", detail: `${item.name} foi publicado para você.`, createdAt: item.createdAt ?? item.publishedAt ?? item.updatedAt })),
   ];
   return items.sort((first, second) => (firestoreDate(second.createdAt)?.getTime() ?? 0) - (firestoreDate(first.createdAt)?.getTime() ?? 0));
@@ -1181,7 +1278,7 @@ function StudentHome({ onStart, onEvolution, onViewWorkouts }: { onStart: (worko
           <div className="eyebrow"><span /> TREINO DE HOJE</div>
           <small className="today-workout-program">{workout?.level ? `Programa ${workout.level}` : "Seu programa atual"}</small>
           <h2>{loading ? "Carregando seu treino" : workout ? displayWorkoutCardName(workout.name) : "Nenhum treino publicado"}</h2>
-          <p>{loading ? "Buscando suas fichas disponíveis." : workout ? (workout.focusLabel || "Treino liberado pelo professor para o seu momento.") : "Seu professor ainda não liberou um treino."}</p>
+          {loading ? <p>Buscando suas fichas disponíveis.</p> : workout ? (workout.focusLabel && workout.focusLabel.trim().toLowerCase() !== displayWorkoutCardName(workout.name).trim().toLowerCase() ? <p>{workout.focusLabel}</p> : null) : <p>Seu professor ainda não liberou um treino.</p>}
           <div className="workout-meta">
             <span><Dumbbell size={16} /> {workout ? `${exerciseCount} exercícios` : "Aguardando"}</span>
             <span><Activity size={16} /> {workout ? `${totalSets || "—"} séries` : "Sem séries"}</span>
@@ -1266,34 +1363,106 @@ function StudentPaymentStatus() {
   );
 }
 
+function StudentFinancialGate({ children }: { children: React.ReactNode }) {
+  const access = useAccess();
+  const [state, setState] = useState<"checking" | "active" | "blocked" | "error">("checking");
+  const [pendingCharge, setPendingCharge] = useState<MonthlyCharge | null>(null);
+
+  useEffect(() => {
+    if (access.role !== "student") {
+      setState("active");
+      return;
+    }
+    setState("checking");
+    setPendingCharge(null);
+    if (!db) {
+      const syncLocal = () => {
+        const student = readLocalCollection<RegisteredStudent>(access.academyId, "students").find((item) => item.id === access.userId || item.userId === access.userId);
+        const member = readLocalCollection<DeveloperMember & { accessBlocked?: boolean }>(access.academyId, "members").find((item) => item.id === access.userId || item.userId === access.userId);
+        setState(student?.accessBlocked || member?.accessBlocked ? "blocked" : "active");
+        const pending = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => (item.studentId === access.userId || item.studentId === student?.id) && (item.chargeType === "monthly" || (!item.chargeType && Boolean(item.planId))) && item.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+        setPendingCharge(pending ?? null);
+      };
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+
+    let memberReady = false;
+    let studentReady = false;
+    let memberBlocked = false;
+    let studentBlocked = false;
+    const updateState = () => {
+      if (memberReady && studentReady) setState(memberBlocked || studentBlocked ? "blocked" : "active");
+    };
+    const memberUnsubscribe = onSnapshot(doc(db, "academies", access.academyId, "members", access.userId), (snapshot) => {
+      memberReady = true;
+      memberBlocked = snapshot.data()?.accessBlocked === true;
+      updateState();
+    }, () => setState("error"));
+    const studentUnsubscribe = onSnapshot(doc(db, "academies", access.academyId, "students", access.userId), (snapshot) => {
+      studentReady = true;
+      studentBlocked = snapshot.data()?.accessBlocked === true;
+      updateState();
+    }, () => setState("error"));
+    const chargeUnsubscribe = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => {
+      const pending = snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" as const : "pending" as const })).filter((item) => (item.chargeType === "monthly" || (!item.chargeType && Boolean(item.planId))) && item.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+      setPendingCharge(pending ?? null);
+    }, () => undefined);
+    return () => { memberUnsubscribe(); studentUnsubscribe(); chargeUnsubscribe(); };
+  }, [access.academyId, access.role, access.userId]);
+
+  if (state === "active") return children;
+  if (state === "checking") return <div className="student-financial-check"><OrquestraLoader label="Verificando situação da conta" /></div>;
+  return <main className="student-financial-lock" role="alert"><section><span className="student-financial-lock-icon"><LockKeyhole /></span><small>ACESSO ÀS ATIVIDADES</small><h1>{state === "error" ? "Não foi possível confirmar seu acesso" : "Acesso temporariamente bloqueado"}</h1><p>{state === "error" ? "Atualize a página ou fale com a administração da academia para confirmar sua situação." : "Identificamos uma pendência financeira. Para continuar usando treinos e atividades, converse com a administração da academia e regularize sua situação."}</p>{pendingCharge && <div className="student-financial-lock-charge"><span>{pendingCharge.planName} · vencimento {formatDate(pendingCharge.dueDate)}</span><strong>R$ {pendingCharge.amount.toFixed(2).replace(".", ",")}</strong></div>}<p className="student-financial-lock-help">Depois que o pagamento for confirmado pela academia, seu acesso será liberado automaticamente. Se você já pagou, entre em contato para a equipe conferir.</p><StudentAcademyWhatsAppCard /></section></main>;
+}
+
 function StudentMessagesInbox() {
   const access = useAccess();
   const [messages, setMessages] = useState<InternalMessage[]>([]);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!db) {
       const syncLocalMessages = () => {
         const studentId = localStudentId(access.academyId, access.userId);
-        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId));
+        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId && contentIsActive(item.expiresAt, Date.now(), item.createdAt)));
       };
       syncLocalMessages();
       window.addEventListener("orquestra-fit:collection-updated", syncLocalMessages);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalMessages);
     }
     return onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => {
-      setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+      setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt)).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
     });
   }, [access.academyId, access.userId]);
-  const message = messages[0];
-  return <article className="student-message-inbox"><div className="student-message-inbox-icon"><MessageCircle /></div><div><small>COMUNICADO DA EQUIPE</small><strong>{message ? message.senderName : "Nenhuma mensagem nova"}</strong><p>{message?.body ?? "Quando seu professor enviar uma orientação, ela aparecerá aqui."}</p></div></article>;
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const message = messages.find((item) => contentIsActive(item.expiresAt, now, item.createdAt));
+  if (!message) return null;
+  return <article className="student-message-inbox"><div className="student-message-inbox-icon"><MessageCircle /></div><div><small>COMUNICADO DA EQUIPE</small><strong>{message.senderName}</strong><p>{message.body}</p></div></article>;
 }
 
 function StudentAnnouncementCard() {
+  const access = useAccess();
   const announcements = useAcademyAnnouncements();
   const latest = announcements[0];
+  const announcement = latest ?? { id: "welcome", title: "Boas-vindas à Dama de Ferro", body: "Seu espaço de treino e evolução começa aqui." };
+  const [dismissed, setDismissed] = useState(false);
+  const seenKey = announcementSeenKey(access.academyId, access.userId, announcement.id);
+  useEffect(() => {
+    try { setDismissed(window.localStorage.getItem(seenKey) === "1"); } catch { setDismissed(false); }
+  }, [seenKey]);
+  if (dismissed) return null;
+  function dismiss() {
+    try { window.localStorage.setItem(seenKey, "1"); } catch { /* armazenamento opcional */ }
+    setDismissed(true);
+  }
   return <article className="academy-note">
     <div className="note-mark">DF</div>
-    <div><span>COMUNICADO DA ACADEMIA</span><h3>{latest?.title ?? "Boas-vindas à Dama de Ferro"}</h3><p>{latest?.body ?? "Os avisos gerais da gestão aparecerão aqui e nas notificações."}</p></div>
-    <ChevronRight />
+    <div><span>COMUNICADO DA ACADEMIA</span><h3>{announcement.title}</h3><p>{announcement.body}</p></div>
+    <button type="button" className="academy-note-dismiss" onClick={dismiss} aria-label="Ocultar comunicado"><X size={15} /></button>
   </article>;
 }
 
@@ -1322,22 +1491,40 @@ function AcademyHoursCard() {
 
 function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: WorkoutRecord) => void; activeWorkoutId?: string | null }) {
   const { workouts: publishedWorkouts, loading } = useStudentPublishedWorkouts();
+  const [workoutSearch, setWorkoutSearch] = useState("");
   const executions = useStudentWorkoutExecutions();
   const [levelFilter, setLevelFilter] = useState<"Todos" | WorkoutLevel>("Todos");
-  function workoutHistory(workoutId: string) { return executions.filter((execution) => execution.workoutId === workoutId).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt)); }
+  const executionsByWorkout = useMemo(() => {
+    const grouped = new Map<string, WorkoutExecution[]>();
+    executions.forEach((execution) => {
+      const history = grouped.get(execution.workoutId) ?? [];
+      history.push(execution);
+      grouped.set(execution.workoutId, history);
+    });
+    return grouped;
+  }, [executions]);
   const currentProgram = publishedWorkouts.find((workout) => workout.id === activeWorkoutId)?.level ?? publishedWorkouts.find((workout) => !workout.isLocked)?.level ?? "Fundação";
-  const orderedWorkouts = [...publishedWorkouts].sort((first, second) => {
+  const orderedWorkouts = useMemo(() => [...publishedWorkouts].sort((first, second) => {
     const programDifference = Number((first.level ?? "Fundação") !== currentProgram) - Number((second.level ?? "Fundação") !== currentProgram);
     if (programDifference !== 0) return programDifference;
     const levelDifference = workoutLevelOrder.indexOf(first.level ?? "Fundação") - workoutLevelOrder.indexOf(second.level ?? "Fundação");
     if (levelDifference !== 0) return levelDifference;
     return first.name.localeCompare(second.name, "pt-BR");
-  });
-  const visibleWorkouts = levelFilter === "Todos" ? orderedWorkouts : orderedWorkouts.filter((workout) => (workout.level ?? "Fundação") === levelFilter);
+  }), [currentProgram, publishedWorkouts]);
+  const workoutCodes = useMemo(() => {
+    const programCounts = new Map<string, number>();
+    return new Map(orderedWorkouts.map((workout) => {
+      const level = workout.level ?? "Fundação";
+      const index = programCounts.get(level) ?? 0;
+      programCounts.set(level, index + 1);
+      return [workout.id, String.fromCharCode(65 + (index % 26))];
+    }));
+  }, [orderedWorkouts]);
+  const visibleWorkouts = useMemo(() => orderedWorkouts.filter((workout) => (levelFilter === "Todos" || (workout.level ?? "Fundação") === levelFilter) && matchesSearch(workoutSearch, workout.name, workout.level, `Treino ${workoutCodes.get(workout.id)}`)), [levelFilter, orderedWorkouts, workoutCodes, workoutSearch]);
   return (
     <div className="student-view">
       <PageIntro kicker="MEU PROGRAMA ATUAL" title="Seus treinos" copy="Comece pelo treino recomendado e escolha outra ficha quando precisar." />
-      <div className="student-workout-toolbar"><div><small>PROGRAMA ATUAL</small><strong>{currentProgram}</strong><span>{publishedWorkouts.filter((workout) => (workout.level ?? "Fundação") === currentProgram && !workout.isLocked).length} treino(s) liberado(s)</span></div><label>Filtrar por programa<select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as "Todos" | WorkoutLevel)}><option value="Todos">Todos os programas</option><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label></div>
+      <label className="workspace-search"><Search /><input type="search" aria-label="Buscar treino" placeholder="Buscar treino ou programa…" value={workoutSearch} onChange={(event) => setWorkoutSearch(event.target.value)} /></label><div className="student-workout-toolbar"><div><small>PROGRAMA ATUAL</small><strong>{currentProgram}</strong><span>{publishedWorkouts.filter((workout) => (workout.level ?? "Fundação") === currentProgram && !workout.isLocked).length} treino(s) liberado(s)</span></div><label>Filtrar por programa<select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as "Todos" | WorkoutLevel)}><option value="Todos">Todos os programas</option><option>Fundação</option><option>Evolução</option><option>Performance</option><option>Elite</option></select></label></div>
       <div className="program-summary">
         <div><small>ORIENTAÇÃO DA ACADEMIA</small><strong>Seu próximo passo é o programa {currentProgram}</strong></div><span>ESCOLHA LIVRE</span>
         <div className="program-line"><i /></div>
@@ -1351,7 +1538,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
       <div className="workout-list">
         {visibleWorkouts.length > 0 ? visibleWorkouts.map((workout, index) => (
           (() => {
-            const history = workoutHistory(workout.id);
+            const history = executionsByWorkout.get(workout.id) ?? [];
             const latest = history[0];
             const previous = history[1];
             const isLocked = Boolean(workout.isLocked);
@@ -1359,7 +1546,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const isCompleted = !isLocked && Boolean(latest) && !isInProgress;
             const stateClass = isLocked ? "is-locked" : isInProgress ? "is-in-progress" : isCompleted ? "is-completed" : "is-next";
             const stateLabel = isLocked ? "NÍVEL BLOQUEADO" : isCompleted ? "TREINO CONCLUÍDO" : isInProgress ? "TREINO EM EXECUÇÃO" : index === 0 ? "PRÓXIMO TREINO" : "TREINO PROGRAMADO";
-            const workoutCode = String.fromCharCode(65 + (index % 26));
+            const workoutCode = workoutCodes.get(workout.id);
             const level = workout.level ?? "Fundação";
             const estimatedDuration = estimatedWorkoutDurationLabel(workout.exerciseDetails ?? [], workout.exerciseIds.length);
             const audience = workout.audience === "Geral" ? "Geral" : "Personalizado";
@@ -1367,7 +1554,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
             const stars = latest ? previous ? Math.max(1, Math.min(5, 3 + (durationDelta !== null && durationDelta <= 0 ? 1 : 0) + ((latest.maxLoad ?? 0) > (previous.maxLoad ?? 0) || (latest.maxReps ?? 0) > (previous.maxReps ?? 0) ? 1 : 0))) : 1 : 0;
             const previousLevel = index > 0 ? visibleWorkouts[index - 1].level ?? "Fundação" : null;
             const isCurrentProgram = level === currentProgram;
-            return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`}>
+            return <div className="student-program-group" key={workout.id}>{previousLevel !== level && <div className="student-program-heading"><small>{isCurrentProgram ? "MEU PROGRAMA ATUAL" : "OUTROS TREINOS DISPONÍVEIS"}</small><strong>Programa {level}</strong></div>}<article className={`workout-library-card ${stateClass}`} data-level={machineCode(level)}>
             <button className="workout-open" type="button" disabled={isLocked} aria-disabled={isLocked} onClick={() => !isLocked && onStart(workout)}><span className="workout-index">{isLocked ? <LockKeyhole size={16} /> : isCompleted ? <Check size={17} /> : workoutCode}</span><div className="workout-card-main"><small className="workout-state-text">{stateLabel} · Treino {workoutCode}</small><div className="published-template-meta student-workout-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-duration"><Clock3 size={12} /> {estimatedDuration}</span><span className={audience === "Personalizado" ? "template-chip template-chip-audience personalized" : "template-chip template-chip-audience"}><Users size={12} /> {audience}</span></div><strong>{displayWorkoutCardName(workout.name)}</strong><p>{isLocked ? "Liberação feita pelo professor conforme sua evolução." : `${workout.exerciseIds.length} exercícios · ${workout.exerciseDetails?.reduce((total, exercise) => total + (Number(exercise.sets) || 0), 0) || "—"} séries${latest ? ` · ${formatWorkoutDuration(latest.durationSeconds)} na última vez` : ""}`}</p></div><span className="play-button">{isLocked ? <LockKeyhole size={17} /> : isCompleted ? <Check size={18} /> : <Play size={18} fill="currentColor" />}</span></button>
             {latest && <div className="workout-card-progress"><span aria-label={`${stars} de 5 estrelas`}>{"★".repeat(stars)}{"☆".repeat(5 - stars)}</span><small>{previous && durationDelta !== null ? durationDelta === 0 ? "Mesmo tempo da última vez" : `${durationDelta > 0 ? "+" : "−"}${formatWorkoutDuration(Math.abs(durationDelta))} comparado ao treino anterior` : "Primeiro resultado salvo"}</small></div>}
             {!isLocked && <details className="workout-card-menu"><summary aria-label="Mais ações"><MoreHorizontal size={18} /></summary><div><button className="workout-print" type="button" onClick={() => printWorkoutSheet(workout)}><Printer size={15} /> Imprimir ficha</button></div></details>}
@@ -1381,6 +1568,7 @@ function WorkoutLibrary({ onStart, activeWorkoutId }: { onStart: (workout?: Work
 
 function Evolution() {
   const access = useAccess();
+  const currentRank = useStudentApprovedRank();
   const { workouts: publishedWorkouts } = useStudentPublishedWorkouts();
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [executions, setExecutions] = useState<WorkoutExecution[]>([]);
@@ -1469,20 +1657,20 @@ function Evolution() {
     const sets = (execution.sets ?? []).filter((item) => item.exerciseName === selectedExercise);
     return { id: execution.id, date: workoutExecutionTime(execution.completedAt), load: Math.max(...sets.map((item) => Number(item.load.replace(",", ".")) || 0)), reps: Math.max(...sets.map((item) => Number(item.reps.replace(",", ".")) || 0)) };
   }).sort((a, b) => b.date - a.date);
-  const accessibleLevels = Array.from(new Set(publishedWorkouts.filter((workout) => !workout.isLocked).map((workout) => workout.level ?? "Fundação")));
-  const orderedAccessibleLevels = accessibleLevels.sort((first, second) => workoutLevelOrder.indexOf(first) - workoutLevelOrder.indexOf(second));
-  const currentLevel = orderedAccessibleLevels[orderedAccessibleLevels.length - 1] ?? "Fundação";
-  const currentLevelIndex = workoutLevelOrder.indexOf(currentLevel);
-  const nextLevel = workoutLevelOrder[currentLevelIndex + 1];
-  const levelTier = currentLevel === "Fundação" ? "Bronze" : currentLevel === "Evolução" ? "Prata" : currentLevel === "Performance" ? "Dourado" : "Diamante";
-  const levelProgress = ((currentLevelIndex + 1) / workoutLevelOrder.length) * 100;
+  const currentRankIndex = studentRankOrder.indexOf(currentRank);
+  const nextRank = studentRankOrder[currentRankIndex + 1];
+  const rankStyleLevel = studentRankProgram[currentRank];
+  const rankWorkouts = publishedWorkouts.filter((workout) => !workout.isLocked && (workout.level ?? "Fundação") === rankStyleLevel);
+  const rankWorkoutProgress = rankWorkouts.map((workout) => ({ workout, count: completedSessionsForWorkout(executions, workout) }));
+  const rankReferenceProgress = rankWorkoutProgress.length ? Math.round(rankWorkoutProgress.reduce((sum, item) => sum + Math.min(1, item.count / 3), 0) / rankWorkoutProgress.length * 100) : 0;
   return (
     <div className="student-view">
       <PageIntro kicker="ACOMPANHAMENTO" title="Sua evolução" copy="Consistência que aparece nos números." />
-      <section className={`evolution-level-card level-${machineCode(currentLevel)}`} aria-label={`Nível atual ${levelTier}`}>
-        <div className="evolution-level-copy"><span>NÍVEL DEFINIDO PELA EQUIPE</span><h2>{levelTier}</h2><strong>Programa {currentLevel}</strong><p>O professor libera novos níveis conforme sua evolução e preparo.</p></div>
-        <div className="evolution-level-medal"><Trophy size={28} /><small>{currentLevelIndex + 1}/{workoutLevelOrder.length}</small></div>
-        <div className="evolution-level-progress"><div><span>Progresso da jornada</span><strong>{nextLevel ? `Próximo: ${nextLevel}` : "Nível máximo alcançado"}</strong></div><i><b style={{ width: `${levelProgress}%` }} /></i></div>
+      <section className={`evolution-level-card level-${machineCode(rankStyleLevel)}`} aria-label={`Rank atual ${currentRank}`}>
+        <div className="evolution-level-copy"><span>RANK APROVADO PELO PROFESSOR</span><h2>{currentRank}</h2><strong>Programa {rankStyleLevel}</strong><p>Seu professor analisa seu histórico e decide quando você está pronto para avançar{nextRank ? ` para ${nextRank}` : ""}.</p></div>
+        <div className="evolution-level-medal"><Trophy size={28} /><small>{currentRankIndex + 1}/{studentRankOrder.length}</small></div>
+        <div className="evolution-level-progress"><div><span>Referência de prática · 3 vezes por ficha</span><strong>{rankWorkouts.length ? `${rankWorkoutProgress.filter((item) => item.count >= 3).length} de ${rankWorkouts.length} fichas com 3 ou mais conclusões completas` : `Aguardando fichas do programa ${rankStyleLevel}`}</strong></div><i><b style={{ width: `${rankReferenceProgress}%` }} /></i><small>É uma referência, não uma obrigação nem uma aprovação automática.</small></div>
+        {rankWorkoutProgress.length > 0 && <div className="evolution-rank-workouts">{rankWorkoutProgress.map(({ workout, count }) => <span key={workout.id}><strong>{displayWorkoutName(workout.name)}</strong><small>{count} {count === 1 ? "conclusão completa" : "conclusões completas"} · referência 3</small></span>)}</div>}
       </section>
       <div className="evolution-period" role="group" aria-label="Período da evolução">{([7, 30, 90, 365] as const).map((days) => <button type="button" key={days} className={period === days ? "active" : ""} onClick={() => setPeriod(days)}>{days === 7 ? "7 dias" : days === 30 ? "30 dias" : days === 90 ? "3 meses" : "1 ano"}</button>)}</div>
       <div className="evolution-hero"><span>TREINOS CONCLUÍDOS</span><strong>{periodExecutions.length}</strong><p>{workoutDelta === null ? "Ainda não há período anterior para comparação." : `${workoutDelta >= 0 ? "↑" : "↓"} ${Math.abs(workoutDelta)}% em relação ao período anterior`}</p><div><i style={{ width: `${Math.min(periodExecutions.length * 16, 100)}%` }} /></div></div>
@@ -1771,6 +1959,7 @@ function PasswordUpdateForm() {
 function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: StudentTab) => void; theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const access = useAccess();
   const profile = useRegisteredProfile();
+  const rank = useStudentApprovedRank();
   const [openPanel, setOpenPanel] = useState<string | null>(null);
   const links = [
     { icon: User, label: "Dados pessoais" },
@@ -1789,7 +1978,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   }
   return (
     <div className="student-view profile-view">
-      <div className="profile-identity"><StudentProfilePhoto profile={profile} /><small>ALUNO</small><h1>{accountName(profile?.name || profile?.displayName || access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
+      <div className="profile-identity"><StudentProfilePhoto profile={profile} rank={rank} /><small>ALUNO</small><h1>{accountName(profile?.name || profile?.displayName || access.user.displayName, access.user.email)}</h1><p>Conta vinculada à academia</p></div>
       {links.map(({ icon: Icon, label }) => <div key={label}><button className="profile-link" type="button" onClick={() => handleLink(label)}><Icon /><span>{label}</span><ChevronRight className={openPanel === label ? "profile-chevron-open" : ""} /></button>{openPanel === label && <div className="profile-detail-card">{label === "Dados pessoais" && <><strong>{accountName(access.user.displayName, access.user.email)}</strong><span>{access.user.email?.endsWith("@accounts.orquestra-fit.local") ? `Login: ${access.user.displayName ?? "usuário da academia"}` : access.user.email || "E-mail não informado"}</span><small>Esses dados são vinculados à sua conta da academia.</small></>}{label === "Minha academia" && <StudentAcademyPanel />}{label === "Plano e mensalidades" && <StudentPlanPanel />}{label === "Privacidade e segurança" && <><strong>Acesso protegido</strong><span>O acesso é protegido pelo Firebase. Sua senha nunca é salva no aplicativo.</span><PasswordUpdateForm /></>}{label === "Aparência" && <><strong>Tema do ambiente</strong><ThemeSwitcher theme={theme} onChange={onThemeChange} /></>}</div>}</div>)}
       <div className="powered-by"><span>Plataforma</span><strong>Orquestra Fit</strong><small>acesso protegido por código</small></div>
       <button className="profile-link" type="button" onClick={() => void logout()}><ShieldCheck /><span>Sair com segurança</span><ChevronRight /></button>
@@ -1797,7 +1986,7 @@ function Profile({ onNavigate, theme, onThemeChange }: { onNavigate: (tab: Stude
   );
 }
 
-type SessionExercise = Omit<WorkoutExerciseDetail, "exerciseId" | "sets" | "rest"> & { group: string; sets: number; rest: string; metricMode?: ExerciseMetricMode };
+type SessionExercise = Omit<WorkoutExerciseDetail, "exerciseId" | "sets" | "rest"> & { group: string; sets: number; rest: string; metricMode?: ExerciseMetricMode; gifLoading?: boolean };
 
 function normalizeMachineQr(rawValue: string) {
   const value = rawValue.trim();
@@ -1862,22 +2051,28 @@ function MachineQrReader({ exercises, onClose, onSelect }: { exercises: SessionE
   </div>;
 }
 
-function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleSet }: { workout?: WorkoutRecord; completedSets: string[]; onBack: () => void; onCompleted: () => void; onToggleSet: (id: string) => void }) {
+function WorkoutSession({ workout, onBack, onCompleted }: { workout?: WorkoutRecord; onBack: () => void; onCompleted: () => void }) {
   const access = useAccess();
   const feedback = useFeedback();
-  const persistedProgress = typeof window === "undefined" ? null : readWorkoutProgress(access.academyId, access.userId, workout?.id);
-  const [seconds, setSeconds] = useState(() => persistedProgress?.seconds ?? 0);
+  const persistedProgress = useMemo(() => typeof window === "undefined" ? null : readWorkoutProgress(access.academyId, access.userId, workout?.id), [access.academyId, access.userId, workout?.id]);
+  const [clock] = useState(() => createSessionClock(persistedProgress?.seconds ?? 0));
+  const [completedSets, setCompletedSets] = useState<string[]>(() => persistedProgress?.completedSets ?? []);
   const [machineReaderOpen, setMachineReaderOpen] = useState(false);
   const [setValues, setSetValues] = useState<Record<string, { load: string; reps: string }>>(() => persistedProgress?.setValues ?? {});
   const [saving, setSaving] = useState(false);
   const [anatomyExercise, setAnatomyExercise] = useState<ExerciseAnatomyData | null>(null);
   const [anatomyProfile, setAnatomyProfile] = useState<"masculino" | "feminino">("masculino");
-  const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl">>>({});
+  const [bodyWeightKg, setBodyWeightKg] = useState<number | null>(null);
+  const [exerciseMedia, setExerciseMedia] = useState<Record<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifMalePath" | "gifFemalePath" | "gifPath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">>>({});
+  const [gifPreparation, setGifPreparation] = useState<Record<string, "loading" | "ready" | "failed">>({});
+  const sessionMounted = useRef(true);
   const [openExerciseIndex, setOpenExerciseIndex] = useState<number | null>(null);
-  const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; remaining: number } | null>(null);
+  const [restTimer, setRestTimer] = useState<{ exerciseIndex: number; total: number; endsAt: number } | null>(null);
   const [completionSummary, setCompletionSummary] = useState<WorkoutCompletionSummary | null>(null);
   const closeAnatomy = useCallback(() => setAnatomyExercise(null), []);
-  const exercises: SessionExercise[] = workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exerciseGifSource({ ...exercise, ...currentMedia, name: exercise.name }, anatomyProfile), equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode }));
+  useEffect(() => () => { sessionMounted.current = false; }, []);
+  const exerciseIdsKey = (workout?.exerciseDetails ?? []).map((exercise) => exercise.exerciseId).filter(Boolean).join("|");
+  const exercises = useMemo<SessionExercise[]>(() => workout?.exerciseDetails?.length ? workout.exerciseDetails.map((exercise) => { const currentMedia = exerciseMedia[exercise.exerciseId] ?? {}; const metricMode = exerciseMetricLabels(exercise).mode; const defaults = defaultExerciseDetails(exercise); const merged = { ...exercise, ...currentMedia, name: exercise.name }; const directGif = exerciseGifSource(merged, anatomyProfile); const hasStoredGif = Boolean(merged.gifPath || merged.gifMalePath || merged.gifFemalePath || currentMedia.gifPath); const preparation = gifPreparation[exercise.exerciseId]; const gifLoading = Boolean(db && functions && hasStoredGif && !merged.gifOptimizedUrl && !merged.gifMaleOptimizedUrl && !merged.gifFemaleOptimizedUrl && preparation !== "failed"); return { name: exercise.name, group: exercise.muscleGroup || "Treino", secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, bodyRegion: exercise.bodyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: gifLoading ? "" : directGif, gifLoading, equipmentName: exercise.equipmentName || equipmentForExercise(exercise.name), machineCode: exercise.machineCode, metricMode, sets: Number(exercise.sets) || Number(defaults.sets) || 1, reps: exercise.reps || defaults.reps, load: exercise.load || defaults.load, rest: `${exercise.rest || defaults.rest} s` }; }) : workoutPlan.map((exercise) => ({ ...exercise, metricMode: exerciseMetricLabels(exercise).mode })), [workout, exerciseMedia, anatomyProfile, gifPreparation]);
   const totalSets = exercises.reduce((sum, item) => sum + item.sets, 0);
   const previousExecutions = useStudentWorkoutExecutions();
   const previousSets = useMemo(() => {
@@ -1885,14 +2080,15 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     return Object.fromEntries((latest?.sets ?? []).map((item) => [item.exerciseName, { load: item.load, reps: item.reps }]));
   }, [previousExecutions, workout?.id]);
   useEffect(() => {
-    if (completionSummary) return;
-    const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [completionSummary]);
+    if (completionSummary) clock.stop();
+  }, [completionSummary, clock]);
   useEffect(() => {
     if (!workout || completionSummary) return;
-    window.sessionStorage.setItem(workoutProgressKey(access.academyId, access.userId), JSON.stringify({ workoutId: workout.id, completedSets, setValues, seconds } satisfies WorkoutProgressSnapshot));
-  }, [access.academyId, access.userId, completedSets, completionSummary, seconds, setValues, workout]);
+    const persist = () => window.sessionStorage.setItem(workoutProgressKey(access.academyId, access.userId), JSON.stringify({ workoutId: workout.id, completedSets, setValues, seconds: clock.getSeconds() } satisfies WorkoutProgressSnapshot));
+    persist();
+    const timer = window.setInterval(persist, 5000);
+    return () => window.clearInterval(timer);
+  }, [access.academyId, access.userId, completedSets, completionSummary, setValues, workout, clock]);
   useEffect(() => {
     const studentId = localStudentId(access.academyId, access.userId);
     const setProfile = (value?: string) => setAnatomyProfile(value === "feminino" ? "feminino" : "masculino");
@@ -1903,40 +2099,100 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     return onSnapshot(doc(db, "academies", access.academyId, "students", studentId), (snapshot) => setProfile(snapshot.data()?.anatomyProfile));
   }, [access.academyId, access.userId]);
   useEffect(() => {
+    const studentId = localStudentId(access.academyId, access.userId);
+    const setLatestWeight = (items: AssessmentRecord[]) => {
+      const latest = [...items].filter((item) => item.studentId === studentId).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const weight = Number(String(latest?.weight ?? "").replace(",", "."));
+      setBodyWeightKg(Number.isFinite(weight) && weight > 0 ? weight : null);
+    };
     if (!db) {
-      setExerciseMedia(Object.fromEntries(readLocalCollection<ExerciseRecord>(access.academyId, "exercises").map((exercise) => [exercise.id, { name: exercise.name, gifUrl: exercise.gifUrl, gifMaleUrl: exercise.gifMaleUrl, gifFemaleUrl: exercise.gifFemaleUrl }])));
+      setLatestWeight(readLocalCollection<AssessmentRecord>(access.academyId, "assessments"));
       return;
     }
-    return onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => setExerciseMedia(Object.fromEntries(snapshot.docs.map((item) => { const data = item.data() as Omit<ExerciseRecord, "id">; return [item.id, { name: data.name ?? "Exercício", gifUrl: data.gifUrl, gifMaleUrl: data.gifMaleUrl, gifFemaleUrl: data.gifFemaleUrl }]; }))));
-  }, [access.academyId]);
+    return onSnapshot(query(collection(db, "academies", access.academyId, "assessments"), where("studentId", "==", studentId)), (snapshot) => {
+      setLatestWeight(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AssessmentRecord, "id">) })));
+    });
+  }, [access.academyId, access.userId]);
+  useEffect(() => {
+    const exerciseIds = Array.from(new Set(exerciseIdsKey.split("|").filter(Boolean)));
+    if (!db) {
+      const exerciseIdSet = new Set(exerciseIds);
+      setExerciseMedia(Object.fromEntries(readLocalCollection<ExerciseRecord>(access.academyId, "exercises")
+        .filter((exercise) => exerciseIdSet.size === 0 || exerciseIdSet.has(exercise.id))
+        .map((exercise) => [exercise.id, { name: exercise.name, gifUrl: exercise.gifUrl, gifMaleUrl: exercise.gifMaleUrl, gifFemaleUrl: exercise.gifFemaleUrl, gifPath: exercise.gifPath, gifMalePath: exercise.gifMalePath, gifFemalePath: exercise.gifFemalePath, gifOptimizedUrl: exercise.gifOptimizedUrl, gifOptimizedPath: exercise.gifOptimizedPath, gifMaleOptimizedUrl: exercise.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise.gifFemaleOptimizedPath }])));
+      return;
+    }
+    if (!exerciseIds.length) {
+      setExerciseMedia({});
+      return;
+    }
+    const mediaById = new Map<string, Pick<ExerciseRecord, "name" | "gifUrl" | "gifMaleUrl" | "gifFemaleUrl" | "gifPath" | "gifMalePath" | "gifFemalePath" | "gifOptimizedUrl" | "gifOptimizedPath" | "gifMaleOptimizedUrl" | "gifMaleOptimizedPath" | "gifFemaleOptimizedUrl" | "gifFemaleOptimizedPath">>();
+    const unsubscribers = [] as Array<() => void>;
+    for (let start = 0; start < exerciseIds.length; start += 30) {
+      const chunk = exerciseIds.slice(start, start + 30);
+      unsubscribers.push(onSnapshot(query(collection(db, "academies", access.academyId, "exercises"), where(documentId(), "in", chunk)), (snapshot) => {
+        snapshot.docs.forEach((item) => {
+          const data = item.data() as Omit<ExerciseRecord, "id">;
+          mediaById.set(item.id, { name: data.name ?? "Exercício", gifUrl: data.gifUrl, gifMaleUrl: data.gifMaleUrl, gifFemaleUrl: data.gifFemaleUrl, gifPath: data.gifPath, gifMalePath: data.gifMalePath, gifFemalePath: data.gifFemalePath, gifOptimizedUrl: data.gifOptimizedUrl, gifOptimizedPath: data.gifOptimizedPath, gifMaleOptimizedUrl: data.gifMaleOptimizedUrl, gifMaleOptimizedPath: data.gifMaleOptimizedPath, gifFemaleOptimizedUrl: data.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: data.gifFemaleOptimizedPath });
+        });
+        setExerciseMedia(Object.fromEntries(mediaById));
+      }));
+    }
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [access.academyId, exerciseIdsKey]);
+  useEffect(() => {
+    if (!db || !functions || !workout) return;
+    const targetIndex = openExerciseIndex ?? 0;
+    const detail = workout.exerciseDetails?.[targetIndex];
+    if (!detail?.exerciseId) return;
+    const currentMedia = exerciseMedia[detail.exerciseId] ?? {};
+    const merged = { ...detail, ...currentMedia };
+    const sourcePath = anatomyProfile === "feminino" ? (merged.gifFemalePath || merged.gifPath) : (merged.gifMalePath || merged.gifPath);
+    const optimizedUrl = anatomyProfile === "feminino" ? (merged.gifFemaleOptimizedUrl || merged.gifOptimizedUrl) : (merged.gifMaleOptimizedUrl || merged.gifOptimizedUrl);
+    if (!sourcePath || optimizedUrl || gifPreparation[detail.exerciseId]) return;
+    setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "loading" }));
+    const prepare = httpsCallable<{ academyId: string; exerciseId: string; profile: "masculino" | "feminino" }, { ok: boolean; url: string; path: string; profile: "masculino" | "feminino" }>(functions, "prepareExerciseGif");
+    void prepare({ academyId: access.academyId, exerciseId: detail.exerciseId, profile: anatomyProfile }).then(({ data }) => {
+      if (!sessionMounted.current) return;
+      const media = data.profile === "feminino"
+        ? { gifFemaleOptimizedUrl: data.url, gifFemaleOptimizedPath: data.path }
+        : { gifOptimizedUrl: data.url, gifOptimizedPath: data.path, gifMaleOptimizedUrl: data.url, gifMaleOptimizedPath: data.path };
+      setExerciseMedia((current) => ({ ...current, [detail.exerciseId]: { ...current[detail.exerciseId], name: detail.name, ...media } }));
+      setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "ready" }));
+    }).catch(() => {
+      if (sessionMounted.current) setGifPreparation((current) => ({ ...current, [detail.exerciseId]: "failed" }));
+    });
+  }, [access.academyId, anatomyProfile, exerciseMedia, gifPreparation, openExerciseIndex, workout]);
   useEffect(() => {
     if (!restTimer) return;
-    if (restTimer.remaining <= 0) {
-      setRestTimer(null);
+    const timer = window.setTimeout(() => {
+      setRestTimer((current) => current?.endsAt === restTimer.endsAt ? null : current);
       feedback("Descanso concluído. Bora para a próxima série.");
-      return;
-    }
-    const timer = window.setTimeout(() => setRestTimer((current) => current ? { ...current, remaining: current.remaining - 1 } : null), 1000);
+    }, Math.max(0, restTimer.endsAt - Date.now()));
     return () => window.clearTimeout(timer);
   }, [restTimer, feedback]);
-  const elapsed = useMemo(() => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`, [seconds]);
   function startRest(exerciseIndex: number) {
     const configuredSeconds = Math.max(1, Number(String(exercises[exerciseIndex].rest).replace(/[^0-9]/g, "")) || 60);
-    setRestTimer({ exerciseIndex, total: configuredSeconds, remaining: configuredSeconds });
+    setRestTimer({ exerciseIndex, total: configuredSeconds, endsAt: Date.now() + configuredSeconds * 1000 });
   }
   function toggleSet(exerciseIndex: number, setIndex: number) {
     const id = `${exerciseIndex}-${setIndex}`;
     const done = completedSets.includes(id);
     const completedBefore = Array.from({ length: exercises[exerciseIndex].sets }).filter((_, index) => completedSets.includes(`${exerciseIndex}-${index}`)).length;
-    onToggleSet(id);
+    setCompletedSets((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
     if (!done) {
       startRest(exerciseIndex);
-      if (completedBefore + 1 === exercises[exerciseIndex].sets) setOpenExerciseIndex((current) => current === exerciseIndex ? null : current);
+      if (completedBefore + 1 === exercises[exerciseIndex].sets) {
+        setOpenExerciseIndex(null);
+        const nextIndex = nextPendingExercise(exercises, [...completedSets, id], exerciseIndex);
+        scrollToContent(nextIndex === null ? ".workout-finish button" : `[data-workout-index="${nextIndex}"]`, true);
+      }
     }
   }
 
   async function finishWorkout() {
     if (completedSets.length < totalSets || saving) return;
+    const seconds = clock.getSeconds();
     const sets = exercises.flatMap((exercise, exerciseIndex) => Array.from({ length: exercise.sets }).map((_, setIndex) => {
       const id = `${exerciseIndex}-${setIndex}`;
       const value = setValues[id] ?? { load: exercise.load, reps: exercise.reps };
@@ -1957,10 +2213,11 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
       maxLoadDelta: maxLoad > 0 && (previousExecution.maxLoad ?? 0) > 0 ? maxLoad - (previousExecution.maxLoad ?? 0) : undefined,
       repsDelta: maxReps > 0 && (previousExecution.maxReps ?? 0) > 0 ? maxReps - (previousExecution.maxReps ?? 0) : undefined,
     } : undefined;
-    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, maxLoad, maxReps, totalVolume, comparison, maxMetricLabel: "Maior carga", maxMetricUnit: "kg", completedSets: completedSets.length, totalSets };
+    const calories = estimateWorkoutCalories(bodyWeightKg, seconds, exercises);
+    const summary: WorkoutCompletionSummary = { durationSeconds: seconds, exerciseCount: exercises.length, calories, maxLoad, maxReps, totalVolume, comparison, maxMetricLabel: "Maior carga", maxMetricUnit: "kg", completedSets: completedSets.length, totalSets };
     if (!workout || !db) {
       if (workout) {
-        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, totalVolume, maxLoad, maxReps, completedAt: new Date().toISOString() };
+        const execution: WorkoutExecution = { id: `local-execution-${Date.now()}`, workoutId: workout.id, workoutName: workout.name, studentId: access.userId === "local-demo" ? localStudentId(access.academyId, access.userId) : access.userId, workoutRevision: workout.exerciseRevision ?? 1, durationSeconds: seconds, completedSets: completedSets.length, totalSets, sets, totalVolume, maxLoad, maxReps, calories, completedAt: new Date().toISOString() };
         const executions = readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions");
         writeLocalCollection(access.academyId, "workoutExecutions", [execution, ...executions]);
       }
@@ -1973,6 +2230,7 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
         workoutId: workout.id,
         workoutName: workout.name,
         studentId: access.userId,
+        workoutRevision: workout.exerciseRevision ?? 1,
         durationSeconds: seconds,
         completedSets: completedSets.length,
         totalSets,
@@ -1980,6 +2238,7 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
         totalVolume,
         maxLoad,
         maxReps,
+        ...(calories ? { calories } : {}),
         completedAt: serverTimestamp(),
       });
       setCompletionSummary(summary);
@@ -1990,10 +2249,18 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
     }
   }
 
+  function currentPrescriptionValue(exerciseIndex: number, field: "load" | "reps", fallback: string) {
+    const current = exercises[exerciseIndex];
+    const values = Array.from({ length: current.sets }, (_, setIndex) => setValues[`${exerciseIndex}-${setIndex}`]?.[field] || fallback).filter(Boolean);
+    const unique = Array.from(new Set(values));
+    if (unique.length <= 2) return unique.join(" · ") || fallback;
+    return `${unique[0]}–${unique[unique.length - 1]}`;
+  }
+
   return <>
     <WorkoutSessionView
       name={displayWorkoutName(workout?.name ?? "Pernas e estabilidade")}
-      elapsed={elapsed}
+      clock={clock}
       exercises={exercises}
       completedSets={completedSets}
       openIndex={openExerciseIndex}
@@ -2004,14 +2271,15 @@ function WorkoutSession({ workout, completedSets, onBack, onCompleted, onToggleS
       onBack={onBack}
       onOpen={setOpenExerciseIndex}
       onToggleSet={toggleSet}
-      onValueChange={(id, field, value, exercise) => setSetValues((current) => ({
-        ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: current[id]?.reps ?? exercise.reps, [field]: value },
-      }))}
+      onValueChange={(id, field, value, exercise) => {
+        setSetValues((current) => ({ ...current, [id]: { load: current[id]?.load ?? exercise.load, reps: current[id]?.reps ?? exercise.reps, [field]: value } }));
+        setAnatomyExercise((current) => current?.name === exercise.name ? { ...current, [field]: value } : current);
+      }}
       onRest={startRest}
       onStopRest={() => setRestTimer(null)}
       onAnatomy={(index) => {
         const exercise = exercises[index];
-        setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: exercise.reps, rest: exercise.rest });
+        setAnatomyExercise({ name: exercise.name, primaryMuscle: exercise.anatomyRegion || exercise.group, secondaryMuscles: "secondaryMuscles" in exercise ? exercise.secondaryMuscles : undefined, anatomyProfile, sets: exercise.sets, reps: currentPrescriptionValue(index, "reps", exercise.reps), load: currentPrescriptionValue(index, "load", exercise.load), metricMode: exercise.metricMode, rest: exercise.rest });
       }}
       onScan={() => setMachineReaderOpen(true)}
       onFinish={() => void finishWorkout()}
@@ -2063,7 +2331,7 @@ function WorkoutCompletionSummary({ workoutId, name, summary, onClose }: { worko
   if (sharing) return <WorkoutShareCard workoutName={displayWorkoutName(name)} studentName={studentName} profilePhoto={profilePhoto} summary={summary} onClose={() => setSharing(false)} />;
   return <div className="workout-completion-backdrop" role="dialog" aria-modal="true" aria-labelledby="workout-completion-title">
     <section className="workout-completion-card"><div className="workout-completion-mark"><Trophy size={25} /></div><small>CONQUISTA REGISTRADA</small><h2 id="workout-completion-title">Treino concluído</h2><p>{displayWorkoutName(name)} foi salvo no seu progresso pessoal.</p>
-      <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Activity size={17} /><small>Séries concluídas</small><strong>{summary.completedSets}</strong></div>{summary.totalVolume > 0 && <div><Dumbbell size={17} /><small>Volume total</small><strong>{summary.totalVolume.toLocaleString("pt-BR")} kg</strong></div>}{typeof summary.calories === "number" && summary.calories > 0 && <div><Flame size={17} /><small>Calorias</small><strong>{summary.calories} kcal</strong></div>}{summary.maxLoad > 0 && <div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad}{summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}</strong></div>}</div>
+      <div className="workout-completion-metrics"><div><Clock3 size={17} /><small>Tempo total</small><strong>{formatWorkoutDuration(summary.durationSeconds)}</strong></div><div><Activity size={17} /><small>Séries concluídas</small><strong>{summary.completedSets}</strong></div>{summary.totalVolume > 0 && <div><Dumbbell size={17} /><small>Volume total</small><strong>{summary.totalVolume.toLocaleString("pt-BR")} kg</strong></div>}{typeof summary.calories === "number" && summary.calories > 0 && <div><Flame size={17} /><small>Calorias estimadas</small><strong>{summary.calories} kcal</strong></div>}{summary.maxLoad > 0 && <div><Dumbbell size={17} /><small>{summary.maxMetricLabel ?? "Maior carga"}</small><strong>{summary.maxLoad}{summary.maxMetricUnit ? ` ${summary.maxMetricUnit}` : " kg"}</strong></div>}</div>
       <p className="workout-completion-note">{summary.completedSets} de {summary.totalSets} séries registradas. Este resultado aparecerá em <b>Sua evolução</b>.</p>{summary.comparison && <div className="workout-completion-comparison"><small>COMPARAÇÃO COM O ÚLTIMO TREINO</small>{summary.comparison.volumeDelta !== undefined && <span>{summary.comparison.volumeDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.volumeDelta).toLocaleString("pt-BR")} kg de volume</span>}{summary.comparison.maxLoadDelta !== undefined && <span>{summary.comparison.maxLoadDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.maxLoadDelta)} kg na maior carga</span>}{summary.comparison.repsDelta !== undefined && <span>{summary.comparison.repsDelta >= 0 ? "+" : "−"}{Math.abs(summary.comparison.repsDelta)} repetições máximas</span>}{summary.comparison.durationDelta !== 0 && <span>{summary.comparison.durationDelta > 0 ? "+" : "−"}{formatWorkoutDuration(Math.abs(summary.comparison.durationDelta))} de duração</span>}</div>}{feedbackSaved ? <p className="workout-feedback-saved"><Check size={15} /> Avaliação registrada no seu histórico.</p> : <div className="workout-feedback"><div><small>COMO FOI ESTE TREINO?</small><span>Sua avaliação ajuda a acompanhar sua evolução.</span></div><div className="workout-rating" aria-label="Avalie este treino de 1 a 5 estrelas">{[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" className={value <= rating ? "is-selected" : ""} aria-label={`${value} ${value === 1 ? "estrela" : "estrelas"}`} onClick={() => setRating(value)}>★</button>)}</div><textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={800} placeholder="Comentário opcional sobre o treino" /><button type="button" className="workout-feedback-save" onClick={() => void saveFeedback()} disabled={savingFeedback}>{savingFeedback ? "Salvando..." : "Salvar avaliação"}</button></div>}<div className="workout-completion-actions"><button type="button" className="workout-share-open" onClick={() => setSharing(true)}><Share2 />Compartilhar conquista</button><button type="button" className="detail-save" onClick={onClose}>Voltar para meus treinos</button></div>
     </section>
   </div>;
@@ -2095,13 +2363,18 @@ type RegisteredStudent = {
   initialDueDate?: string | null;
   nextBillingDate?: string | null;
   accessBlocked?: boolean;
+  accessOverrideChargeIds?: string[];
   joinedAt?: string | null;
   planStartedAt?: string | null;
   teacherId?: string | null;
   anatomyProfile?: "masculino" | "feminino";
+  approvedRank?: StudentRank;
+  rankApprovedAt?: unknown;
+  rankApprovedBy?: string | null;
+  rankReviewNote?: string | null;
   active?: boolean;
 };
-type InternalMessage = { id: string; studentId: string; senderId: string; senderName: string; body: string; createdAt?: { toDate?: () => Date } };
+type InternalMessage = { id: string; studentId: string; senderId: string; senderName: string; body: string; createdAt?: unknown; expiresAt?: unknown };
 
 type RegisteredTeacher = {
   id: string;
@@ -2126,6 +2399,7 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeModule, setActiveModule] = useState("Visão geral");
+  const [, startWorkspaceNavigation] = useTransition();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -2138,19 +2412,22 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
     }
     setFocusStudentId(studentId ?? null);
     setFocusSearch("");
-    setActiveModule(module);
+    startWorkspaceNavigation(() => setActiveModule(module));
+    if (!studentId) window.requestAnimationFrame(() => scrollToContent(".workspace-content", true));
   }
   useEffect(() => {
     const handleNavigation = (event: Event) => {
       const detail = (event as CustomEvent<{ module?: string; studentId?: string; search?: string }>).detail;
       if (!detail?.module) return;
-      if (profile === "Professor" && detail.module === "Financeiro") {
+      const targetModule = detail.module;
+      if (profile === "Professor" && targetModule === "Financeiro") {
         feedback("O módulo financeiro é exclusivo da gestão.");
         return;
       }
       setFocusStudentId(detail.studentId ?? null);
       setFocusSearch(detail.search ?? "");
-      setActiveModule(detail.module);
+      startWorkspaceNavigation(() => setActiveModule(targetModule));
+      if (!detail.studentId) window.requestAnimationFrame(() => scrollToContent(".workspace-content", true));
     };
     window.addEventListener("orquestra-fit:navigate", handleNavigation);
     return () => window.removeEventListener("orquestra-fit:navigate", handleNavigation);
@@ -2223,7 +2500,7 @@ async function compressProfilePhoto(file: File) {
   return canvas.toDataURL("image/jpeg", .78);
 }
 
-function StudentProfilePhoto({ profile }: { profile: AccountProfile | null }) {
+function StudentProfilePhoto({ profile, rank }: { profile: AccountProfile | null; rank: StudentRank }) {
   const access = useAccess();
   const feedback = useFeedback();
   const [preview, setPreview] = useState(profile?.photoUrl || access.user.photoURL || "");
@@ -2251,7 +2528,7 @@ function StudentProfilePhoto({ profile }: { profile: AccountProfile | null }) {
     }
   }
   const initials = firstName(profile?.name || profile?.displayName || access.user.displayName, access.user.email).slice(0, 2).toUpperCase();
-  return <div className="student-profile-photo"><span>{preview ? <img src={preview} alt="Foto do aluno" /> : initials}</span><label className={saving ? "saving" : ""}><Camera /><em>{saving ? "Salvando..." : "Alterar foto"}</em><input type="file" accept="image/jpeg,image/png,image/webp" onChange={selectPhoto} disabled={saving} /></label></div>;
+  return <div className={`student-profile-photo rank-${machineCode(rank)}`}><span>{preview ? <img src={preview} alt="Foto do aluno" /> : initials}</span><strong className="student-profile-rank-badge"><Trophy size={12} /> Rank {rank}</strong><label className={saving ? "saving" : ""}><Camera /><em>{saving ? "Salvando..." : "Alterar foto"}</em><input type="file" accept="image/jpeg,image/png,image/webp" onChange={selectPhoto} disabled={saving} /></label></div>;
 }
 
 function WorkspaceMobileNav({ profile, activeModule, onNavigate, onMore }: { profile: "Gestão" | "Professor"; activeModule: string; onNavigate: (module: string) => void; onMore: () => void }) {
@@ -2326,9 +2603,9 @@ function StudentAcademyPanel() {
   return <div className="student-academy-detail"><strong>{academy.name}</strong>{academy.address && <span>{academy.address}</span>}{academy.phone && <span>{academy.phone}</span>}<div><small>Funcionamento</small><b>{academy.openingTime && academy.closingTime ? `${academy.openingTime} – ${academy.closingTime}` : "Horário ainda não informado"}</b><span>{days || "Dias ainda não informados"}</span></div></div>;
 }
 
-type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
+type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean; registrationFee?: number };
 type BillingStudent = { id: string; name: string; active: boolean; userId?: string | null; teacherId?: string | null; birthDate?: string | null };
-type BillingPlan = { id: string; name: string; price: number; active: boolean };
+type BillingPlan = { id: string; name: string; price: number; interval?: string; active: boolean; registrationFee?: number };
 type PaymentMethod = "pix" | "cartao_credito" | "cartao_debito" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod; chargeType?: ChargeType; planId?: string | null; accessCodeId?: string | null; origin?: string };
@@ -2336,22 +2613,10 @@ function paymentMethodLabel(method?: PaymentMethod) { return method === "cartao_
 type BodyRegion = "Membros superiores" | "Tronco anterior" | "Tronco posterior" | "Região central" | "Membros inferiores";
 type ExercisePhase = "Preparação" | "Treino principal" | "Cardio" | "Finalização";
 type ExerciseType = "Força" | "Peso corporal" | "Alongamento" | "Cardio";
-type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifMatch?: "exact" | "equivalent"; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
-type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; equipmentName?: string; machineCode?: string; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type ExerciseRecord = { id: string; name: string; muscleGroup: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifOptimizedUrl?: string; gifOptimizedPath?: string; gifMaleOptimizedUrl?: string; gifMaleOptimizedPath?: string; gifFemaleOptimizedUrl?: string; gifFemaleOptimizedPath?: string; gifMatch?: "exact" | "equivalent"; equipmentName?: string; machineCode?: string; recommendedLevels?: WorkoutLevel[]; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
+type WorkoutExerciseDetail = { exerciseId: string; name: string; sets: string; reps: string; load: string; rest: string; muscleGroup?: string; secondaryMuscles?: string; anatomyRegion?: string; instructions?: string; videoUrl?: string; gifUrl?: string; gifPath?: string; gifMaleUrl?: string; gifMalePath?: string; gifFemaleUrl?: string; gifFemalePath?: string; gifOptimizedUrl?: string; gifOptimizedPath?: string; gifMaleOptimizedUrl?: string; gifMaleOptimizedPath?: string; gifFemaleOptimizedUrl?: string; gifFemaleOptimizedPath?: string; equipmentName?: string; machineCode?: string; recommendedLevels?: WorkoutLevel[]; bodyRegion?: BodyRegion; phase?: ExercisePhase; exerciseType?: ExerciseType };
 
 type ExerciseMetricMode = "strength" | "cardio" | "timed";
-type ExerciseMetricLabels = { mode: ExerciseMetricMode; sets: string; reps: string; load: string; rest: string; repsUnit: string; loadUnit: string; repsInputMode: "numeric" | "decimal"; loadInputMode: "numeric" | "decimal" };
-type ExerciseMetricSource = { name: string; exerciseType?: ExerciseType; equipmentName?: string; muscleGroup?: string };
-
-function exerciseMetricLabels(exercise: ExerciseMetricSource): ExerciseMetricLabels {
-  const text = `${exercise.name} ${exercise.equipmentName ?? ""} ${exercise.muscleGroup ?? ""}`.toLocaleLowerCase("pt-BR");
-  const isCardio = exercise.exerciseType === "Cardio" || /bicicleta|bike|esteira|corrida|caminhada|elípt|elipt|remo ergométrico|escada ergométrica|transport|stair|air bike|cardio/.test(text);
-  if (isCardio) return { mode: "cardio", sets: "Blocos", reps: "Tempo", load: "Velocidade", rest: "Recuperação", repsUnit: "min", loadUnit: "km/h", repsInputMode: "decimal", loadInputMode: "decimal" };
-  const isTimed = exercise.exerciseType === "Alongamento" || /alongamento|mobilidade|prancha|isometr|wall sit/.test(text);
-  if (isTimed) return { mode: "timed", sets: "Séries", reps: "Tempo", load: "Intensidade", rest: "Descanso", repsUnit: "s", loadUnit: "", repsInputMode: "numeric", loadInputMode: "numeric" };
-  return { mode: "strength", sets: "Séries", reps: "Repetições", load: "Carga", rest: "Descanso", repsUnit: "rep.", loadUnit: "kg", repsInputMode: "numeric", loadInputMode: "decimal" };
-}
-
 function defaultExerciseDetails(exercise: ExerciseMetricSource) {
   const labels = exerciseMetricLabels(exercise);
   return labels.mode === "cardio" ? { sets: "1", reps: "20", load: "6", rest: "60" } : labels.mode === "timed" ? { sets: "3", reps: "30", load: "0", rest: "60" } : { sets: "3", reps: "10", load: "0", rest: "60" };
@@ -2360,27 +2625,28 @@ function defaultExerciseDetails(exercise: ExerciseMetricSource) {
 function StudentAcademyWhatsAppCard() {
   const access = useAccess();
   const profile = useRegisteredProfile();
-  const [settings, setSettings] = useState<{ name?: string; phone?: string; whatsappUrl?: string }>({});
+  const [settings, setSettings] = useState<{ name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string }>({});
   useEffect(() => {
-    function apply(data?: { name?: string; phone?: string; whatsappUrl?: string } | null) {
-      setSettings({ name: data?.name, phone: data?.phone, whatsappUrl: data?.whatsappUrl });
+    function apply(data?: { name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string } | null) {
+      setSettings({ name: data?.name, phone: data?.phone, whatsappUrl: data?.whatsappUrl, whatsappGroupUrl: data?.whatsappGroupUrl });
     }
     if (!db) {
       const syncLocal = () => {
-        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; phone?: string; whatsappUrl?: string } | null); } catch { apply(null); }
+        try { apply(JSON.parse(window.localStorage.getItem(`orquestra-fit:${access.academyId}:academy-settings`) ?? "null") as { name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string } | null); } catch { apply(null); }
       };
       syncLocal();
       window.addEventListener("orquestra-fit:collection-updated", syncLocal);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
     }
-    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; phone?: string; whatsappUrl?: string } | undefined));
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => apply(snapshot.data() as { name?: string; phone?: string; whatsappUrl?: string; whatsappGroupUrl?: string } | undefined));
   }, [access.academyId]);
   const academyPhone = settings.phone || (access.role === "admin" ? profile?.phone : "") || "";
   const phoneDigits = academyPhone.replace(/\D/g, "");
   const phoneHref = phoneDigits.length >= 10 ? `https://wa.me/${phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`}` : "";
-  const href = normalizeWhatsappLink(settings.whatsappUrl) || phoneHref;
-  if (!href) return null;
-  return <a className="academy-whatsapp-card" href={href} target="_blank" rel="noreferrer"><span className="academy-whatsapp-mark"><MessageCircle size={19} /></span><span><small>COMUNIDADE DA ACADEMIA</small><strong>Entrar no WhatsApp</strong><p>{settings.name || "Receba avisos, novidades e orientações da academia."}</p></span><ArrowRight size={18} /></a>;
+  const directHref = normalizeWhatsappLink(settings.whatsappUrl) || phoneHref;
+  const groupHref = normalizeWhatsappLink(settings.whatsappGroupUrl);
+  if (!directHref && !groupHref) return null;
+  return <section className="academy-whatsapp-card" aria-label="WhatsApp da academia"><span className="academy-whatsapp-mark"><MessageCircle size={19} /></span><span className="academy-whatsapp-copy"><small>CONTATO E COMUNIDADE</small><strong>Fale com a academia</strong><p>{settings.name || "Tire dúvidas, receba avisos e participe da comunidade."}</p></span><div className="academy-whatsapp-actions">{directHref && <a href={directHref} target="_blank" rel="noreferrer"><MessageCircle size={15} /> WhatsApp <ArrowRight size={14} /></a>}{groupHref && <a href={groupHref} target="_blank" rel="noreferrer"><Users size={15} /> Entrar no grupo <ArrowRight size={14} /></a>}</div></section>;
 }
 
 function estimatedWorkoutDurationLabel(details: WorkoutExerciseDetail[], exerciseCount: number) {
@@ -2396,7 +2662,7 @@ function estimatedWorkoutDurationLabel(details: WorkoutExerciseDetail[], exercis
   return minutes >= 60 ? `≈ ${Math.floor(minutes / 60)}h ${minutes % 60}min` : `≈ ${minutes}min`;
 }
 
-type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; studentRecordId?: string | null; studentUserId?: string | null; recommendedDay?: WorkoutTemplateDay; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; focusLabel?: string; sourceTemplateId?: string | null; isLocked?: boolean; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; createdAt?: unknown; publishedAt?: unknown; updatedAt?: unknown; status: "draft" | "published" };
+type WorkoutRecord = { id: string; name: string; studentId: string; studentName: string; studentRecordId?: string | null; studentUserId?: string | null; recommendedDay?: WorkoutTemplateDay; level?: WorkoutLevel; audience?: WorkoutTemplateAudience; focusLabel?: string; sourceTemplateId?: string | null; isLocked?: boolean; exerciseRevision?: number; exerciseIds: string[]; exerciseDetails?: WorkoutExerciseDetail[]; createdAt?: unknown; publishedAt?: unknown; updatedAt?: unknown; status: "draft" | "published" };
 type WorkoutLevel = "Fundação" | "Evolução" | "Performance" | "Elite";
 type WorkoutTemplateAudience = "Geral" | "Personalizado";
 const workoutTemplateDayOptions = ["Flexível", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"] as const;
@@ -2409,7 +2675,8 @@ type ClassReservation = { id: string; classId: string; className?: string; stude
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
 type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
-type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string; metricMode?: ExerciseMetricMode }>; calories?: number; totalVolume?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
+type AnamnesisRecord = { id: string; studentId: string; studentName: string; goal: string; healthConditions: string; medications: string; injuries: string; surgeries: string; medicalClearance: string; emergencyName: string; emergencyPhone: string; consent: boolean; updatedAt?: unknown; updatedBy?: string };
+type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; workoutRevision?: number; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string; metricMode?: ExerciseMetricMode }>; calories?: number; totalVolume?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
 type WorkoutFeedbackRecord = { id: string; workoutId: string; workoutName: string; studentId: string; rating: number; comment: string; createdAt?: unknown };
 
 function workoutExecutionTime(value: WorkoutExecution["completedAt"]) {
@@ -2445,8 +2712,17 @@ function formatWorkoutDuration(seconds: number) {
   return `${Math.floor(safeSeconds / 60)}min ${String(safeSeconds % 60).padStart(2, "0")}s`;
 }
 
+function estimateWorkoutCalories(weightKg: number | null, durationSeconds: number, exercises: SessionExercise[]) {
+  if (!weightKg || weightKg <= 0 || durationSeconds < 60) return undefined;
+  const activeModes = exercises.map((exercise) => exercise.metricMode).filter(Boolean);
+  const hasCardio = activeModes.includes("cardio");
+  const hasTimed = activeModes.includes("timed");
+  const met = hasCardio ? 7.5 : hasTimed ? 6.5 : 5.0;
+  return Math.max(1, Math.round((met * 3.5 * weightKg / 200) * (durationSeconds / 60)));
+}
+
 type WorkoutSummaryComparison = { durationDelta: number; volumeDelta?: number; maxLoadDelta?: number; repsDelta?: number };
-type WorkoutCompletionSummary = { durationSeconds: number; calories?: number; totalVolume: number; maxLoad: number; maxReps: number; comparison?: WorkoutSummaryComparison; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
+type WorkoutCompletionSummary = { durationSeconds: number; exerciseCount: number; calories?: number; totalVolume: number; maxLoad: number; maxReps: number; comparison?: WorkoutSummaryComparison; maxMetricLabel?: string; maxMetricUnit?: string; completedSets: number; totalSets: number };
 
 type ChargeViewStatus = "paid" | "overdue" | "dueSoon" | "pending";
 
@@ -2471,10 +2747,7 @@ function maskPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`;
 }
 
-function maskCnpj(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 14);
-  return digits.replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
-}
+function maskCnpj(value: string) { return maskCompanyDocument(value); }
 
 function capitalizeName(value: string) {
   return value.toLocaleLowerCase("pt-BR").replace(/(^|[\s'-])(\p{L})/gu, (_, separator: string, letter: string) => `${separator}${letter.toLocaleUpperCase("pt-BR")}`);
@@ -2544,6 +2817,9 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
   const [thigh, setThigh] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
 
   useEffect(() => {
     if (!db) {
@@ -2578,6 +2854,7 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
     finally { setSaving(false); }
   }
 
+  const visibleAssessments = assessments.filter((item) => (!selectedStudentId || item.studentId === selectedStudentId) && (!historySearch.trim() || matchesSearch(historySearch, item.studentName, item.date, item.weight, item.height, item.bodyFat, item.notes)) && (!historyFrom || item.date >= historyFrom) && (!historyTo || item.date <= historyTo));
   const selectedAssessments = assessments.filter((item) => item.studentId === selectedStudentId);
   const selectedStudentProfile = students.find((item) => item.id === (selectedStudentId || studentId));
   const selectedStudentAge = calculateAge(selectedStudentProfile?.birthDate);
@@ -2588,12 +2865,12 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
     const previous = selectedPrevious?.[key] ? Number(selectedPrevious[key]!.replace(",", ".")) : null;
     return current !== null && previous !== null ? current - previous : null;
   };
-  useEffect(() => { if (selectedStudentId && selectedLatest) scrollToContent(".staff-assessment-detail"); }, [selectedStudentId, selectedLatest?.id]);
+  useEffect(() => { if (selectedStudentId && selectedLatest && selectedStudentId !== initialStudentId) scrollToContent(".staff-assessment-detail", true); }, [selectedStudentId, selectedLatest?.id, initialStudentId]);
 
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>EVOLUÇÃO · GESTÃO</span><h2>Avaliações físicas</h2><p>{selectedStudentProfile ? `${selectedStudentProfile.name} · ${selectedStudentAge !== null ? `${selectedStudentAge} anos` : "data de nascimento não informada"}` : "Registre medidas básicas e acompanhe a evolução dos alunos."}</p></div></section>
-      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><AssessmentAnatomyReference /><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{assessments.length} {assessments.length === 1 ? "avaliação" : "avaliações"}</h3></div></header><label className="assessment-filter">Ver evolução de<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Selecione um aluno</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><div className="assessment-list">{assessments.length === 0 ? <div className="directory-empty"><Activity /><p>Nenhuma avaliação registrada ainda.</p></div> : assessments.map((item) => <button className="assessment-row assessment-row-button" key={item.id} onClick={() => setSelectedStudentId(item.studentId)}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></button>)}</div>{selectedLatest && <div className="staff-assessment-detail"><span>COMPARAÇÃO DO ALUNO</span><strong>{selectedLatest.studentName}</strong><small>{selectedPrevious ? `${formatDate(selectedPrevious.date)} → ${formatDate(selectedLatest.date)}` : "Primeira avaliação registrada"}</small><div className="staff-measure-grid">{([ ["Peso", "weight", "kg"], ["Gordura", "bodyFat", "%"], ["Bíceps", "biceps", "cm"], ["Cintura", "waist", "cm"] ] as const).map(([label, key, unit]) => { const value = selectedLatest[key] ? `${selectedLatest[key]} ${unit}` : "Não informado"; const delta = selectedDelta(key); return <div key={key}><small>{label}</small><strong>{value}</strong><span>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${unit}`}</span></div>; })}</div></div>}</article></section>
+      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><AssessmentAnatomyReference /><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{visibleAssessments.length} de {assessments.length} avaliações</h3></div></header><label className="assessment-filter">Ver evolução de<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Todos os alunos</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><div className="finance-account-filters"><input type="search" aria-label="Buscar avaliações" placeholder="Aluno, data ou medida" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><label>De<input type="date" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} /></label><label>Até<input type="date" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} /></label></div><div className="assessment-list">{visibleAssessments.length === 0 ? <div className="directory-empty"><Activity /><p>{assessments.length === 0 ? "Nenhuma avaliação registrada ainda." : "Nenhuma avaliação encontrada para esses filtros."}</p></div> : visibleAssessments.map((item) => <button className="assessment-row assessment-row-button" key={item.id} onClick={() => setSelectedStudentId(item.studentId)}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></button>)}</div>{selectedLatest && <div className="staff-assessment-detail"><span>COMPARAÇÃO DO ALUNO</span><strong>{selectedLatest.studentName}</strong><small>{selectedPrevious ? `${formatDate(selectedPrevious.date)} → ${formatDate(selectedLatest.date)}` : "Primeira avaliação registrada"}</small><div className="staff-measure-grid">{([ ["Peso", "weight", "kg"], ["Gordura", "bodyFat", "%"], ["Bíceps", "biceps", "cm"], ["Cintura", "waist", "cm"] ] as const).map(([label, key, unit]) => { const value = selectedLatest[key] ? `${selectedLatest[key]} ${unit}` : "Não informado"; const delta = selectedDelta(key); return <div key={key}><small>{label}</small><strong>{value}</strong><span>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${unit}`}</span></div>; })}</div></div>}</article></section>
     </div>
   );
 }
@@ -2616,6 +2893,8 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [listSearch, setListSearch] = useState("");
+  const [listStatus, setListStatus] = useState("Todas");
 
   useEffect(() => {
     if (!db) {
@@ -2776,6 +3055,8 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     setEditingClassId(null); setName(""); setInstructorId(access.role === "teacher" ? access.userId : ""); setDate(""); setTime(""); setCapacity("10"); setVisibility("open"); setSelectedStudentIds([]);
   }
 
+  const filteredClasses = classes.filter((item) => matchesSearch(listSearch, item.name, item.instructor, item.date, item.time) && (listStatus === "Todas" || (listStatus === "Ativas" ? item.active : listStatus === "Inativas" ? !item.active : item.status === "cancelled")));
+
   async function removeClass(item: ClassRecord) {
     if (access.role !== "admin") return;
     if (!window.confirm(`Excluir a aula "${item.name}"?`)) return;
@@ -2821,7 +3102,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>AGENDA · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Aulas e reservas</h2><p>Organize horários, vagas e reservas dos alunos.</p></div></section>
-      <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>{editingClassId ? "EDITAR AULA" : "NOVA AULA"}</span><h3>{editingClassId ? "Atualizar turma" : "Criar turma"}</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor cadastrado<select value={instructorId} onChange={(event) => setInstructorId(event.target.value)}><option value="">Equipe da academia</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}{teacher.email ? ` · ${teacher.email}` : ""}</option>)}</select><small>Selecione um professor já cadastrado na academia.</small></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><fieldset className="class-audience-picker"><legend>Quem pode reservar</legend><label><input type="radio" name="class-visibility" checked={visibility === "open"} onChange={() => { setVisibility("open"); setSelectedStudentIds([]); }} /> Aula aberta para todos os alunos</label><label><input type="radio" name="class-visibility" checked={visibility === "selected"} onChange={() => setVisibility("selected")} /> Somente alunos selecionados</label>{visibility === "selected" && <div className="class-student-options">{students.length === 0 ? <small>Nenhum aluno ativo disponível.</small> : students.map((student) => { const id = studentAccessId(student); return <label key={student.id}><input type="checkbox" checked={selectedStudentIds.includes(id)} onChange={() => setSelectedStudentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} /><span>{student.name}<small>{student.plan}</small></span></label>; })}</div>}</fieldset><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingClassId ? "Salvar alterações" : "Criar aula"}</button>{editingClassId && <button className="secondary-action" type="button" onClick={clearForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{classes.length} {classes.length === 1 ? "aula" : "aulas"}</h3></div></header><div className="plans-list">{classes.length === 0 ? <div className="directory-empty"><CalendarDays /><p>Nenhuma aula cadastrada ainda.</p></div> : classes.map((item) => { const reserved = reservationCounts[item.id] ?? 0; const present = attendanceCounts[item.id] ?? 0; const activeWaitlist = waitlists.filter((entry) => entry.classId === item.id && entry.status === "active").sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER)); return <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor}</small><small>{item.status === "cancelled" ? "CANCELADA · " : ""}{item.visibility === "selected" ? `Restrita · ${item.selectedStudentIds?.length ?? reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active" && reservation.source === "staff").length} alunos selecionados` : "Aberta para todos os alunos"}</small><small>{reserved} {reserved === 1 ? "reserva" : "reservas"} de {item.capacity} vagas · {present} {present === 1 ? "presença" : "presenças"}</small>{activeWaitlist.length > 0 && <small className="class-waitlist-inline">Fila de espera: {activeWaitlist.length} · {activeWaitlist.slice(0, 3).map((entry) => entry.studentName || "Aluno").join(", ")}{activeWaitlist.length > 3 ? "…" : ""}</small>}</div><div className="row-actions"><button type="button" className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button><button type="button" className={item.status === "cancelled" ? "plan-enable" : "plan-disable"} onClick={() => toggleCancellation(item)}>{item.status === "cancelled" ? "Reativar" : "Cancelar aula"}</button><button type="button" className="plan-edit" onClick={() => editClass(item)}>Editar</button>{access.role === "admin" && <button type="button" className="plan-delete" onClick={() => removeClass(item)}>Excluir</button>}</div></div>; })}</div></article></section>
+      <section className="classes-layout"><article className="workspace-panel plan-form-panel"><header><div><span>{editingClassId ? "EDITAR AULA" : "NOVA AULA"}</span><h3>{editingClassId ? "Atualizar turma" : "Criar turma"}</h3></div></header><form className="student-detail-form" onSubmit={createClass}><label>Nome da aula<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Funcional" required /></label><label>Professor cadastrado<select value={instructorId} onChange={(event) => setInstructorId(event.target.value)}><option value="">Equipe da academia</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}{teacher.email ? ` · ${teacher.email}` : ""}</option>)}</select><small>Selecione um professor já cadastrado na academia.</small></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><label>Horário<input type="time" value={time} onChange={(event) => setTime(event.target.value)} required /></label><label>Vagas<input type="number" min="1" max="200" value={capacity} onChange={(event) => setCapacity(event.target.value)} required /></label><fieldset className="class-audience-picker"><legend>Quem pode reservar</legend><label><input type="radio" name="class-visibility" checked={visibility === "open"} onChange={() => { setVisibility("open"); setSelectedStudentIds([]); }} /> Aula aberta para todos os alunos</label><label><input type="radio" name="class-visibility" checked={visibility === "selected"} onChange={() => setVisibility("selected")} /> Somente alunos selecionados</label>{visibility === "selected" && <div className="class-student-options">{students.length === 0 ? <small>Nenhum aluno ativo disponível.</small> : students.map((student) => { const id = studentAccessId(student); return <label key={student.id}><input type="checkbox" checked={selectedStudentIds.includes(id)} onChange={() => setSelectedStudentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} /><span>{student.name}<small>{student.plan}</small></span></label>; })}</div>}</fieldset><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingClassId ? "Salvar alterações" : "Criar aula"}</button>{editingClassId && <button className="secondary-action" type="button" onClick={clearForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plans-list-panel"><header><div><span>AGENDA DA ACADEMIA</span><h3>{filteredClasses.length} de {classes.length} aulas</h3></div></header><div className="finance-account-filters"><input type="search" aria-label="Buscar aulas" placeholder="Aula, professor, data ou horário" value={listSearch} onChange={(event) => setListSearch(event.target.value)} /><select aria-label="Filtrar situação das aulas" value={listStatus} onChange={(event) => setListStatus(event.target.value)}><option>Todas</option><option>Ativas</option><option>Inativas</option><option>Canceladas</option></select></div><div className="plans-list">{filteredClasses.length === 0 ? <div className="directory-empty"><CalendarDays /><p>{classes.length ? "Nenhuma aula encontrada para esses filtros." : "Nenhuma aula cadastrada ainda."}</p></div> : filteredClasses.map((item) => { const reserved = reservationCounts[item.id] ?? 0; const present = attendanceCounts[item.id] ?? 0; const activeWaitlist = waitlists.filter((entry) => entry.classId === item.id && entry.status === "active").sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER)); return <div className="plan-row" key={item.id}><div><strong>{item.name}</strong><small>{item.date} às {item.time} · {item.instructor}</small><small>{item.status === "cancelled" ? "CANCELADA · " : ""}{item.visibility === "selected" ? `Restrita · ${item.selectedStudentIds?.length ?? reservations.filter((reservation) => reservation.classId === item.id && reservation.status === "active" && reservation.source === "staff").length} alunos selecionados` : "Aberta para todos os alunos"}</small><small>{reserved} {reserved === 1 ? "reserva" : "reservas"} de {item.capacity} vagas · {present} {present === 1 ? "presença" : "presenças"}</small>{activeWaitlist.length > 0 && <small className="class-waitlist-inline">Fila de espera: {activeWaitlist.length} · {activeWaitlist.slice(0, 3).map((entry) => entry.studentName || "Aluno").join(", ")}{activeWaitlist.length > 3 ? "…" : ""}</small>}</div><div className="row-actions"><button type="button" className={item.active ? "plan-enable" : "plan-disable"} onClick={() => toggleClass(item)}>{item.active ? "Ativa" : "Inativa"}</button><button type="button" className={item.status === "cancelled" ? "plan-enable" : "plan-disable"} onClick={() => toggleCancellation(item)}>{item.status === "cancelled" ? "Reativar" : "Cancelar aula"}</button><button type="button" className="plan-edit" onClick={() => editClass(item)}>Editar</button>{access.role === "admin" && <button type="button" className="plan-delete" onClick={() => removeClass(item)}>Excluir</button>}</div></div>; })}</div></article></section>
     </div>
   );
 }
@@ -2867,7 +3148,18 @@ function exercisePhaseGuide(phase: ExercisePhase) {
   return { label: "Força e musculação", detail: "Escolha primeiro a região do corpo, depois o grupo muscular e o movimento." };
 }
 
-function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggle, onParameterChange, onEdit, onRemove, onPreview, accessRole }: { exercises: ExerciseRecord[]; selectedExercises: string[]; exerciseDetails: Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>; onToggle: (exercise: ExerciseRecord) => void; onParameterChange: (exerciseId: string, field: "sets" | "reps" | "load" | "rest", value: string) => void; onEdit: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void; onPreview: (exercise: ExerciseRecord) => void; accessRole: string }) {
+function exerciseLevelGuidance(exercise: ExerciseRecord, workoutLevel: WorkoutLevel) {
+  const levels = exercise.recommendedLevels ?? [];
+  if (!levels.length) return { className: "unreviewed", label: "Nível a revisar" };
+  if (levels.includes(workoutLevel)) return { className: "compatible", label: `Indicado para ${levels.join(", ")}` };
+  return { className: "review", label: `Revisar compatibilidade · indicado para ${levels.join(", ")}` };
+}
+
+function ExerciseLevelSelector({ value, onChange }: { value: WorkoutLevel[]; onChange: (value: WorkoutLevel[]) => void }) {
+  return <fieldset className="exercise-level-selector"><legend>Níveis recomendados</legend><p>Avalie estabilidade, coordenação e controle técnico exigidos. Não use só o músculo ou o nome como critério; se houver dúvida, deixe sem marcação para revisão.</p><div>{workoutLevelOrder.map((level) => <label key={level}><input type="checkbox" checked={value.includes(level)} onChange={(event) => onChange(event.target.checked ? [...value, level] : value.filter((item) => item !== level))} />{level}</label>)}</div></fieldset>;
+}
+
+function ExercisePicker({ exercises, selectedExercises, exerciseDetails, workoutLevel, onToggle, onParameterChange, onEdit, onRemove, onPreview, accessRole }: { exercises: ExerciseRecord[]; selectedExercises: string[]; exerciseDetails: Record<string, Omit<WorkoutExerciseDetail, "exerciseId" | "name">>; workoutLevel: WorkoutLevel; onToggle: (exercise: ExerciseRecord) => void; onParameterChange: (exerciseId: string, field: "sets" | "reps" | "load" | "rest", value: string) => void; onEdit: (exercise: ExerciseRecord) => void; onRemove: (exercise: ExerciseRecord) => void; onPreview: (exercise: ExerciseRecord) => void; accessRole: string }) {
   const [openPhases, setOpenPhases] = useState<ExercisePhase[]>([]);
   const [openMuscleGroups, setOpenMuscleGroups] = useState<string[]>([]);
   function togglePhase(currentPhase: ExercisePhase) {
@@ -2882,7 +3174,7 @@ function ExercisePicker({ exercises, selectedExercises, exerciseDetails, onToggl
      return <section className={isOpen ? "exercise-phase-group open" : "exercise-phase-group"} key={currentPhase}><button className="collapse-header" type="button" onClick={() => togglePhase(currentPhase)}><span>{isOpen ? <ChevronDown /> : <ChevronRight />}{exercisePhaseIcon(currentPhase)}{currentPhase}</span><small>{phaseExercises.length} exercícios · {guide.label}</small></button>{isOpen && <div className="collapse-content"><div className="exercise-phase-guide"><strong>{guide.label}</strong><p>{guide.detail}</p><ol><li>Escolha a região do corpo.</li><li>Abra o grupo muscular.</li><li>Marque o exercício e ajuste os parâmetros indicados para o movimento.</li></ol></div>{exerciseRegionOrder.map((region) => {
       const regionExercises = phaseExercises.filter((exercise) => (exercise.bodyRegion ?? "Membros superiores") === region);
       if (!regionExercises.length) return null;
-      return <div className="exercise-region-group" key={region}><h4>{exerciseRegionIcon(region)}{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => { const groupKey = `${currentPhase}:${region}:${muscleGroup}`; const groupOpen = openMuscleGroups.includes(groupKey); const groupExercises = regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup); return <div className={groupOpen ? "exercise-class-group open" : "exercise-class-group"} key={groupKey}><button className="exercise-muscle-toggle" type="button" onClick={() => toggleMuscleGroup(groupKey)}><span>{groupOpen ? <ChevronDown /> : <ChevronRight />}{muscleGroup}</span><small>{groupExercises.length} exercícios</small></button>{groupOpen && <div className="exercise-muscle-content">{groupExercises.map((exercise) => { const selected = selectedExercises.includes(exercise.id); const preview = exerciseGifSource(exercise); const metrics = exerciseMetricLabels(exercise); const defaults = defaultExerciseDetails(exercise); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><div className="exercise-choice-main"><div className="exercise-choice-info">{preview && <HoverGifPreview className="exercise-choice-gif" src={preview} alt={`Demonstração de ${exercise.name}`} />}<span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{!preview && " · sem GIF vinculado"}</small></span></div><div className="exercise-actions exercise-choice-actions"><button type="button" className={selected ? "exercise-add-button added" : "exercise-add-button"} onClick={() => onToggle(exercise)}>{selected ? <><Check size={14} /> Adicionado</> : <><Plus size={14} /> Adicionar</>}</button><button type="button" className="exercise-preview-button" onClick={() => onPreview(exercise)}><Eye size={13} /> Ver</button><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>{selected && <div className="exercise-parameters"><label>{metrics.sets}<input inputMode="numeric" value={exerciseDetails[exercise.id]?.sets ?? defaults.sets} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>{metrics.reps}<small className="exercise-field-unit">{metrics.repsUnit}</small><input inputMode={metrics.repsInputMode} placeholder={defaults.reps} value={exerciseDetails[exercise.id]?.reps ?? defaults.reps} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>{metrics.load}<small className="exercise-field-unit">{metrics.loadUnit || "sem unidade"}</small><input inputMode={metrics.loadInputMode} placeholder={defaults.load} value={exerciseDetails[exercise.id]?.load ?? defaults.load} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>{metrics.rest}<small className="exercise-field-unit">s</small><input inputMode="numeric" value={exerciseDetails[exercise.id]?.rest ?? defaults.rest} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>}</div>; })}</div>;
+      return <div className="exercise-region-group" key={region}><h4>{exerciseRegionIcon(region)}{region}</h4>{Array.from(new Set(regionExercises.map((exercise) => exercise.muscleGroup))).map((muscleGroup) => { const groupKey = `${currentPhase}:${region}:${muscleGroup}`; const groupOpen = openMuscleGroups.includes(groupKey); const groupExercises = regionExercises.filter((exercise) => exercise.muscleGroup === muscleGroup); return <div className={groupOpen ? "exercise-class-group open" : "exercise-class-group"} key={groupKey}><button className="exercise-muscle-toggle" type="button" onClick={() => toggleMuscleGroup(groupKey)}><span>{groupOpen ? <ChevronDown /> : <ChevronRight />}{muscleGroup}</span><small>{groupExercises.length} exercícios</small></button>{groupOpen && <div className="exercise-muscle-content">{groupExercises.map((exercise) => { const selected = selectedExercises.includes(exercise.id); const preview = exerciseGifSource(exercise); const metrics = exerciseMetricLabels(exercise); const defaults = defaultExerciseDetails(exercise); const levelGuidance = exerciseLevelGuidance(exercise, workoutLevel); return <div className={selected ? "exercise-choice selected" : "exercise-choice"} key={exercise.id}><div className="exercise-choice-main"><div className="exercise-choice-info">{preview && <HoverGifPreview className="exercise-choice-gif" src={preview} alt={`Demonstração de ${exercise.name}`} />}<span><strong>{exercise.name}</strong><small>{exercise.exerciseType ?? "Força"}{exercise.secondaryMuscles ? ` · auxiliares: ${exercise.secondaryMuscles}` : ""}{exercise.equipmentName ? ` · máquina: ${exercise.equipmentName}` : ""}{!preview && " · sem GIF vinculado"}</small><small className={`exercise-level-guidance ${levelGuidance.className}`}>{levelGuidance.label}</small></span></div><div className="exercise-actions exercise-choice-actions"><button type="button" className={selected ? "exercise-add-button added" : "exercise-add-button"} onClick={() => onToggle(exercise)}>{selected ? <><Check size={14} /> Adicionado</> : <><Plus size={14} /> Adicionar</>}</button><button type="button" className="exercise-preview-button" onClick={() => onPreview(exercise)}><Eye size={13} /> Ver</button><button type="button" onClick={() => onEdit(exercise)}>Editar</button>{accessRole === "admin" && <button type="button" onClick={() => onRemove(exercise)}>Excluir</button>}</div></div>{selected && <div className="exercise-parameters"><label>{metrics.sets}<input inputMode="numeric" value={exerciseDetails[exercise.id]?.sets ?? defaults.sets} onChange={(event) => onParameterChange(exercise.id, "sets", event.target.value)} /></label><label>{metrics.reps}<small className="exercise-field-unit">{metrics.repsUnit}</small><input inputMode={metrics.repsInputMode} placeholder={defaults.reps} value={exerciseDetails[exercise.id]?.reps ?? defaults.reps} onChange={(event) => onParameterChange(exercise.id, "reps", event.target.value)} /></label><label>{metrics.load}<small className="exercise-field-unit">{metrics.loadUnit || "sem unidade"}</small><input inputMode={metrics.loadInputMode} placeholder={defaults.load} value={exerciseDetails[exercise.id]?.load ?? defaults.load} onChange={(event) => onParameterChange(exercise.id, "load", event.target.value)} /></label><label>{metrics.rest}<small className="exercise-field-unit">s</small><input inputMode="numeric" value={exerciseDetails[exercise.id]?.rest ?? defaults.rest} onChange={(event) => onParameterChange(exercise.id, "rest", event.target.value)} /></label></div>}</div>; })}</div>}</div>; })}</div>;
     })}</div>}</section>;
   })}</div>;
 }
@@ -2909,27 +3201,45 @@ function WorkoutComposition({ exercises, selectedExercises, exerciseDetails, can
 }
 
 function HoverGifPreview({ src, alt, className, placeholder = "GIF" }: { src?: string; alt: string; className: string; placeholder?: string }) {
+  const [playing, setPlaying] = useState(false);
   if (!src) return <span className={`${className} is-empty`} aria-label={`${alt}. ${placeholder} ainda não vinculado`}>{placeholder}<small>Sem demonstração</small></span>;
-  return <span className={`${className} is-playing`} role="img" aria-label={alt}><img src={src} alt="" loading="lazy" /></span>;
+  return <button
+    type="button"
+    className={`${className} exercise-gif-preview${playing ? " is-playing" : ""}`}
+    aria-label={playing ? `Parar demonstração de ${alt.replace(/^Demonstração de /, "")}` : `Reproduzir ${alt}`}
+    aria-pressed={playing}
+    title={playing ? "Parar demonstração" : "Carregar demonstração somente ao solicitar"}
+    onClick={() => setPlaying((current) => !current)}
+  >
+    {playing ? <img src={src} alt="" /> : <><span aria-hidden="true">▶</span><small>Ver GIF</small></>}
+  </button>;
 }
 
 function gifLibraryStoragePath(file: string) {
   return `gif-library/${file.replace(/\\/g, "/").replace(/^\/+/, "")}`;
 }
 
+function catalogGifFallback(item: GifCatalogItem) {
+  // A biblioteca masculina já está no Firebase Storage. Os originais femininos
+  // continuam no acervo licenciado e são exibidos pela rota interna para que o
+  // navegador não tente abrir diretamente o domínio do Google Drive.
+  return item.profile === "feminino"
+    ? `/api/catalog-gif?id=${encodeURIComponent(item.id)}`
+    : item.url;
+}
+
 function CatalogGifPreview({ item }: { item: GifCatalogItem }) {
-  const localPreview = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname) ? item.url : "";
-  const [source, setSource] = useState(localPreview);
-  const [loading, setLoading] = useState(!localPreview);
+  const catalogFallback = catalogGifFallback(item);
+  const [source, setSource] = useState(catalogFallback);
+  const [loading, setLoading] = useState(!catalogFallback);
   useEffect(() => {
     let active = true;
-    const local = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname) ? item.url : "";
-    setSource(local);
-    setLoading(!local);
-    if (storage) getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))).then((url) => { if (active) { setSource(url); setLoading(false); } }).catch(() => { if (active) { setSource(local); setLoading(false); } });
+    setSource(catalogFallback);
+    setLoading(!catalogFallback);
+    if (storage) getDownloadURL(storageRef(storage, gifLibraryStoragePath(item.file))).then((url) => { if (active) { setSource(url); setLoading(false); } }).catch(() => { if (active) { setSource(catalogFallback); setLoading(false); } });
     else setLoading(false);
     return () => { active = false; };
-  }, [item.file, item.url]);
+  }, [catalogFallback, item.file]);
   if (!source) return <span className="gif-catalog-preview is-empty"><small>{loading ? "Carregando GIF…" : "Importe este GIF uma vez"}<b>{loading ? "Firebase Storage" : "Central do desenvolvedor"}</b></small></span>;
   return <span className="gif-catalog-preview" role="img" aria-label={`Prévia de ${item.name}`}><img src={source} alt="" loading="lazy" onError={() => setSource("")} /></span>;
 }
@@ -2969,12 +3279,26 @@ function ExerciseLibrary({ exercises, accessRole, onEdit, onLinkGif, onRemove, o
   </div>;
 }
 
-type GifCatalogItem = { id: string; name: string; file: string; url: string; equipment: string; muscle: string; profile: "masculino" | "feminino" };
+type GifCatalogAudience = "masculino" | "feminino" | "geral";
+type GifCatalogItem = { id: string; name: string; file: string; url: string; equipment: string; muscle: string; profile: "masculino" | "feminino"; audience: GifCatalogAudience };
 type SelectedCatalogGif = { url: string; path: string; profile: "masculino" | "feminino" };
+
+function classifyFemaleCatalogItem(item: { name: string; file: string; equipment?: string; muscle?: string }): GifCatalogAudience {
+  const parts = item.file.split("/").map((part) => part.toLocaleUpperCase("pt-BR"));
+  const equipment = (item.equipment ?? parts[1] ?? "").toLocaleUpperCase("pt-BR");
+  const muscle = (item.muscle ?? parts[2] ?? "").toLocaleUpperCase("pt-BR");
+  const name = item.name.toLocaleLowerCase("pt-BR");
+  if (!name.includes("femal") || equipment === "CARDIO" || muscle === "GERAL") return "geral";
+  return "feminino";
+}
+
+function gifAudienceLabel(audience: GifCatalogAudience) {
+  return audience === "feminino" ? "Feminino" : audience === "masculino" ? "Masculino" : "Geral / neutro";
+}
 
 function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle, usedGifPaths, onClose, onSelect }: { open: boolean; initialQuery: string; initialEquipment: string; initialMuscle: string; usedGifPaths: string[]; onClose: () => void; onSelect: (item: GifCatalogItem) => Promise<void> }) {
   const [items, setItems] = useState<GifCatalogItem[]>([]);
-  const [profileFilter, setProfileFilter] = useState<"" | "masculino" | "feminino">("");
+  const [profileFilter, setProfileFilter] = useState<"" | GifCatalogAudience>("");
   const [equipment, setEquipment] = useState("");
   const [muscle, setMuscle] = useState("");
   const [query, setQuery] = useState("");
@@ -2986,28 +3310,32 @@ function GifCatalogPicker({ open, initialQuery, initialEquipment, initialMuscle,
     Promise.all([fetch("/gif-catalog.json"), fetch("/gif-catalog-feminine.json")]).then(async ([maleResponse, femaleResponse]) => {
       const male = maleResponse.ok ? await maleResponse.json() as Array<Omit<GifCatalogItem, "profile">> : [];
       const female = femaleResponse.ok ? await femaleResponse.json() as Array<Omit<GifCatalogItem, "profile">> : [];
-      setItems([...male.map((item) => ({ ...item, profile: "masculino" as const })), ...female.map((item) => ({ ...item, profile: "feminino" as const }))]);
+      setItems([
+        ...male.map((item) => ({ ...item, profile: "masculino" as const, audience: "masculino" as const })),
+        ...female.map((item) => ({ ...item, profile: "feminino" as const, audience: classifyFemaleCatalogItem(item) })),
+      ]);
     }).catch(() => setItems([])).finally(() => setLoading(false));
   }, [items.length, open]);
   useEffect(() => { if (open) { setProfileFilter(""); setQuery(initialQuery); setEquipment(initialEquipment); setMuscle(initialMuscle); } }, [initialEquipment, initialMuscle, initialQuery, open]);
   if (!open) return null;
   const normalized = query.trim().toLocaleLowerCase("pt-BR");
   const usedPaths = new Set(usedGifPaths.map((path) => path.replace(/^\/+/, "")));
-  const scopedItems = items.filter((item) => !profileFilter || item.profile === profileFilter);
+  const scopedItems = items.filter((item) => !profileFilter || item.audience === profileFilter);
   const equipmentFolders = Array.from(new Set(scopedItems.map((item) => item.equipment))).sort();
   const muscleFolders = Array.from(new Set(scopedItems.filter((item) => !equipment || item.equipment === equipment).map((item) => item.muscle))).sort();
-  const filtered = scopedItems.filter((item) => (!equipment || item.equipment === equipment) && (!muscle || item.muscle === muscle) && (!normalized || `${item.name} ${item.equipment} ${item.muscle} ${item.profile}`.toLocaleLowerCase("pt-BR").includes(normalized))).slice(0, 48);
+  const filtered = scopedItems.filter((item) => (!equipment || item.equipment === equipment) && (!muscle || item.muscle === muscle) && (!normalized || matchesSearch(query, item.name, item.equipment, item.muscle, item.profile, item.audience))).slice(0, 48);
   const usedCount = items.filter((item) => usedPaths.has(gifLibraryStoragePath(item.file))).length;
-  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · TODOS OS PERFIS</span><h3>Escolher demonstração</h3><p>Navegue pelas pastas de perfil, equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando os catálogos masculino e feminino…</p> : <><div className="gif-catalog-summary" aria-label="Resumo da biblioteca"><div><small>CATÁLOGO TOTAL</small><strong>{items.length.toLocaleString("pt-BR")}</strong><span>GIFs disponíveis</span></div><div><small>EM USO NESTA ACADEMIA</small><strong>{usedCount.toLocaleString("pt-BR")}</strong><span>já vinculados a exercícios</span></div><div><small>DISPONÍVEIS</small><strong>{Math.max(0, items.length - usedCount).toLocaleString("pt-BR")}</strong><span>prontos para usar</span></div></div><p className="panel-helper">Escolha uma pasta de perfil para separar os GIFs masculinos e femininos, ou mantenha “Todos” para pesquisar a biblioteca completa.</p><div className="gif-folder-browser"><div><small>1 · PERFIL DA DEMONSTRAÇÃO</small><div className="gif-folder-list"><button type="button" className={!profileFilter ? "active" : ""} onClick={() => { setProfileFilter(""); setEquipment(""); setMuscle(""); setQuery(""); }}>TODOS OS GIFS</button><button type="button" className={profileFilter === "masculino" ? "active" : ""} onClick={() => { setProfileFilter("masculino"); setEquipment(""); setMuscle(""); setQuery(""); }}>MASCULINO</button><button type="button" className={profileFilter === "feminino" ? "active" : ""} onClick={() => { setProfileFilter("feminino"); setEquipment(""); setMuscle(""); setQuery(""); }}>FEMININO</button></div></div><div><small>2 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>3 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca opcional: shoulder, bench press, squat..." />{!equipment && <p className="panel-helper">Escolha uma pasta de equipamento para refinar os movimentos.</p>}<div className="gif-catalog-grid">{filtered.map((item) => { const inUse = usedPaths.has(gifLibraryStoragePath(item.file)); return <button type="button" className={inUse ? "is-in-use" : ""} key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><CatalogGifPreview item={item} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{item.profile === "feminino" ? "Feminino" : "Masculino"} · {item.equipment} · {item.muscle}</small><em className={inUse ? "gif-use-badge used" : "gif-use-badge"}>{inUse ? "Em uso" : "Disponível"}</em></span></button>; })}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
+  return <div className="gif-catalog-modal" role="dialog" aria-modal="true" aria-label="Catálogo de GIFs"><div className="gif-catalog-panel"><header><div><span>CATÁLOGO DA BIBLIOTECA · TODOS OS PERFIS</span><h3>Escolher demonstração</h3><p>Navegue pelas pastas de perfil, equipamento, grupo muscular e exercício.</p></div><button type="button" aria-label="Fechar catálogo" onClick={onClose}><X /></button></header>{loading ? <p className="panel-helper">Carregando os catálogos masculino, feminino e geral…</p> : <><div className="gif-catalog-summary" aria-label="Resumo da biblioteca"><div><small>CATÁLOGO TOTAL</small><strong>{items.length.toLocaleString("pt-BR")}</strong><span>GIFs disponíveis</span></div><div><small>EM USO NESTA ACADEMIA</small><strong>{usedCount.toLocaleString("pt-BR")}</strong><span>já vinculados a exercícios</span></div><div><small>DISPONÍVEIS</small><strong>{Math.max(0, items.length - usedCount).toLocaleString("pt-BR")}</strong><span>prontos para usar</span></div></div><p className="panel-helper">Escolha Masculino, Feminino ou Geral / neutro para separar as demonstrações sem misturar perfis.</p><div className="gif-folder-browser"><div><small>1 · PERFIL DA DEMONSTRAÇÃO</small><div className="gif-folder-list"><button type="button" className={!profileFilter ? "active" : ""} onClick={() => { setProfileFilter(""); setEquipment(""); setMuscle(""); setQuery(""); }}>TODOS OS GIFS</button><button type="button" className={profileFilter === "masculino" ? "active" : ""} onClick={() => { setProfileFilter("masculino"); setEquipment(""); setMuscle(""); setQuery(""); }}>MASCULINO</button><button type="button" className={profileFilter === "feminino" ? "active" : ""} onClick={() => { setProfileFilter("feminino"); setEquipment(""); setMuscle(""); setQuery(""); }}>FEMININO</button><button type="button" className={profileFilter === "geral" ? "active" : ""} onClick={() => { setProfileFilter("geral"); setEquipment(""); setMuscle(""); setQuery(""); }}>GERAL / NEUTRO</button></div></div><div><small>2 · EQUIPAMENTO</small><div className="gif-folder-list">{equipmentFolders.map((folder) => <button type="button" className={equipment === folder ? "active" : ""} key={folder} onClick={() => { setEquipment(folder); setMuscle(""); setQuery(""); }}>{folder.replace("EXERCÍCIOS ", "")}</button>)}</div></div><div><small>3 · GRUPO MUSCULAR</small><div className="gif-folder-list">{muscleFolders.map((folder) => <button type="button" className={muscle === folder ? "active" : ""} key={folder} onClick={() => { setMuscle(folder); setQuery(""); }}>{folder}</button>)}</div></div></div><input value={query} onChange={(event) => setQuery(event.target.value)} type="search" aria-label="Buscar GIF por nome, equipamento ou músculo" placeholder="Buscar GIF, equipamento ou músculo…" />{!equipment && <p className="panel-helper">Escolha uma pasta de equipamento para refinar os movimentos.</p>}<div className="gif-catalog-grid">{filtered.map((item) => { const inUse = usedPaths.has(gifLibraryStoragePath(item.file)); return <button type="button" className={inUse ? "is-in-use" : ""} key={`${item.file}-${item.id}`} disabled={selectingId === item.id} onClick={async () => { setSelectingId(item.id); await onSelect(item); setSelectingId(null); }}><CatalogGifPreview item={item} /><span><strong>{item.name.replace(/[-_]+/g, " ")}</strong><small>{gifAudienceLabel(item.audience)} · {item.equipment} · {item.muscle}</small><em className={inUse ? "gif-use-badge used" : "gif-use-badge"}>{inUse ? "Em uso" : "Disponível"}</em></span></button>; })}</div>{!filtered.length && equipment && <p className="panel-helper">Não há GIF nessa combinação de pastas.</p>}</>}</div></div>;
 }
 
 function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTemplate, onEditWorkout, onRemoveWorkout, onPreviewTemplate, onPreviewWorkout, onPrintTemplate, onSeedGeneralPrograms, targetStudentId, targetStudentName, onAssignTemplate }: { templates: WorkoutTemplateRecord[]; workouts: WorkoutRecord[]; onEditTemplate: (template: WorkoutTemplateRecord) => void; onRemoveTemplate: (template: WorkoutTemplateRecord) => void; onEditWorkout: (workout: WorkoutRecord) => void; onRemoveWorkout: (workout: WorkoutRecord) => void; onPreviewTemplate: (template: WorkoutTemplateRecord) => void; onPreviewWorkout: (workout: WorkoutRecord) => void; onPrintTemplate: (template: WorkoutTemplateRecord) => void; onSeedGeneralPrograms: () => void; targetStudentId?: string; targetStudentName?: string; onAssignTemplate?: (template: WorkoutTemplateRecord) => void }) {
+  const [search, setSearch] = useState("");
   const visibleWorkouts = targetStudentId ? workouts.filter((workout) => workout.studentRecordId === targetStudentId || workout.studentId === targetStudentId || workout.studentUserId === targetStudentId) : workouts;
   const empty = templates.length === 0 && visibleWorkouts.length === 0;
   const [audienceFilter, setAudienceFilter] = useState<"Todos" | WorkoutTemplateAudience>("Todos");
   const [levelFilter, setLevelFilter] = useState<"Todos" | WorkoutLevel>("Todos");
   const letterFromName = (name: string) => name.match(/(?:treino|ficha)\s*([A-G])\b/i)?.[1]?.toUpperCase() ?? null;
-  const filteredTemplates = templates.filter((template) => (audienceFilter === "Todos" || (template.audience ?? "Geral") === audienceFilter) && (levelFilter === "Todos" || (template.level ?? "Fundação") === levelFilter));
+  const filteredTemplates = templates.filter((template) => matchesSearch(search, template.name, template.level, template.targetStudentName) && (audienceFilter === "Todos" || (template.audience ?? "Geral") === audienceFilter) && (levelFilter === "Todos" || (template.level ?? "Fundação") === levelFilter));
   const orderedTemplates = [...filteredTemplates].sort((first, second) => {
     const levelDifference = workoutLevelOrder.indexOf(first.level ?? "Fundação") - workoutLevelOrder.indexOf(second.level ?? "Fundação");
     if (levelDifference !== 0) return levelDifference;
@@ -3022,6 +3350,14 @@ function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTempla
   const assignedTemplateIds = new Set(visibleWorkouts.map((workout) => workout.sourceTemplateId).filter(Boolean));
   const templateGroups = workoutLevelOrder.map((level) => ({ level, templates: orderedTemplates.filter((template) => (template.level ?? "Fundação") === level) })).filter((group) => group.templates.length > 0);
   const hasStudentContext = Boolean(targetStudentId || targetStudentName);
+  const [expanded, setExpanded] = useState(hasStudentContext);
+  const [sentExpanded, setSentExpanded] = useState(hasStudentContext);
+  useEffect(() => {
+    if (!hasStudentContext) return;
+    setExpanded(true);
+    setSentExpanded(true);
+    scrollToContent(".published-workouts", true);
+  }, [hasStudentContext, targetStudentId]);
   const actionMenu = (label: string, onPrint: () => void, onEdit: () => void, onRemove: () => void) => <details className="published-actions-menu"><summary aria-label={label} title="Mais ações"><MoreHorizontal size={17} /></summary><div className="published-actions-popover"><button type="button" onClick={onPrint}><Printer size={13} /> Imprimir</button><button type="button" onClick={onEdit}>Editar</button><button type="button" className="danger" onClick={onRemove}>Excluir</button></div></details>;
   const renderTemplate = (template: WorkoutTemplateRecord, fallbackIndex = 0) => {
     const audience = template.audience ?? "Geral";
@@ -3041,10 +3377,10 @@ function PublishedWorkouts({ templates, workouts, onEditTemplate, onRemoveTempla
     const duration = estimatedWorkoutDurationLabel(workout.exerciseDetails ?? [], workout.exerciseIds.length);
     return <div className="published-template-row" key={workout.id}><div className="published-template-copy"><strong>Treino {code}</strong><small className="published-template-name">{displayWorkoutCardName(workout.name)}</small><div className="published-template-meta"><span className={`template-chip template-chip-level level-${machineCode(level)}`}><Trophy size={12} /> {level}</span><span className="template-chip template-chip-day"><CalendarDays size={12} /> {day}</span><span className="template-chip template-chip-audience personalized"><Users size={12} /> {audience}</span><span className="template-chip template-chip-count"><ClipboardList size={12} /> {workout.exerciseIds.length} exercícios</span><span className="template-chip template-chip-duration"><Clock3 size={12} /> {duration}</span></div><small>{workout.studentName}</small></div><div className="published-item-actions has-status"><em>Enviado</em><button type="button" onClick={() => onPreviewWorkout(workout)}><Eye size={13} /> Visualizar</button>{actionMenu(`Ações do Treino ${code}`, () => printWorkoutSheet(workout), () => onEditWorkout(workout), () => onRemoveWorkout(workout))}</div></div>;
   };
-  return <details className="workspace-panel published-workouts training-collapsible-card"><summary className="training-card-summary"><span><small>4 · MODELOS E PUBLICADOS</small><strong>{templates.length} modelos · {visibleWorkouts.length} fichas enviadas{targetStudentName ? ` para ${targetStudentName}` : ""}</strong><em>{targetStudentName ? `Escolha um modelo geral para adicionar a ${targetStudentName}.` : "Use filtros para encontrar rapidamente um programa geral ou personalizado."}</em></span><ChevronDown /></summary><div className="training-card-content">{empty ? <div className="directory-empty"><Dumbbell /><p>Crie um programa-base para reutilizá-lo com novos alunos.</p><button className="detail-secondary" type="button" onClick={onSeedGeneralPrograms}>Criar grade geral · 28 programas · 11 exercícios</button></div> : <>
-    {(hasStudentContext || visibleWorkouts.length > 0) && <details className="published-sent-list published-student-workouts">
+  return <details className="workspace-panel published-workouts training-collapsible-card" open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}><summary className="training-card-summary"><span><small>4 · MODELOS E PUBLICADOS</small><strong>{templates.length} modelos · {visibleWorkouts.length} fichas enviadas{targetStudentName ? ` para ${targetStudentName}` : ""}</strong><em>{targetStudentName ? `Escolha um modelo geral para adicionar a ${targetStudentName}.` : "Use filtros para encontrar rapidamente um programa geral ou personalizado."}</em></span><ChevronDown /></summary><div className="training-card-content"><label className="workspace-search"><Search /><input type="search" aria-label="Buscar modelos e fichas" placeholder="Buscar treino, programa ou aluno do modelo…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>{empty ? <div className="directory-empty"><Dumbbell /><p>Crie um programa-base para reutilizá-lo com novos alunos.</p><button className="detail-secondary" type="button" onClick={onSeedGeneralPrograms}>Criar grade geral · 28 programas · 11 exercícios</button></div> : <>
+    {(hasStudentContext || visibleWorkouts.length > 0) && <details className="published-sent-list published-student-workouts" open={sentExpanded} onToggle={(event) => setSentExpanded(event.currentTarget.open)}>
       <summary><span><Users size={14} /> Fichas já enviadas{targetStudentName ? ` para ${targetStudentName}` : ""}</span><strong>{visibleWorkouts.length}</strong><ChevronDown /></summary>
-      {visibleWorkouts.length > 0 ? <div className="published-list">{orderedVisibleWorkouts.map(renderWorkout)}</div> : <div className="published-list-empty"><Users /><p>Nenhuma ficha foi enviada para este aluno ainda.</p><small>Escolha um modelo abaixo e clique em Adicionar.</small></div>}
+      {visibleWorkouts.length > 0 ? <div className="published-list">{orderedVisibleWorkouts.filter((workout) => matchesSearch(search, workout.name, workout.level)).map(renderWorkout)}</div> : <div className="published-list-empty"><Users /><p>Nenhuma ficha foi enviada para este aluno ainda.</p><small>Escolha um modelo abaixo e clique em Adicionar.</small></div>}
     </details>}
     <section className="published-models-section">
       <header className="published-section-heading"><div><span>PROGRAMAS REUTILIZÁVEIS</span><strong>Modelos disponíveis</strong><small>Organizados por nível para facilitar a escolha do professor.</small></div><Dumbbell size={18} /></header>
@@ -3193,7 +3529,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [templates, setTemplates] = useState<WorkoutTemplateRecord[]>([]);
   const [exerciseSnapshotReady, setExerciseSnapshotReady] = useState(false);
   const [librarySyncAttempted, setLibrarySyncAttempted] = useState(false);
-  const autoLinkedExerciseIds = useRef(new Set<string>());
   const [exerciseName, setExerciseName] = useState("");
   const [exerciseEquipment, setExerciseEquipment] = useState("");
   const [muscleGroup, setMuscleGroup] = useState("");
@@ -3205,13 +3540,11 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   const [selectedCatalogGif, setSelectedCatalogGif] = useState<SelectedCatalogGif | null>(null);
   const [gifProfile, setGifProfile] = useState<"masculino" | "feminino">("masculino");
   const [uploadingGif, setUploadingGif] = useState(false);
-  const [syncingVerifiedGifs, setSyncingVerifiedGifs] = useState(false);
-  const [gifSyncProgress, setGifSyncProgress] = useState<{ total: number; completed: number; failed: number; current: string } | null>(null);
-  const [gifSyncErrors, setGifSyncErrors] = useState<string[]>([]);
   const [gifCatalogOpen, setGifCatalogOpen] = useState(false);
   const [bodyRegion, setBodyRegion] = useState<BodyRegion>("Membros superiores");
   const [phase, setPhase] = useState<ExercisePhase>("Treino principal");
   const [exerciseType, setExerciseType] = useState<ExerciseType>("Força");
+  const [recommendedLevels, setRecommendedLevels] = useState<WorkoutLevel[]>([]);
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [workoutName, setWorkoutName] = useState("");
   const [workoutLevel, setWorkoutLevel] = useState<WorkoutLevel>("Fundação");
@@ -3242,7 +3575,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; userId?: string | null; authUid?: string | null; uid?: string | null; teacherId?: string | null }; return { id: student.id, userId: data.userId ?? data.authUid ?? data.uid ?? student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
-      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType }; }));
+      setExercises(snapshot.docs.map((exercise) => { const data = exercise.data() as Omit<ExerciseRecord, "id">; const name = data.name ?? "Exercício"; const muscleGroup = data.muscleGroup ?? "Geral"; const fallback = starterClassification(name, muscleGroup); const equipmentName = data.equipmentName || equipmentForExercise(name); return { id: exercise.id, name, muscleGroup, secondaryMuscles: data.secondaryMuscles ?? "", anatomyRegion: data.anatomyRegion ?? "", instructions: data.instructions ?? "", videoUrl: data.videoUrl ?? "", gifUrl: data.gifUrl ?? "", gifPath: data.gifPath ?? "", gifMaleUrl: data.gifMaleUrl ?? "", gifMalePath: data.gifMalePath ?? "", gifFemaleUrl: data.gifFemaleUrl ?? "", gifFemalePath: data.gifFemalePath ?? "", gifOptimizedUrl: data.gifOptimizedUrl ?? "", gifOptimizedPath: data.gifOptimizedPath ?? "", gifMaleOptimizedUrl: data.gifMaleOptimizedUrl ?? "", gifMaleOptimizedPath: data.gifMaleOptimizedPath ?? "", gifFemaleOptimizedUrl: data.gifFemaleOptimizedUrl ?? "", gifFemaleOptimizedPath: data.gifFemaleOptimizedPath ?? "", gifMatch: data.gifMatch, equipmentName, machineCode: data.machineCode || machineCode(equipmentName), bodyRegion: data.bodyRegion ?? fallback.bodyRegion, phase: data.phase ?? fallback.phase, exerciseType: data.exerciseType ?? fallback.exerciseType, recommendedLevels: Array.isArray(data.recommendedLevels) ? data.recommendedLevels.filter((level): level is WorkoutLevel => workoutLevelOrder.includes(level as WorkoutLevel)) : [] }; }));
       setExerciseSnapshotReady(true);
     });
     const unsubscribeMachines = onSnapshot(query(collection(db, "academies", access.academyId, "stockItems"), where("kind", "==", "machine")), (snapshot) => setStockMachines(snapshot.docs.map((item) => { const data = item.data() as { name?: string; machineCode?: string }; return { id: item.id, name: data.name ?? "Máquina", machineCode: data.machineCode }; })));
@@ -3302,11 +3635,11 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   function openTrainingCard(selector: string) {
     const card = document.querySelector<HTMLDetailsElement>(selector);
     if (card) card.open = true;
-    window.requestAnimationFrame(() => (card ?? document.querySelector<HTMLElement>(selector))?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    scrollToContent(selector, true);
   }
 
   function editExercise(exercise: ExerciseRecord) {
-    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setExerciseEquipment(exercise.equipmentName ?? equipmentForExercise(exercise.name)); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setGifFile(null); setSelectedCatalogGif(null); setGifProfile(exercise.gifFemaleUrl && !exercise.gifMaleUrl && !exercise.gifUrl ? "feminino" : "masculino"); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força");
+    setEditingExerciseId(exercise.id); setExerciseName(exercise.name); setExerciseEquipment(exercise.equipmentName ?? equipmentForExercise(exercise.name)); setMuscleGroup(exercise.muscleGroup); setSecondaryMuscles(exercise.secondaryMuscles ?? ""); setAnatomyRegion(exercise.anatomyRegion ?? ""); setInstructions(exercise.instructions ?? ""); setVideoUrl(exercise.videoUrl ?? ""); setGifFile(null); setSelectedCatalogGif(null); setGifProfile(exercise.gifFemaleUrl && !exercise.gifMaleUrl && !exercise.gifUrl ? "feminino" : "masculino"); setBodyRegion(exercise.bodyRegion ?? "Membros superiores"); setPhase(exercise.phase ?? "Treino principal"); setExerciseType(exercise.exerciseType ?? "Força"); setRecommendedLevels(exercise.recommendedLevels ?? []);
     openTrainingCard("details.exercise-library-panel");
   }
 
@@ -3316,7 +3649,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   }
 
   function clearExerciseForm() {
-    setEditingExerciseId(null); setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setGifFile(null); setSelectedCatalogGif(null); setGifProfile("masculino"); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força");
+    setEditingExerciseId(null); setExerciseName(""); setExerciseEquipment(""); setMuscleGroup(""); setSecondaryMuscles(""); setAnatomyRegion(""); setInstructions(""); setVideoUrl(""); setGifFile(null); setSelectedCatalogGif(null); setGifProfile("masculino"); setBodyRegion("Membros superiores"); setPhase("Treino principal"); setExerciseType("Força"); setRecommendedLevels([]);
   }
 
   async function fileAsBase64(file: File) {
@@ -3344,7 +3677,8 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
 
   async function chooseGifFromCatalog(item: GifCatalogItem) {
     try {
-      setGifProfile(item.profile);
+      const selectedProfile = item.audience === "geral" ? gifProfile : item.profile;
+      setGifProfile(selectedProfile);
       let sourceUrl = item.url;
       let globalPath = "";
       if (storage) {
@@ -3355,7 +3689,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       if (!response.ok) throw new Error("Não foi possível abrir este GIF.");
       if (globalPath) {
         setGifFile(null);
-        setSelectedCatalogGif({ url: sourceUrl, path: globalPath, profile: item.profile });
+        setSelectedCatalogGif({ url: sourceUrl, path: globalPath, profile: selectedProfile });
         setGifCatalogOpen(false);
         onFeedback("GIF global selecionado. Salve o exercício para vincular sem novo envio.");
         return;
@@ -3366,50 +3700,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       setGifCatalogOpen(false);
       onFeedback("GIF selecionado. Salve as alterações para vinculá-lo ao exercício.");
     } catch { onFeedback("Não foi possível selecionar o GIF da biblioteca."); }
-  }
-
-  async function syncVerifiedGifLibrary() {
-    if (!db || !functions || access.role !== "admin") { onFeedback("Entre como gestão no ambiente local para enviar a biblioteca revisada."); return; }
-    const pending = exercises.filter((exercise) => Boolean(verifiedGifDefinition(exercise.name)) && !exercise.gifMaleUrl && !exercise.gifUrl);
-    if (!pending.length) { onFeedback("Todos os GIFs revisados já foram enviados para a biblioteca da academia."); return; }
-    if (!window.confirm(`Enviar ${pending.length} GIFs revisados ao Firebase Storage? Isso os disponibiliza também na Vercel e no celular.`)) return;
-    setSyncingVerifiedGifs(true);
-    setGifSyncErrors([]);
-    setGifSyncProgress({ total: pending.length, completed: 0, failed: 0, current: pending[0]?.name ?? "" });
-    let completed = 0;
-    let failed = 0;
-    for (const exercise of pending) {
-      setGifSyncProgress({ total: pending.length, completed, failed, current: exercise.name });
-      try {
-        const source = verifiedExerciseGif(exercise.name);
-        const response = await fetch(source);
-        if (!response.ok) throw new Error("Arquivo local indisponível");
-        const file = new File([await response.blob()], source.split("/").pop() || "demonstracao.gif", { type: "image/gif" });
-        if (file.size > 10 * 1024 * 1024) throw new Error("Arquivo acima do limite");
-        if (!functions) throw new Error("O serviço seguro de mídia não está configurado.");
-        const result = await httpsCallable<{ academyId: string; exerciseId: string; fileName: string; contentType: string; base64: string; profile: "masculino" }, { ok: boolean; path: string; url: string }>(functions, "uploadExerciseGif")({ academyId: access.academyId, exerciseId: exercise.id, fileName: file.name, contentType: "image/gif", profile: "masculino", base64: await fileAsBase64(file) });
-        const { path, url } = result.data;
-        await updateDoc(doc(db, "academies", access.academyId, "exercises", exercise.id), { gifUrl: url, gifPath: path, gifMaleUrl: url, gifMalePath: path, updatedAt: serverTimestamp(), updatedBy: access.userId });
-        completed += 1;
-      } catch (error) {
-        failed += 1;
-        const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
-        const message = code === "storage/unauthorized"
-          ? "Sem permissão no Firebase Storage para esta conta de gestão."
-          : code === "storage/unauthenticated"
-            ? "Sua sessão expirou. Entre novamente no sistema."
-            : code === "storage/quota-exceeded"
-              ? "O limite do Firebase Storage foi atingido."
-              : code === "storage/retry-limit-exceeded"
-                ? "A conexão caiu durante o envio."
-                : error instanceof Error ? error.message : "Falha desconhecida no envio.";
-        setGifSyncErrors((current) => [...current, `${exercise.name}: ${message}`].slice(-3));
-      }
-      setGifSyncProgress({ total: pending.length, completed, failed, current: exercise.name });
-    }
-    setSyncingVerifiedGifs(false);
-    setGifSyncProgress({ total: pending.length, completed, failed, current: "Concluído" });
-    onFeedback(failed ? `${completed} GIFs enviados; ${failed} precisam de revisão.` : `${completed} GIFs revisados enviados para a academia.`);
   }
 
   async function createExercise(event: React.FormEvent<HTMLFormElement>) {
@@ -3438,6 +3728,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
         bodyRegion,
         phase,
         exerciseType,
+        recommendedLevels,
       };
       const nextExercises = editingExerciseId ? exercises.map((item) => item.id === editingExerciseId ? localExercise : item) : [...exercises, localExercise];
       setExercises(nextExercises);
@@ -3448,7 +3739,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     const equipmentName = exerciseEquipment.trim() || equipmentForExercise(exerciseName.trim());
     const selectedMachine = stockMachines.find((machine) => machine.name === exerciseEquipment);
-    const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), equipmentName, machineCode: selectedMachine?.machineCode || machineCode(equipmentName), bodyRegion, phase, exerciseType, updatedBy: access.userId, updatedAt: serverTimestamp() };
+    const data = { name: exerciseName.trim(), muscleGroup: muscleGroup.trim(), secondaryMuscles: secondaryMuscles.trim(), anatomyRegion: anatomyRegion.trim(), instructions: instructions.trim(), videoUrl: videoUrl.trim(), equipmentName, machineCode: selectedMachine?.machineCode || machineCode(equipmentName), bodyRegion, phase, exerciseType, recommendedLevels, updatedBy: access.userId, updatedAt: serverTimestamp() };
     try {
       setUploadingGif(Boolean(gifFile));
       if (editingExerciseId) {
@@ -3485,7 +3776,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
   async function seedStarterExercises() {
     if (!db) {
       const existingNames = new Set(exercises.map((exercise) => exercise.name.trim().toLocaleLowerCase("pt-BR")));
-      const seeded = allStarterExerciseSeeds.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => { const equipmentName = equipmentForExercise(name); const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name); return { id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...(expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType, ...expansionGifMedia(name) } : starterClassification(name, muscleGroup)) }; });
+      const seeded = allStarterExerciseSeeds.map(([name, muscleGroup, secondaryMuscles, anatomyRegion], index) => { const equipmentName = equipmentForExercise(name); const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name); return { id: `local-starter-${index}`, name, muscleGroup, secondaryMuscles, anatomyRegion, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...(expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType } : starterClassification(name, muscleGroup)) }; });
       const missing = seeded.filter((exercise) => !existingNames.has(exercise.name.toLocaleLowerCase("pt-BR")));
       const nextExercises = exercises.length ? [...exercises, ...missing] : seeded;
       setExercises(nextExercises);
@@ -3506,7 +3797,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       const expansion = gifLibraryExpansionSeeds.find((seed) => seed.name === name);
       const classification = expansion ? { bodyRegion: expansion.bodyRegion, phase: expansion.phase, exerciseType: expansion.exerciseType } : starterClassification(name, primary);
       const equipmentName = equipmentForExercise(name);
-      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, ...expansionGifMedia(name), createdBy: access.userId, createdAt: serverTimestamp(), source: expansion ? "gif-library-expansion" : "starter-library" });
+      batch.set(exerciseRef, { name, muscleGroup: primary, secondaryMuscles: secondary, anatomyRegion: region, equipmentName, machineCode: machineCode(equipmentName), instructions: "Orientação objetiva será adicionada pelo professor.", videoUrl: "", ...classification, createdBy: access.userId, createdAt: serverTimestamp(), source: expansion ? "gif-library-expansion" : "starter-library" });
     });
     try {
       await batch.commit();
@@ -3521,63 +3812,6 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     setLibrarySyncAttempted(true);
     void seedStarterExercises();
   }, [access.role, exerciseSnapshotReady, librarySyncAttempted]);
-
-  useEffect(() => {
-    if (!db || !storage || !exerciseSnapshotReady || !["admin", "teacher"].includes(access.role)) return;
-    const firestore = db;
-    const firebaseStorage = storage;
-    const pending = exercises.filter((exercise) => {
-      const key = exerciseGifKey(exercise.name);
-      const verified = verifiedGifDefinition(exercise.name);
-      const needsMale = !exercise.gifMaleUrl && !exercise.gifUrl;
-      const needsFemale = Boolean(verifiedFemaleGifUrls[key]) && !exercise.gifFemaleUrl;
-      return Boolean(verified) && (needsMale || needsFemale) && !autoLinkedExerciseIds.current.has(exercise.id);
-    });
-    if (!pending.length) return;
-    pending.forEach((exercise) => autoLinkedExerciseIds.current.add(exercise.id));
-    void (async () => {
-      const resolved = await Promise.all(pending.map(async (exercise) => {
-        const key = exerciseGifKey(exercise.name);
-        const verified = verifiedGifDefinition(exercise.name);
-        if (!verified) return null;
-        const femaleUrl = verifiedFemaleGifUrls[key] || verified.femaleUrl || "";
-        const existingMaleUrl = exercise.gifMaleUrl || exercise.gifUrl || "";
-        const existingMalePath = exercise.gifMalePath || exercise.gifPath || "";
-        if (existingMaleUrl) return { exercise, path: existingMalePath, url: existingMaleUrl, femaleUrl };
-        try {
-          const path = gifLibraryStoragePath(verified.maleFile);
-          const url = await getDownloadURL(storageRef(firebaseStorage, path));
-          return { exercise, path, url, femaleUrl };
-        } catch {
-          return femaleUrl ? { exercise, path: "", url: "", femaleUrl } : null;
-        }
-      }));
-      const available = resolved.filter((item): item is NonNullable<typeof item> => Boolean(item));
-      if (!available.length) return;
-      const batch = writeBatch(firestore);
-      available.forEach(({ exercise, path, url, femaleUrl }) => {
-        const verified = verifiedGifDefinition(exercise.name);
-        const mediaPatch = {
-          ...(url ? { gifUrl: url, gifMaleUrl: url } : {}),
-          ...(path ? { gifPath: path, gifMalePath: path } : {}),
-          ...(femaleUrl ? { gifFemaleUrl: femaleUrl } : {}),
-        };
-        batch.set(doc(firestore, "academies", access.academyId, "exercises", exercise.id), {
-          ...mediaPatch,
-          gifLinkedFrom: "global-library",
-          gifMatch: verified?.match ?? "exact",
-          updatedAt: serverTimestamp(),
-          updatedBy: access.userId,
-        }, { merge: true });
-      });
-      try {
-        await batch.commit();
-        onFeedback(`${available.length} GIFs revisados foram vinculados automaticamente.`);
-      } catch {
-        available.forEach(({ exercise }) => autoLinkedExerciseIds.current.delete(exercise.id));
-      }
-    })();
-  }, [access.academyId, access.role, access.userId, exerciseSnapshotReady, exercises, onFeedback]);
 
   function toggleExercise(exercise: ExerciseRecord) {
     const selected = selectedExercises.includes(exercise.id);
@@ -3603,11 +3837,13 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     if (!student) { onFeedback("Aluno não encontrado."); return; }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, gifOptimizedUrl: exercise?.gifOptimizedUrl, gifOptimizedPath: exercise?.gifOptimizedPath, gifMaleOptimizedUrl: exercise?.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise?.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise?.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise?.gifFemaleOptimizedPath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, recommendedLevels: exercise?.recommendedLevels, ...exerciseDetails[exerciseId] };
     });
+    const previousWorkout = editingWorkoutId ? workouts.find((item) => item.id === editingWorkoutId) : undefined;
+    const exerciseRevision = previousWorkout ? (previousWorkout.exerciseRevision ?? 1) + 1 : 1;
     const focusLabel = Array.from(new Set(details.map((detail) => detail.muscleGroup).filter((value): value is string => Boolean(value)))).slice(0, 2).join(" + ") || "Treino personalizado";
     if (!db) {
-      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentRecordId: student.id, studentUserId: student.userId ?? student.id, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado", focusLabel, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdAt: editingWorkoutId ? workouts.find((item) => item.id === editingWorkoutId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), updatedAt: new Date().toISOString(), status: "published" };
+      const localWorkout: WorkoutRecord = { id: editingWorkoutId ?? `local-workout-${Date.now()}`, name: capitalizeName(workoutName.trim()), studentId, studentRecordId: student.id, studentUserId: student.userId ?? student.id, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado", focusLabel, exerciseRevision, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdAt: editingWorkoutId ? previousWorkout?.createdAt ?? new Date().toISOString() : new Date().toISOString(), updatedAt: new Date().toISOString(), status: "published" };
       const nextWorkouts = editingWorkoutId ? workouts.map((item) => item.id === editingWorkoutId ? localWorkout : item) : [...workouts, localWorkout];
       setWorkouts(nextWorkouts);
       writeLocalCollection(access.academyId, "workouts", nextWorkouts);
@@ -3618,7 +3854,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     setSaving(true);
     try {
       const studentUserId = student.userId ?? student.id;
-      const workoutData = { name: workoutName.trim(), studentId: studentUserId, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado" as const, focusLabel, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
+      const workoutData = { name: workoutName.trim(), studentId: studentUserId, studentRecordId: student.id, studentUserId, studentName: student.name, recommendedDay: "Flexível", level: workoutLevel, audience: "Personalizado" as const, focusLabel, exerciseRevision, exerciseIds: selectedExercises, exerciseDetails: details, status: "published" as const, updatedBy: access.userId, updatedAt: serverTimestamp() };
       if (editingWorkoutId) {
         await updateDoc(doc(db, "academies", access.academyId, "workouts", editingWorkoutId), workoutData);
         onFeedback("Treino atualizado para o aluno.");
@@ -3683,7 +3919,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     const finisherExercises = exercises.filter((exercise) => exercise.phase === "Finalização" || exercise.phase === "Cardio");
     const mainExercises = exercises.filter((exercise) => exercise.phase !== "Preparação" && exercise.phase !== "Finalização" && exercise.phase !== "Cardio");
     const existingByKey = new Map(templates.filter((template) => template.seedKey).map((template) => [template.seedKey as string, template]));
-    const templateExerciseDetails = (exercise: ExerciseRecord): WorkoutExerciseDetail => ({ exerciseId: exercise.id, name: exercise.name, muscleGroup: exercise.muscleGroup, secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exercise.gifUrl, gifPath: exercise.gifPath, gifMaleUrl: exercise.gifMaleUrl, gifMalePath: exercise.gifMalePath, gifFemaleUrl: exercise.gifFemaleUrl, gifFemalePath: exercise.gifFemalePath, equipmentName: exercise.equipmentName, machineCode: exercise.machineCode, bodyRegion: exercise.bodyRegion, phase: exercise.phase, exerciseType: exercise.exerciseType, ...defaultExerciseDetails(exercise) });
+    const templateExerciseDetails = (exercise: ExerciseRecord): WorkoutExerciseDetail => ({ exerciseId: exercise.id, name: exercise.name, muscleGroup: exercise.muscleGroup, secondaryMuscles: exercise.secondaryMuscles, anatomyRegion: exercise.anatomyRegion, instructions: exercise.instructions, videoUrl: exercise.videoUrl, gifUrl: exercise.gifUrl, gifPath: exercise.gifPath, gifMaleUrl: exercise.gifMaleUrl, gifMalePath: exercise.gifMalePath, gifFemaleUrl: exercise.gifFemaleUrl, gifFemalePath: exercise.gifFemalePath, gifOptimizedUrl: exercise.gifOptimizedUrl, gifOptimizedPath: exercise.gifOptimizedPath, gifMaleOptimizedUrl: exercise.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise.gifFemaleOptimizedPath, equipmentName: exercise.equipmentName, machineCode: exercise.machineCode, bodyRegion: exercise.bodyRegion, phase: exercise.phase, exerciseType: exercise.exerciseType, recommendedLevels: exercise.recommendedLevels, ...defaultExerciseDetails(exercise) });
     const createdTemplates: WorkoutTemplateRecord[] = [];
     const updatedTemplates: WorkoutTemplateRecord[] = [];
     levels.forEach((level, levelIndex) => dayFocus.forEach((day, dayIndex) => {
@@ -3762,7 +3998,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     const details = selectedExercises.map((exerciseId) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
-      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, ...exerciseDetails[exerciseId] };
+      return { exerciseId, name: exercise?.name ?? "Exercício", muscleGroup: exercise?.muscleGroup, secondaryMuscles: exercise?.secondaryMuscles, anatomyRegion: exercise?.anatomyRegion, instructions: exercise?.instructions, videoUrl: exercise?.videoUrl, gifUrl: exercise?.gifUrl, gifPath: exercise?.gifPath, gifMaleUrl: exercise?.gifMaleUrl, gifMalePath: exercise?.gifMalePath, gifFemaleUrl: exercise?.gifFemaleUrl, gifFemalePath: exercise?.gifFemalePath, gifOptimizedUrl: exercise?.gifOptimizedUrl, gifOptimizedPath: exercise?.gifOptimizedPath, gifMaleOptimizedUrl: exercise?.gifMaleOptimizedUrl, gifMaleOptimizedPath: exercise?.gifMaleOptimizedPath, gifFemaleOptimizedUrl: exercise?.gifFemaleOptimizedUrl, gifFemaleOptimizedPath: exercise?.gifFemaleOptimizedPath, equipmentName: exercise?.equipmentName || equipmentForExercise(exercise?.name ?? ""), machineCode: exercise?.machineCode, bodyRegion: exercise?.bodyRegion, phase: exercise?.phase, exerciseType: exercise?.exerciseType, recommendedLevels: exercise?.recommendedLevels, ...exerciseDetails[exerciseId] };
     });
     if (!db) {
       const localTemplate: WorkoutTemplateRecord = { id: editingTemplateId ?? `local-template-${Date.now()}`, name: capitalizeName(workoutName.trim()), level: workoutLevel, audience: templateAudience, scheduleDay: "Flexível", targetStudentId: targetStudent?.id ?? null, targetStudentName: targetStudent?.name ?? null, exerciseIds: selectedExercises, exerciseDetails: details as WorkoutExerciseDetail[], createdBy: access.userId, createdAt: editingTemplateId ? templates.find((item) => item.id === editingTemplateId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -3852,14 +4088,10 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     catch { onFeedback("Não foi possível excluir o treino."); }
   }
 
-  const linkedGifCount = exercises.filter((exercise) => Boolean(exerciseGifSource(exercise))).length;
-  const pendingGifCount = Math.max(0, exercises.length - linkedGifCount);
   const usedGifPaths = exercises.flatMap((exercise) => [exercise.gifPath, exercise.gifMalePath, exercise.gifFemalePath].filter((path): path is string => Boolean(path)));
 
   return <div className="workspace-content module-view">
     <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Monte uma ficha por etapas, salve modelos e publique para um aluno quando estiver pronta.</p></div></section>
-     {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
-     {access.role === "admin" && access.accountType !== "developer" && <section className="workspace-panel training-machine-quickselect"><div><strong>Biblioteca de GIFs revisada</strong><small>{linkedGifCount} movimentos prontos para demonstração. Os novos GIFs escolhidos na galeria são enviados automaticamente ao salvar o exercício.</small>{gifSyncProgress && <small className="gif-sync-progress">{gifSyncProgress.current === "Concluído" ? `Concluído: ${gifSyncProgress.completed} enviados${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}.` : `Enviando ${gifSyncProgress.completed + gifSyncProgress.failed + 1} de ${gifSyncProgress.total}: ${gifSyncProgress.current}${gifSyncProgress.failed ? ` · ${gifSyncProgress.failed} falharam` : ""}`}</small>}{gifSyncErrors.map((item) => <small className="gif-sync-error" key={item}>{item}</small>)}</div><button className="detail-secondary" type="button" disabled={syncingVerifiedGifs} onClick={() => void syncVerifiedGifLibrary()}>{syncingVerifiedGifs ? "Enviando GIFs revisados..." : "Sincronizar GIFs já vinculados"}</button></section>}
     <section className="training-layout training-layout-redesigned">
       <details className="workspace-panel training-form-panel workout-builder-panel training-collapsible-card">
         <summary className="training-card-summary"><span><small>1 · PROGRAMA E FICHA</small><strong>Monte uma vez. Use sempre.</strong><em>Crie um programa-base por nível e publique para um aluno quando precisar.</em></span><ChevronDown /></summary>
@@ -3873,14 +4105,14 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
             <label>{templateAudience === "Personalizado" ? "Aluno do programa personalizado" : "Enviar para aluno"} <span className="optional-label">{templateAudience === "Personalizado" ? "obrigatório" : "opcional ao salvar programa-base"}</span><select value={studentId} required={templateAudience === "Personalizado"} onChange={(event) => setStudentId(event.target.value)}><option value="">{templateAudience === "Personalizado" ? "Selecione o aluno" : "Nenhum aluno · apenas salvar"}</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>
           </div>
           <WorkoutComposition exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} canSave={Boolean(workoutName.trim() && selectedExercises.length)} canPublish={Boolean(workoutName.trim() && studentId && selectedExercises.length)} saving={saving} onSave={() => void saveTemplate()} onPreview={() => { if (!selectedExercises.length) { onFeedback("Adicione ao menos um exercício para abrir a prévia."); return; } setWorkoutPreview({ title: workoutName.trim() || "Treino em montagem", selectedExercises: [...selectedExercises], exerciseDetails: { ...exerciseDetails } }); }} onParameterChange={updateExerciseParameter} onRemove={toggleExercise} />
-          <ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} onPreview={(exercise) => setExercisePreview({ exercise, detail: exerciseDetails[exercise.id] })} accessRole={access.role} />
+          <ExercisePicker exercises={exercises} selectedExercises={selectedExercises} exerciseDetails={exerciseDetails} workoutLevel={workoutLevel} onToggle={toggleExercise} onParameterChange={updateExerciseParameter} onEdit={editExercise} onRemove={(exercise) => void removeExercise(exercise)} onPreview={(exercise) => setExercisePreview({ exercise, detail: exerciseDetails[exercise.id] })} accessRole={access.role} />
           <div className="training-actions training-actions-final"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={saving}>{editingTemplateId ? "Atualizar programa-base" : "Salvar programa-base"}</button><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Enviar para aluno"}</button></div>
         </form>
         </div>
       </details>
        <details className="workspace-panel training-form-panel exercise-library-panel training-collapsible-card">
          <summary className="training-card-summary"><span><small>2 · NOVO EXERCÍCIO</small><strong>Montar exercício do zero</strong><em>Cadastre um movimento, escolha a máquina, a fase e o GIF correspondente.</em></span><ChevronDown /></summary>
-          <div className="training-card-content"><header className="training-inline-tools"><p className="panel-helper">Ao salvar, o exercício entra automaticamente no grupo correto da biblioteca.</p></header><div className="starter-library-box"><p>A biblioteca já reúne musculação, peso corporal, alongamento, mobilidade e cardio. Use o formulário para acrescentar novos movimentos.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Máquina ou equipamento<select value={exerciseEquipment} onChange={(event) => setExerciseEquipment(event.target.value)}><option value="">Sem máquina · peso livre/corporal</option>{stockMachines.map((machine) => <option key={machine.id} value={machine.name}>{machine.name}{machine.machineCode ? ` · ${machine.machineCode}` : ""}</option>)}</select><small>As máquinas vêm do Estoque; o código QR permanece vinculado ao equipamento.</small></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); setSelectedCatalogGif(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O perfil será ajustado automaticamente quando você escolher um GIF na galeria.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => { setGifFile(event.target.files?.[0] ?? null); setSelectedCatalogGif(null); }} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria completa de GIFs</button>{(gifFile || selectedCatalogGif) && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : selectedCatalogGif ? `GIF global selecionado para ${gifProfile}.` : `Selecionado para ${gifProfile}: ${gifFile?.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><details className="training-subcard"><summary className="training-subcard-summary"><span><small>3.1 · BIBLIOTECA</small><strong>Exercícios já cadastrados</strong><em>Escolha um movimento pronto para adicionar ao programa.</em></span><ChevronDown /></summary><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} onPreview={(exercise) => setExercisePreview({ exercise, detail: exerciseDetails[exercise.id] })} /></details></div>
+          <div className="training-card-content"><header className="training-inline-tools"><p className="panel-helper">Ao salvar, o exercício entra automaticamente no grupo correto da biblioteca.</p></header><div className="starter-library-box"><p>A biblioteca já reúne musculação, peso corporal, alongamento, mobilidade e cardio. Use o formulário para acrescentar novos movimentos.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular / classe<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Máquina ou equipamento<select value={exerciseEquipment} onChange={(event) => setExerciseEquipment(event.target.value)}><option value="">Sem máquina · peso livre/corporal</option>{stockMachines.map((machine) => <option key={machine.id} value={machine.name}>{machine.name}{machine.machineCode ? ` · ${machine.machineCode}` : ""}</option>)}</select><small>As máquinas vêm do Estoque; o código QR permanece vinculado ao equipamento.</small></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><ExerciseLevelSelector value={recommendedLevels} onChange={setRecommendedLevels} /><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Link após gravar" /></label><label>Biblioteca do GIF<select value={gifProfile} onChange={(event) => { setGifProfile(event.target.value === "feminino" ? "feminino" : "masculino"); setGifFile(null); setSelectedCatalogGif(null); }}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>O perfil será ajustado automaticamente quando você escolher um GIF na galeria.</small></label><label>Importar GIF {gifProfile}<input type="file" accept="image/gif" onChange={(event) => { setGifFile(event.target.files?.[0] ?? null); setSelectedCatalogGif(null); }} /></label><button type="button" className="detail-secondary gif-catalog-inline" onClick={() => setGifCatalogOpen(true)}>Abrir galeria completa de GIFs</button>{(gifFile || selectedCatalogGif) && <small className="panel-helper">{uploadingGif ? "Enviando GIF…" : selectedCatalogGif ? `GIF global selecionado para ${gifProfile}.` : `Selecionado para ${gifProfile}: ${gifFile?.name}`}</small>}<div className="exercise-form-actions"><button className="detail-save" type="submit" disabled={uploadingGif}>{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><details className="training-subcard"><summary className="training-subcard-summary"><span><small>3.1 · BIBLIOTECA</small><strong>Exercícios já cadastrados</strong><em>Escolha um movimento pronto para adicionar ao programa.</em></span><ChevronDown /></summary><ExerciseLibrary exercises={exercises} accessRole={access.role} onEdit={editExercise} onLinkGif={linkExerciseGif} onRemove={(exercise) => void removeExercise(exercise)} onPreview={(exercise) => setExercisePreview({ exercise, detail: exerciseDetails[exercise.id] })} /></details></div>
        </details>
     </section>
      <PublishedWorkouts templates={templates} workouts={workouts} targetStudentId={initialStudentId || undefined} targetStudentName={students.find((student) => student.id === (initialStudentId || studentId))?.name} onAssignTemplate={(template) => void addTemplateToStudent(template)} onEditTemplate={beginTemplateEdit} onRemoveTemplate={(template) => void removeTemplate(template)} onEditWorkout={beginWorkoutEdit} onRemoveWorkout={(workout) => void removeWorkout(workout)} onPreviewTemplate={previewTemplate} onPreviewWorkout={previewWorkout} onPrintTemplate={printWorkoutTemplate} onSeedGeneralPrograms={() => void seedGeneralPrograms()} />
@@ -3896,7 +4128,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
       <section className="workspace-intro"><div><span>PRESCRIÇÃO · {access.role === "teacher" ? "PROFESSOR" : "GESTÃO"}</span><h2>Treinos</h2><p>Cadastre exercícios e publique fichas vinculadas aos alunos.</p></div></section>
       <section className="training-layout">
         <article className="workspace-panel training-form-panel"><header><div><span>FICHA DE TREINO</span><h3>Montar e publicar</h3></div></header><form className="student-detail-form" onSubmit={createWorkout}><label>Usar modelo pronto<select defaultValue="" onChange={(event) => loadTemplate(event.target.value)}><option value="">Começar do zero</option>{templates.map((template) => <option key={template.id} value={template.id}>{displayWorkoutName(template.name)}</option>)}</select></label><label>Nome do treino<input value={workoutName} onChange={(event) => setWorkoutName(event.target.value)} placeholder="Ex.: Força A" required /></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><fieldset className="exercise-picker"><legend>Exercícios da ficha</legend>{exercises.length === 0 ? <small>Nenhum exercício cadastrado.</small> : exercises.map((exercise) => <div className="exercise-choice" key={exercise.id}><label><input type="checkbox" checked={selectedExercises.includes(exercise.id)} onChange={() => { const selected = selectedExercises.includes(exercise.id); setSelectedExercises((current) => selected ? current.filter((id) => id !== exercise.id) : [...current, exercise.id]); if (!selected) setExerciseDetails((current) => ({ ...current, [exercise.id]: { sets: "3", reps: "10", load: "0", rest: "60" } })); }} /><span>{exercise.name}<small>{exercise.muscleGroup}</small></span></label>{selectedExercises.includes(exercise.id) && <div className="exercise-parameters"><label>Séries<input value={exerciseDetails[exercise.id]?.sets ?? "3"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], sets: event.target.value } }))} /></label><label>Reps<input value={exerciseDetails[exercise.id]?.reps ?? "10"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], reps: event.target.value } }))} /></label><label>Carga<input value={exerciseDetails[exercise.id]?.load ?? "0"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], load: event.target.value } }))} /></label><label>Descanso<input value={exerciseDetails[exercise.id]?.rest ?? "60"} onChange={(event) => setExerciseDetails((current) => ({ ...current, [exercise.id]: { ...current[exercise.id], rest: event.target.value } }))} /></label></div>}</div>)}</fieldset><div className="training-actions"><button className="detail-secondary" type="button" onClick={saveTemplate} disabled={!workoutName.trim() || selectedExercises.length === 0}>Salvar como modelo</button><button className="detail-save" type="submit" disabled={saving}>{saving ? "Publicando..." : "Publicar treino"}</button></div></form></article>
-        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><div className="starter-library-box"><p>Comece com uma base pronta e personalize os exercícios depois.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.bodyRegion ?? "Não classificado"} · {exercise.phase ?? "Treino principal"} · {exercise.muscleGroup}</small></div><div className="exercise-actions"><button type="button" onClick={() => editExercise(exercise)}>Editar</button>{access.role === "admin" && <button type="button" onClick={() => void removeExercise(exercise)}>Excluir</button>}</div></div>)}</div></article>
+        <article className="workspace-panel training-form-panel"><header><div><span>BIBLIOTECA</span><h3>Novo exercício</h3></div></header><div className="starter-library-box"><p>Comece com uma base pronta e personalize os exercícios depois.</p><button className="detail-secondary" type="button" onClick={seedStarterExercises}>Carregar biblioteca inicial</button></div><form className="student-detail-form" onSubmit={createExercise}><label>Nome do exercício<input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} placeholder="Ex.: Agachamento livre" required /></label><label>Grupo muscular principal<input value={muscleGroup} onChange={(event) => setMuscleGroup(event.target.value)} placeholder="Ex.: Peito" required /></label><label>Região corporal<select value={bodyRegion} onChange={(event) => setBodyRegion(event.target.value as BodyRegion)}><option>Membros superiores</option><option>Tronco anterior</option><option>Tronco posterior</option><option>Região central</option><option>Membros inferiores</option></select></label><label>Fase do treino<select value={phase} onChange={(event) => setPhase(event.target.value as ExercisePhase)}><option>Preparação</option><option>Treino principal</option><option>Cardio</option><option>Finalização</option></select></label><label>Tipo de exercício<select value={exerciseType} onChange={(event) => setExerciseType(event.target.value as ExerciseType)}><option>Força</option><option>Peso corporal</option><option>Alongamento</option><option>Cardio</option></select></label><ExerciseLevelSelector value={recommendedLevels} onChange={setRecommendedLevels} /><label>Músculos auxiliares<input value={secondaryMuscles} onChange={(event) => setSecondaryMuscles(event.target.value)} placeholder="Ex.: Tríceps, ombros" /></label><label>Região no corpo anatômico<input value={anatomyRegion} onChange={(event) => setAnatomyRegion(event.target.value)} placeholder="Ex.: Peitoral" /></label><label>Como executar<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Explicação objetiva da execução" /></label><label>Vídeo próprio (link futuro)<input type="url" value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="Será preenchido após gravar" /></label><div className="exercise-form-actions"><button className="detail-save" type="submit">{editingExerciseId ? "Salvar alterações" : "Cadastrar exercício"}</button>{editingExerciseId && <button className="detail-secondary" type="button" onClick={clearExerciseForm}>Cancelar edição</button>}</div></form><div className="exercise-library">{exercises.map((exercise) => <div key={exercise.id}><div><strong>{exercise.name}</strong><small>{exercise.bodyRegion ?? "Não classificado"} · {exercise.phase ?? "Treino principal"} · {exercise.muscleGroup}</small></div><div className="exercise-actions"><button type="button" onClick={() => editExercise(exercise)}>Editar</button>{access.role === "admin" && <button type="button" onClick={() => void removeExercise(exercise)}>Excluir</button>}</div></div>)}</div></article>
       </section>
       <section className="workspace-panel published-workouts"><header><div><span>BIBLIOTECA E PUBLICADOS</span><h3>{templates.length} modelos · {workouts.length} publicados</h3></div></header>{templates.length === 0 && workouts.length === 0 ? <div className="directory-empty"><Dumbbell /><p>Salve uma ficha como modelo para reutilizá-la.</p></div> : <div className="published-list">{templates.map((template) => <div key={template.id}><div><strong>{displayWorkoutName(template.name)}</strong><small>Modelo reutilizável · {template.exerciseIds.length} exercícios</small></div><em>Modelo</em></div>)}{workouts.map((workout) => <div key={workout.id}><div><strong>{displayWorkoutName(workout.name)}</strong><small>{workout.studentName} · {workout.exerciseIds.length} exercícios</small></div><em>Publicado</em></div>)}</div>}</section>
     </div>
@@ -3916,8 +4148,13 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   const [chargeAmount, setChargeAmount] = useState("");
   const [planName, setPlanName] = useState("");
   const [planPrice, setPlanPrice] = useState("");
+  const [planRegistrationFee, setPlanRegistrationFee] = useState("");
   const [planInterval, setPlanInterval] = useState("Mensal");
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | ChargeViewStatus>("all");
+  const [chargeSearch, setChargeSearch] = useState("");
+  const [planSearch, setPlanSearch] = useState("");
+  const [planStatus, setPlanStatus] = useState("Todos");
   const [saving, setSaving] = useState(false);
   const [paymentCharge, setPaymentCharge] = useState<MonthlyCharge | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
@@ -3938,8 +4175,8 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     });
     const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setPlans(snapshot.docs.map((plan) => {
-        const data = plan.data() as { name?: string; price?: number; active?: boolean };
-        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), active: data.active !== false };
+        const data = plan.data() as { name?: string; price?: number; interval?: string; active?: boolean; registrationFee?: number };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", registrationFee: Number(data.registrationFee ?? 0), active: data.active !== false };
       }));
     });
     const unsubscribeCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
@@ -3972,30 +4209,57 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     try {
       await addDoc(collection(db, "academies", access.academyId, "monthlyCharges"), { studentId, studentName: student.name, planId: plan?.id ?? null, planName: chargeType === "monthly" ? plan?.name : chargeDescription.trim() || (chargeType === "registration" ? "Taxa de inscrição" : "Serviço avulso"), chargeType, amount, dueDate, status: "pending", createdBy: access.userId, createdAt: serverTimestamp() });
       setStudentId(""); setPlanId(""); setDueDate(""); setChargeDescription(""); setChargeAmount("");
-      onFeedback("Mensalidade criada.");
-    } catch { onFeedback("Não foi possível criar a mensalidade."); }
+      onFeedback("Lançamento financeiro criado.");
+    } catch { onFeedback("Não foi possível criar o lançamento financeiro."); }
     finally { setSaving(false); }
   }
 
   async function createPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!planName.trim() || !planPrice) { onFeedback("Informe o nome e o valor do plano."); return; }
+    const planValues = {
+      name: capitalizeName(planName.trim()),
+      price: parseCurrency(planPrice),
+      registrationFee: parseCurrency(planRegistrationFee),
+      interval: planInterval,
+    };
     if (!db) {
-      const nextPlan: AcademyPlan = { id: `local-plan-${Date.now()}`, name: capitalizeName(planName.trim()), price: parseCurrency(planPrice), interval: planInterval, active: true };
-      const nextPlans = [...plans, nextPlan];
+      const nextPlans = editingPlanId
+        ? plans.map((plan) => plan.id === editingPlanId ? { ...plan, ...planValues } : plan)
+        : [...plans, { id: `local-plan-${Date.now()}`, ...planValues, active: true }];
       setPlans(nextPlans);
       writeLocalCollection(access.academyId, "plans", nextPlans);
-      setPlanName(""); setPlanPrice(""); setPlanInterval("Mensal");
-      onFeedback("Plano cadastrado no modo local.");
+      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setEditingPlanId(null);
+      onFeedback(editingPlanId ? "Plano atualizado no modo local." : "Plano cadastrado no modo local.");
       return;
     }
     setSaving(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "plans"), { name: planName.trim(), price: parseCurrency(planPrice), interval: planInterval, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
-      setPlanName(""); setPlanPrice(""); setPlanInterval("Mensal");
-      onFeedback("Plano cadastrado com sucesso.");
+      if (editingPlanId) {
+        await updateDoc(doc(db, "academies", access.academyId, "plans", editingPlanId), { ...planValues, updatedBy: access.userId, updatedAt: serverTimestamp() });
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "plans"), { ...planValues, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
+      }
+      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setEditingPlanId(null);
+      onFeedback(editingPlanId ? "Plano atualizado com sucesso." : "Plano cadastrado com sucesso.");
     } catch { onFeedback("Não foi possível cadastrar o plano."); }
     finally { setSaving(false); }
+  }
+
+  function editPlan(plan: BillingPlan) {
+    setEditingPlanId(plan.id);
+    setPlanName(plan.name);
+    setPlanPrice(maskCurrency(String(Math.round(plan.price * 100))));
+    setPlanRegistrationFee(maskCurrency(String(Math.round((plan.registrationFee ?? 0) * 100))));
+    setPlanInterval(plan.interval ?? "Mensal");
+  }
+
+  function clearPlanForm() {
+    setEditingPlanId(null);
+    setPlanName("");
+    setPlanPrice("");
+    setPlanRegistrationFee("");
+    setPlanInterval("Mensal");
   }
 
   async function confirmPayment() {
@@ -4031,6 +4295,22 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     } catch { onFeedback("Não foi possível atualizar a mensalidade."); }
   }
 
+  async function toggleBillingPlan(plan: BillingPlan) {
+    if (!db) {
+      const nextPlans = plans.map((item) => item.id === plan.id ? { ...item, active: !item.active } : item);
+      setPlans(nextPlans);
+      writeLocalCollection(access.academyId, "plans", nextPlans);
+      onFeedback(plan.active ? "Plano desativado no modo local." : "Plano reativado no modo local.");
+      return;
+    }
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "plans", plan.id), { active: !plan.active, updatedAt: serverTimestamp(), updatedBy: access.userId });
+      onFeedback(plan.active ? "Plano desativado." : "Plano reativado.");
+    } catch {
+      onFeedback("Não foi possível alterar o plano.");
+    }
+  }
+
   const chargeRows = charges.map((charge) => ({ ...charge, viewStatus: chargeViewStatus(charge) }));
   const totals = chargeRows.reduce((summary, charge) => {
     summary.total += charge.amount;
@@ -4039,17 +4319,20 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     if (charge.viewStatus === "pending" || charge.viewStatus === "dueSoon") summary.open += charge.amount;
     return summary;
   }, { total: 0, received: 0, overdue: 0, open: 0 });
-  const visibleCharges = chargeRows.filter((charge) => filter === "all" || charge.viewStatus === filter);
+  const visibleCharges = chargeRows.filter((charge) => (filter === "all" || charge.viewStatus === filter) && matchesSearch(chargeSearch, charge.studentName, charge.planName, charge.dueDate, charge.amount, chargeStatusLabel(charge.viewStatus)));
+  const visiblePlans = plans.filter((plan) => matchesSearch(planSearch, plan.name, plan.interval, plan.price, plan.registrationFee) && (planStatus === "Todos" || (planStatus === "Ativos" ? plan.active : !plan.active)));
   const upcomingCount = chargeRows.filter((charge) => charge.viewStatus === "dueSoon").length;
+  const moneyLabel = (amount: number) => amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
       <section className="billing-layout">
-        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Cadastrar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Valor<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar plano"}</button></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
+        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>{editingPlanId ? "EDITAR PLANO" : "NOVO PLANO"}</span><h3>{editingPlanId ? "Atualizar plano" : "Cadastrar plano"}</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Mensalidade<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Taxa de inscrição <small>Valor único cobrado uma vez no cadastro do aluno.</small><input value={planRegistrationFee} onChange={(event) => setPlanRegistrationFee(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00 · opcional" /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingPlanId ? "Salvar plano" : "Cadastrar plano"}</button>{editingPlanId && <button className="secondary-action" type="button" onClick={clearPlanForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}{(plan.registrationFee ?? 0) > 0 ? ` · inscrição única R$ ${plan.registrationFee!.toFixed(2).replace(".", ",")}` : ""}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
         <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-automation-note"><Check size={14} /> Cobranças recorrentes geradas automaticamente todos os dias</div><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
-      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${paymentMethodLabel(charge.paymentMethod)}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
+      <section className="workspace-panel plans-list-panel billing-plans-panel"><header><div><span>PLANOS CADASTRADOS</span><h3>{visiblePlans.length} de {plans.length} planos</h3></div></header><div className="finance-account-filters"><input type="search" aria-label="Buscar planos" placeholder="Nome, periodicidade ou valor" value={planSearch} onChange={(event) => setPlanSearch(event.target.value)} /><select aria-label="Filtrar situação dos planos" value={planStatus} onChange={(event) => setPlanStatus(event.target.value)}><option>Todos</option><option>Ativos</option><option>Inativos</option></select></div><div className="plans-list">{visiblePlans.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhum plano cadastrado ainda.</p></div> : visiblePlans.map((plan) => { const interval = plan.interval ?? "Mensal"; return <div className="plan-row" key={plan.id}><div><strong>{plan.name}</strong><small>{interval} · {plan.active ? "Disponível" : "Desativado"}{(plan.registrationFee ?? 0) > 0 ? ` · Inscrição única ${moneyLabel(plan.registrationFee ?? 0)}` : " · Sem taxa de inscrição"}</small></div><b>{moneyLabel(plan.price)} / {interval.toLowerCase()}</b><div className="row-actions"><button type="button" className="plan-edit" onClick={() => editPlan(plan)}>Editar</button><button type="button" className={plan.active ? "plan-disable" : "plan-enable"} onClick={() => void toggleBillingPlan(plan)}>{plan.active ? "Desativar" : "Ativar"}</button></div></div>; })}</div></section>
+      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "lançamento" : "lançamentos"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar lançamentos">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="workspace-search"><Search /><input type="search" aria-label="Buscar cobranças" placeholder="Aluno, plano, vencimento ou valor" value={chargeSearch} onChange={(event) => setChargeSearch(event.target.value)} /></div><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhum lançamento gerado ainda." : "Nenhum lançamento neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${paymentMethodLabel(charge.paymentMethod)}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
       {paymentCharge && <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="payment-title"><section className="payment-modal"><header><div><span>BAIXA MANUAL</span><h2 id="payment-title">Registrar pagamento</h2><p>{paymentCharge.studentName} · R$ {paymentCharge.amount.toFixed(2).replace(".", ",")}</p></div><button aria-label="Fechar registro de pagamento" onClick={() => setPaymentCharge(null)}><X /></button></header><div className="payment-method-grid">{([['pix', 'Pix'], ['cartao_credito', 'Cartão de crédito'], ['cartao_debito', 'Cartão de débito'], ['dinheiro', 'Dinheiro'], ['transferencia', 'Transferência'], ['boleto', 'Boleto']] as const).map(([value, label]) => <button key={value} className={paymentMethod === value ? "active" : ""} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><div className="payment-modal-actions"><button className="modal-secondary" onClick={() => setPaymentCharge(null)}>Cancelar</button><button className="detail-save" onClick={confirmPayment} disabled={savingPayment}>{savingPayment ? "Salvando..." : "Confirmar pagamento"}</button></div></section></div>}
     </div>
   );
@@ -4141,6 +4424,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
   const access = useAccess();
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
   const [search, setSearch] = useState("");
+  const [teacherStatus, setTeacherStatus] = useState("Todos");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -4164,7 +4448,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
     }, (error) => console.error("Não foi possível carregar os professores.", error));
   }, [access.academyId]);
 
-  const filteredTeachers = teachers.filter((teacher) => `${teacher.name} ${teacher.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const filteredTeachers = teachers.filter((teacher) => matchesSearch(search, teacher.name, teacher.email, teacher.phone, teacher.cpf, teacher.cref, teacher.specialty) && (teacherStatus === "Todos" || (teacherStatus === "Ativos" ? teacher.active !== false : teacher.active === false)));
   const selectedTeacher = teachers.find((teacher) => teacher.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -4227,8 +4511,9 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
       <section className="workspace-intro"><div><span>EQUIPE · GESTÃO</span><h2>Professores</h2><p>Equipe vinculada, contatos e status de acesso.</p></div></section>
       <section className="directory-layout">
         <article className="workspace-panel directory-panel">
-          <header><div><span>PROFESSORES CADASTRADOS</span><h3>{teachers.length} {teachers.length === 1 ? "professor" : "professores"}</h3></div></header>
-          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
+          <header><div><span>PROFESSORES CADASTRADOS</span><h3>{filteredTeachers.length} de {teachers.length} professores</h3></div></header>
+          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} type="search" aria-label="Buscar por nome, e-mail, CPF ou telefone" placeholder="Nome, e-mail, CPF ou telefone" /></div>
+          <div className="finance-account-filters"><select aria-label="Filtrar situação dos professores" value={teacherStatus} onChange={(event) => setTeacherStatus(event.target.value)}><option>Todos</option><option>Ativos</option><option>Suspensos</option></select></div>
           <div className="directory-list">
             {filteredTeachers.length === 0 ? <div className="directory-empty"><UserRoundCheck /><p>{teachers.length === 0 ? "Nenhum professor cadastrado ainda." : "Nenhum professor encontrado."}</p></div> : filteredTeachers.map((teacher) => (
               <button className={selectedId === teacher.id ? "directory-row selected" : "directory-row"} key={teacher.id} onClick={() => { setSelectedId(teacher.id); scrollToContent(".student-detail-panel"); }}>
@@ -4295,6 +4580,69 @@ function StudentWhatsAppPanel({ student, onFeedback }: { student: RegisteredStud
   return <section className="student-whatsapp-panel"><header><div><span>WHATSAPP DO ALUNO</span><h3>Contato e lembretes</h3><p>Abra uma conversa pronta ou programe um aviso para este cadastro.</p></div><MessageCircle /></header>{directHref ? <a className="student-whatsapp-open" href={directHref} target="_blank" rel="noreferrer"><MessageCircle size={16} /> Abrir WhatsApp com mensagem pronta</a> : <p className="student-profile-empty">Cadastre um telefone com WhatsApp para habilitar o contato direto.</p>}<div className="student-whatsapp-schedule"><label>Modelo<select value={template} onChange={(event) => setTemplate(event.target.value as typeof template)}><option value="payment">Lembrete de pagamento</option><option value="birthday">Aniversário</option><option value="news">Novidade da academia</option><option value="custom">Mensagem personalizada</option></select></label>{template === "custom" && <label>Mensagem<textarea value={customMessage} onChange={(event) => setCustomMessage(event.target.value)} maxLength={600} placeholder="Escreva a mensagem que será enviada." /></label>}<label>Programar para (opcional)<input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></label><button type="button" className="detail-secondary" onClick={() => void scheduleMessage()} disabled={access.role !== "admin" || !scheduledAt || !message}>Programar lembrete</button></div><small className="student-whatsapp-note">O envio automático usa a API oficial do WhatsApp Business quando as credenciais da academia estiverem configuradas.</small></section>;
 }
 
+const emptyAnamnesis: Omit<AnamnesisRecord, "id" | "studentId" | "studentName" | "updatedAt" | "updatedBy"> = {
+  goal: "",
+  healthConditions: "",
+  medications: "",
+  injuries: "",
+  surgeries: "",
+  medicalClearance: "Não informado",
+  emergencyName: "",
+  emergencyPhone: "",
+  consent: false,
+};
+
+function StudentAnamnesisPanel({ student, onFeedback }: { student: RegisteredStudent; onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [form, setForm] = useState(emptyAnamnesis);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    setLoaded(false);
+    if (!db) {
+      const current = readLocalCollection<AnamnesisRecord>(access.academyId, "anamneses").find((item) => item.studentId === student.id);
+      setForm(current ? { ...emptyAnamnesis, ...current } : emptyAnamnesis);
+      setLoaded(true);
+      return;
+    }
+    return onSnapshot(doc(db, "academies", access.academyId, "anamneses", student.id), (snapshot) => {
+      const data = snapshot.exists() ? snapshot.data() as Partial<AnamnesisRecord> : null;
+      setForm(data ? { ...emptyAnamnesis, ...data } : emptyAnamnesis);
+      setLoaded(true);
+    }, () => setLoaded(true));
+  }, [access.academyId, student.id]);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form.consent) {
+      onFeedback("Registre o consentimento do aluno antes de salvar a anamnese.");
+      return;
+    }
+    setSaving(true);
+    const record = { ...form, id: student.id, studentId: student.id, studentName: student.name, updatedBy: access.userId };
+    try {
+      if (!db) {
+        const current = readLocalCollection<AnamnesisRecord>(access.academyId, "anamneses").filter((item) => item.studentId !== student.id);
+        writeLocalCollection(access.academyId, "anamneses", [{ ...record, updatedAt: new Date().toISOString() }, ...current]);
+      } else {
+        await setDoc(doc(db, "academies", access.academyId, "anamneses", student.id), { ...record, updatedAt: serverTimestamp() }, { merge: true });
+      }
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_anamnesis_updated", label: "Ficha de anamnese atualizada", details: student.name });
+      onFeedback("Ficha de anamnese salva com segurança.");
+    } catch {
+      onFeedback("Não foi possível salvar a ficha de anamnese.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function update<K extends keyof typeof emptyAnamnesis>(key: K, value: (typeof emptyAnamnesis)[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  return <details className="student-anamnesis-panel"><summary><span><small>SAÚDE E SEGURANÇA</small><strong>Ficha de anamnese</strong><em>{loaded && form.consent ? "Preenchida" : "Pendente"}</em></span><ChevronDown /></summary><form className="student-anamnesis-form" onSubmit={save}><p>Registre somente informações necessárias para orientar o treino. O acesso fica restrito à equipe autorizada da academia.</p><label>Objetivo principal<select value={form.goal} onChange={(event) => update("goal", event.target.value)}><option value="">Selecione</option><option>Saúde e qualidade de vida</option><option>Emagrecimento</option><option>Hipertrofia</option><option>Força e performance</option><option>Reabilitação orientada</option><option>Outro</option></select></label><label>Condições de saúde<textarea value={form.healthConditions} onChange={(event) => update("healthConditions", event.target.value)} placeholder="Ex.: hipertensão, diabetes, asma…" /></label><label>Medicamentos e alergias<textarea value={form.medications} onChange={(event) => update("medications", event.target.value)} placeholder="Informe somente o que impacta o treino." /></label><label>Lesões, dores ou limitações atuais<textarea value={form.injuries} onChange={(event) => update("injuries", event.target.value)} placeholder="Região, intensidade e movimentos que devem ser evitados." /></label><label>Cirurgias ou restrições médicas<textarea value={form.surgeries} onChange={(event) => update("surgeries", event.target.value)} /></label><label>Liberação para treinar<select value={form.medicalClearance} onChange={(event) => update("medicalClearance", event.target.value)}><option>Não informado</option><option>Sim</option><option>Não</option><option>Com restrições</option></select></label><div className="student-anamnesis-emergency"><label>Contato de emergência<input value={form.emergencyName} onChange={(event) => update("emergencyName", event.target.value)} placeholder="Nome completo" /></label><label>Telefone<input value={form.emergencyPhone} onChange={(event) => update("emergencyPhone", maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label></div><label className="student-anamnesis-consent"><input type="checkbox" checked={form.consent} onChange={(event) => update("consent", event.target.checked)} /><span>Aluno autorizou o registro dessas informações para acompanhamento do treino.</span></label><button className="detail-save" type="submit" disabled={saving || !loaded}>{saving ? "Salvando..." : "Salvar anamnese"}</button></form></details>;
+}
+
 function StudentWorkoutFeedbackPanel({ feedbacks }: { feedbacks: WorkoutFeedbackRecord[] }) {
   return <section className="student-feedback-history"><header><div><span>RETORNO DO ALUNO</span><h3>Como foram os treinos</h3></div><strong>{feedbacks.length} {feedbacks.length === 1 ? "avaliação" : "avaliações"}</strong></header>{feedbacks.length === 0 ? <p className="student-profile-empty">O aluno ainda não avaliou um treino concluído.</p> : <div>{feedbacks.slice(0, 4).map((item) => <article key={item.id}><div><strong>{displayWorkoutName(item.workoutName)}</strong>{item.comment && <p>{item.comment}</p>}</div><span aria-label={item.rating + " de 5 estrelas"}>{"★".repeat(item.rating)}{"☆".repeat(5 - item.rating)}</span><small>{formatNotificationDate(item.createdAt) || "Data não informada"}</small></article>)}</div>}</section>;
 }
@@ -4334,13 +4682,73 @@ function StudentFrequency({ attendance, executions }: { attendance: AttendanceRe
   </section>;
 }
 
+function StudentRankReviewPanel({ student, workouts, executions, canPromote, saving, onPromote }: { student: RegisteredStudent; workouts: WorkoutRecord[]; executions: WorkoutExecution[]; canPromote: boolean; saving: boolean; onPromote: () => void }) {
+  const currentRank = normalizeStudentRank(student.approvedRank);
+  const rankIndex = studentRankOrder.indexOf(currentRank);
+  const nextRank = studentRankOrder[rankIndex + 1];
+  const program = studentRankProgram[currentRank];
+  const currentWorkouts = workouts.filter((workout) => (workout.level ?? "Fundação") === program);
+  const progress = workouts.map((workout) => ({
+    workout,
+    isCurrentProgram: (workout.level ?? "Fundação") === program,
+    count: completedSessionsForWorkout(executions, workout),
+    history: executions.filter((execution) => execution.workoutId === workout.id).slice(0, 3),
+  }));
+  const currentProgramProgress = progress.filter((item) => item.isCurrentProgram);
+  return <details className={`student-rank-review level-${machineCode(program)}`}>
+    <summary><span><small>RANK E EVOLUÇÃO</small><strong>{currentRank} · Programa {program}</strong></span><span className="rank-review-summary-meta">{nextRank ? `Próximo: ${nextRank}` : "Nível máximo"}<ChevronDown size={16} /></span></summary>
+    <div className="student-rank-review-content">
+      <div className="rank-review-intro"><div><strong>Análise do professor</strong><p>Três conclusões completas por ficha são uma referência para criar confiança. Não são obrigatórias; a promoção depende da sua avaliação do histórico e da execução.</p></div><span>{currentProgramProgress.length ? `Programa atual: ${currentProgramProgress.filter((item) => item.count >= 3).length}/${currentProgramProgress.length} fichas com 3+ conclusões` : "Sem fichas no programa atual"}</span></div>
+      {progress.length ? <div className="rank-review-workouts">{progress.map(({ workout, isCurrentProgram, count, history }) => <article key={workout.id}>
+        <header><span><strong>{displayWorkoutName(workout.name)}</strong><small>{workout.level ?? "Fundação"}{isCurrentProgram ? " · rank atual" : " · histórico"} · {workout.exerciseDetails?.length ?? workout.exerciseIds.length} exercícios · versão atual {workout.exerciseRevision ?? 1}</small></span><b>{count} <small>conclusões da versão atual</small></b></header>
+        {isCurrentProgram && <div className="rank-review-reference"><span>Referência: 3 conclusões completas</span><i><b style={{ width: `${Math.min(100, count / 3 * 100)}%` }} /></i></div>}
+        {history.length ? <div className="rank-review-history">{history.map((execution) => {
+          const groups = execution.sets.reduce<Array<{ name: string; sets: WorkoutExecution["sets"] }>>((all, set) => {
+            const group = all.find((item) => item.name === set.exerciseName);
+            if (group) group.sets.push(set); else all.push({ name: set.exerciseName, sets: [set] });
+            return all;
+          }, []);
+          const completed = Number(execution.completedSets ?? 0);
+          const total = Number(execution.totalSets ?? 0);
+          const isComplete = total > 0 && completed >= total;
+          const isCurrentRevision = (execution.workoutRevision ?? 1) === (workout.exerciseRevision ?? 1);
+          const date = workoutExecutionTime(execution.completedAt);
+          return <details className="rank-execution-history" key={execution.id}>
+            <summary><span>{date ? new Date(date).toLocaleDateString("pt-BR") : "Data não informada"}{(execution.workoutRevision ?? 1) !== (workout.exerciseRevision ?? 1) ? ` · versão anterior ${execution.workoutRevision ?? 1}` : ""}</span><b className={isComplete ? "complete" : "partial"}>{completed}/{total} séries · {isComplete ? "completo" : "parcial"}</b></summary>
+            <div className="rank-execution-set-log">{isCurrentRevision && workout.exerciseDetails?.length ? <div className="rank-execution-exercise-status">{workout.exerciseDetails.map((exercise) => {
+              const done = execution.sets.filter((set) => set.exerciseName === exercise.name).length;
+              const expected = Math.max(0, Number(exercise.sets) || 0);
+              const status = expected > 0 ? `${done}/${expected} séries · ${done >= expected ? "concluído" : done ? "parcial" : "não iniciado"}` : done ? `${done} séries registradas` : "sem registro de séries";
+              return <div key={exercise.exerciseId || exercise.name}><strong>{exercise.name}</strong><span>{status}</span></div>;
+            })}</div> : !isCurrentRevision ? <p>Esta é uma versão anterior da ficha; os registros originais abaixo foram preservados.</p> : null}{groups.length ? groups.map((group) => {
+              const exercise = workout.exerciseDetails?.find((detail) => detail.name === group.name);
+              const metrics = exerciseMetricLabels(exercise ?? { name: group.name });
+              return <div key={group.name}><strong>{group.name}</strong><span>{group.sets.map((set) => `S${set.setNumber}: ${set.load || "—"}${set.load && metrics.loadUnit ? ` ${metrics.loadUnit}` : ""} × ${set.reps || "—"} ${metrics.repsUnit}`).join(" · ")}</span></div>;
+            }) : <p>O registro não contém detalhes por série.</p>}</div>
+          </details>;
+        })}</div> : <p className="student-profile-empty">Ainda não há execuções registradas para esta ficha.</p>}
+      </article>)}</div> : <p className="student-profile-empty">Nenhuma ficha publicada para o programa atual.</p>}
+      {nextRank && canPromote ? <button className="rank-approve-button" type="button" onClick={onPromote} disabled={saving}><Trophy size={16} />{saving ? "Registrando promoção…" : `Aprovar promoção para ${nextRank}`}</button> : !nextRank ? <p className="rank-review-max">Diamante é o rank máximo disponível.</p> : <p className="rank-review-permission">Somente o professor responsável ou a gestão pode aprovar este avanço.</p>}
+      {Boolean(student.rankApprovedAt) && <small className="rank-review-last-approval">Última aprovação registrada: {firestoreDate(student.rankApprovedAt)?.toLocaleDateString("pt-BR") ?? "data indisponível"}</small>}
+    </div>
+  </details>;
+}
+
 function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = "", initialStudentId = "" }: { onNewStudent?: () => void; onFeedback: (message: string) => void; onNavigate: (module: string, studentId: string) => void; initialSearch?: string; initialStudentId?: string }) {
   const access = useAccess();
   const [students, setStudents] = useState<RegisteredStudent[]>([]);
   const [studentPresence, setStudentPresence] = useState<DeveloperMember[]>([]);
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
+  const [directoryCharges, setDirectoryCharges] = useState<MonthlyCharge[]>([]);
+  const [directoryWorkouts, setDirectoryWorkouts] = useState<WorkoutRecord[]>([]);
+  const [directoryAttendance, setDirectoryAttendance] = useState<AttendanceRecord[]>([]);
+  const [directoryExecutions, setDirectoryExecutions] = useState<WorkoutExecution[]>([]);
   const [search, setSearch] = useState("");
+  const [programFilter, setProgramFilter] = useState("Todos");
+  const [planFilter, setPlanFilter] = useState("Todos");
+  const [billingFilter, setBillingFilter] = useState("Todos");
+  const [accessFilter, setAccessFilter] = useState("Todos");
   const [selectedId, setSelectedId] = useState<string | null>(initialStudentId || null);
   const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState("");
@@ -4365,6 +4773,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
   const [releasingAccess, setReleasingAccess] = useState(false);
+  const [approvingRank, setApprovingRank] = useState(false);
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
 
   useEffect(() => setSearch(initialSearch), [initialSearch]);
@@ -4380,6 +4789,10 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         const localStudents = readLocalCollection<RegisteredStudent>(access.academyId, "students");
         setStudents(localStudents.map((student) => ({ ...student, active: student.active !== false, plan: student.plan ?? "Sem plano" })));
         setStudentPresence(readLocalCollection<DeveloperMember>(access.academyId, "members"));
+        setDirectoryCharges(access.role === "admin" ? readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges") : []);
+        setDirectoryWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.status === "published"));
+        setDirectoryAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance"));
+        setDirectoryExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions"));
       };
       syncLocalDirectory();
       window.addEventListener("orquestra-fit:collection-updated", syncLocalDirectory);
@@ -4393,11 +4806,23 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; planPrice?: number | null; planInterval?: string | null; initialDueDate?: string | null; nextBillingDate?: string | null; accessBlocked?: boolean; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; active?: boolean };
-        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, planPrice: data.planPrice ?? null, planInterval: data.planInterval ?? null, initialDueDate: data.initialDueDate ?? null, nextBillingDate: data.nextBillingDate ?? null, accessBlocked: data.accessBlocked === true, joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", active: data.active !== false };
+        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; planPrice?: number | null; planInterval?: string | null; initialDueDate?: string | null; nextBillingDate?: string | null; accessBlocked?: boolean; accessOverrideChargeIds?: string[]; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; approvedRank?: StudentRank; rankApprovedAt?: unknown; rankApprovedBy?: string | null; active?: boolean };
+        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, planPrice: data.planPrice ?? null, planInterval: data.planInterval ?? null, initialDueDate: data.initialDueDate ?? null, nextBillingDate: data.nextBillingDate ?? null, accessBlocked: data.accessBlocked === true, accessOverrideChargeIds: Array.isArray(data.accessOverrideChargeIds) ? data.accessOverrideChargeIds : [], joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", approvedRank: normalizeStudentRank(data.approvedRank), rankApprovedAt: data.rankApprovedAt, rankApprovedBy: data.rankApprovedBy ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
-    if (access.role !== "admin") return unsubscribeStudents;
+    const unsubscribeCharges = access.role === "admin" ? onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
+      setDirectoryCharges(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" : "pending" })));
+    }, (error) => console.error("Não foi possível carregar os vencimentos dos alunos.", error)) : () => undefined;
+    const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("status", "==", "published")), (snapshot) => {
+      setDirectoryWorkouts(snapshot.docs.map((item) => { const data = item.data() as Omit<WorkoutRecord, "id">; return { id: item.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" as const }; }));
+    }, (error) => console.error("Não foi possível carregar os próximos treinos.", error));
+    const unsubscribeAttendance = onSnapshot(collection(db, "academies", access.academyId, "attendance"), (snapshot) => {
+      setDirectoryAttendance(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AttendanceRecord, "id">) })));
+    }, (error) => console.error("Não foi possível carregar as visitas dos alunos.", error));
+    const unsubscribeExecutions = onSnapshot(collection(db, "academies", access.academyId, "workoutExecutions"), (snapshot) => {
+      setDirectoryExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })));
+    }, (error) => console.error("Não foi possível carregar o histórico de treinos.", error));
+    if (access.role !== "admin") return () => { unsubscribeStudents(); unsubscribeCharges(); unsubscribeWorkouts(); unsubscribeAttendance(); unsubscribeExecutions(); };
     const unsubscribeMembers = onSnapshot(collection(db, "academies", access.academyId, "members"), (snapshot) => {
       setStudentPresence(snapshot.docs.map((member) => ({ id: member.id, ...(member.data() as Omit<DeveloperMember, "id">) })));
     }, (error) => console.error("Não foi possível atualizar o status online dos alunos.", error));
@@ -4409,15 +4834,54 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }, (error) => console.error("Não foi possível carregar os professores.", error));
     const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setPlans(snapshot.docs.map((plan) => {
-        const data = plan.data() as { name?: string; price?: number; active?: boolean };
-        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), active: data.active !== false };
+        const data = plan.data() as { name?: string; price?: number; active?: boolean; registrationFee?: number };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), registrationFee: Number(data.registrationFee ?? 0), active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os planos.", error));
-    return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeTeachers(); unsubscribePlans(); };
+    return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeTeachers(); unsubscribePlans(); unsubscribeCharges(); unsubscribeWorkouts(); unsubscribeAttendance(); unsubscribeExecutions(); };
   }, [access.academyId, access.role, access.userId]);
 
-  const filteredStudents = students.filter((student) => `${student.name} ${student.email ?? ""}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const studentProgram = (student: RegisteredStudent) => studentRankProgram[normalizeStudentRank(student.approvedRank)];
+  const chargesForStudent = (student: RegisteredStudent) => directoryCharges.filter((charge) => charge.studentId === student.id || charge.studentId === student.userId);
+  const paymentForStudent = (student: RegisteredStudent) => {
+    const pending = chargesForStudent(student).filter((charge) => charge.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    if (!pending.length) return chargesForStudent(student).length ? "paid" : "none";
+    const statuses = pending.map(chargeViewStatus);
+    if (statuses.includes("overdue")) return "overdue";
+    if (statuses.includes("dueSoon")) return "dueSoon";
+    return "pending";
+  };
+  const visitsForStudent = (student: RegisteredStudent) => {
+    const ids = new Set([student.id, student.userId].filter((value): value is string => Boolean(value)));
+    const dates = new Set<string>();
+    directoryAttendance.filter((item) => ids.has(item.studentId) && item.status !== "absent").forEach((item) => { if (item.date) dates.add(item.date); });
+    directoryExecutions.filter((item) => ids.has(item.studentId)).forEach((item) => { const date = dateKeyFromValue(item.completedAt); if (date) dates.add(date); });
+    return dates.size;
+  };
+  const workoutsForStudent = (student: RegisteredStudent) => directoryWorkouts.filter((workout) => workout.studentId === student.id || workout.studentId === student.userId || workout.studentUserId === student.userId || workout.studentRecordId === student.id);
+  const nextWorkoutForStudent = (student: RegisteredStudent) => {
+    const workouts = workoutsForStudent(student);
+    if (!workouts.length) return null;
+    const studentIds = new Set([student.id, student.userId].filter((value): value is string => Boolean(value)));
+    const lastExecution = directoryExecutions.filter((item) => studentIds.has(item.studentId)).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt))[0];
+    const lastIndex = lastExecution ? workouts.findIndex((workout) => workout.id === lastExecution.workoutId) : -1;
+    return workouts[(lastIndex + 1) % workouts.length];
+  };
+  const directoryPlans = [...new Set(students.map((student) => student.plan || "Sem plano"))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const programCounts = studentRankOrder.reduce<Record<string, number>>((counts, rank) => { const program = studentRankProgram[rank]; counts[program] = students.filter((student) => studentProgram(student) === program).length; return counts; }, {});
+  const filteredStudents = students.filter((student) => {
+    const payment = paymentForStudent(student);
+    const accessStatus = student.active === false ? "inactive" : student.accessBlocked ? "blocked" : "active";
+    return matchesSearch(search, student.name, student.email, student.phone, student.cpf, student.plan, studentProgram(student)) &&
+      (programFilter === "Todos" || studentProgram(student) === programFilter) &&
+      (planFilter === "Todos" || (student.plan || "Sem plano") === planFilter) &&
+      (billingFilter === "Todos" || payment === billingFilter) &&
+      (accessFilter === "Todos" || accessStatus === accessFilter);
+  });
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
+  const selectedStudentRank = normalizeStudentRank(selectedStudent?.approvedRank);
+  const selectedStudentRankIndex = studentRankOrder.indexOf(selectedStudentRank);
+  const nextStudentRank = studentRankOrder[selectedStudentRankIndex + 1];
   const isStudentOnline = (student: RegisteredStudent) => {
     const member = studentPresence.find((item) => item.id === student.userId || item.id === student.id || item.userId === student.userId);
     const lastSeen = member ? firestoreDate(member.lastSeenAt) : null;
@@ -4471,7 +4935,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       setStudentFeedback(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutFeedbackRecord, "id">) })).sort((a, b) => workoutExecutionTime(b.createdAt as WorkoutExecution["completedAt"]) - workoutExecutionTime(a.createdAt as WorkoutExecution["completedAt"])));
     });
     const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
-      setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (b.createdAt?.toDate?.().getTime() ?? 0) - (a.createdAt?.toDate?.().getTime() ?? 0)));
+      setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
     });
     return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeAttendance(); unsubscribeFeedback(); unsubscribeMessages(); };
   }, [access.academyId, access.role, selectedId]);
@@ -4544,15 +5008,16 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     if (!selectedStudent || access.role !== "admin") return;
     setReleasingAccess(true);
     try {
+      const overdueChargeIds = studentCharges.filter((charge) => charge.chargeType === "monthly" && charge.status !== "paid" && chargeViewStatus(charge) === "overdue").map((charge) => charge.id);
       if (!db) {
-        const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, accessBlocked: false } : student);
+        const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, accessBlocked: false, accessOverrideChargeIds: overdueChargeIds } : student);
         setStudents(nextStudents);
         writeLocalCollection(access.academyId, "students", nextStudents);
       } else {
         const batch = writeBatch(db);
-        batch.update(doc(db, "academies", access.academyId, "students", selectedStudent.id), { accessBlocked: false, accessBlockReason: null, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() });
+        batch.update(doc(db, "academies", access.academyId, "students", selectedStudent.id), { accessBlocked: false, accessBlockReason: null, accessOverrideChargeIds: overdueChargeIds, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() });
         const memberId = selectedStudent.userId || selectedStudent.id;
-        batch.set(doc(db, "academies", access.academyId, "members", memberId), { accessBlocked: false, accessBlockReason: null, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() }, { merge: true });
+        batch.set(doc(db, "academies", access.academyId, "members", memberId), { accessBlocked: false, accessBlockReason: null, accessOverrideChargeIds: overdueChargeIds, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() }, { merge: true });
         await batch.commit();
       }
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "financial_access_released", label: "Acesso liberado manualmente", details: selectedStudent.name });
@@ -4561,11 +5026,38 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     finally { setReleasingAccess(false); }
   }
 
+  async function approveNextStudentRank() {
+    if (!selectedStudent || !nextStudentRank || !["admin", "teacher"].includes(access.role)) return;
+    if (access.role === "teacher" && selectedStudent.teacherId !== access.userId) {
+      onFeedback("Este aluno não está vinculado ao seu perfil de professor.");
+      return;
+    }
+    if (!window.confirm(`Confirmar a promoção de ${selectedStudent.name} de ${selectedStudentRank} para ${nextStudentRank}?`)) return;
+    setApprovingRank(true);
+    const approvedAt = new Date().toISOString();
+    try {
+      if (!db) {
+        const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, approvedRank: nextStudentRank, rankApprovedAt: approvedAt, rankApprovedBy: access.userId } : student);
+        setStudents(nextStudents);
+        writeLocalCollection(access.academyId, "students", nextStudents);
+      } else {
+        await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), { approvedRank: nextStudentRank, rankApprovedAt: serverTimestamp(), rankApprovedBy: access.userId });
+      }
+      void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_rank_promoted", label: `Rank do aluno alterado para ${nextStudentRank}`, details: `${selectedStudent.name.slice(0, 110)} · ${selectedStudentRank} → ${nextStudentRank}` });
+      onFeedback(`${selectedStudent.name} promovido(a) para ${nextStudentRank}. O rank e a borda da foto serão atualizados.`);
+    } catch {
+      onFeedback("Não foi possível registrar a promoção. Confira se o aluno está vinculado ao professor responsável.");
+    } finally {
+      setApprovingRank(false);
+    }
+  }
+
   async function sendInternalMessage() {
     if (!selectedStudent || !messageBody.trim()) {
       onFeedback("Escreva uma mensagem antes de enviar.");
       return;
     }
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     if (!db) {
       const message: InternalMessage = {
         id: `local-message-${crypto.randomUUID()}`,
@@ -4573,6 +5065,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         senderId: access.userId,
         senderName: accountName(access.user.displayName, access.user.email),
         body: messageBody.trim(),
+        createdAt: new Date().toISOString(),
+        expiresAt: expiresAt.toISOString(),
       };
       const messages = readLocalCollection<InternalMessage>(access.academyId, "messages");
       writeLocalCollection(access.academyId, "messages", [message, ...messages]);
@@ -4582,7 +5076,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }
     setSendingMessage(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "messages"), { studentId: selectedStudent.id, senderId: access.userId, senderName: accountName(access.user.displayName, access.user.email), body: messageBody.trim(), createdAt: serverTimestamp(), read: false });
+      await addDoc(collection(db, "academies", access.academyId, "messages"), { studentId: selectedStudent.id, senderId: access.userId, senderName: accountName(access.user.displayName, access.user.email), body: messageBody.trim(), createdAt: serverTimestamp(), expiresAt, read: false });
       setMessageBody(""); onFeedback("Mensagem enviada ao aluno.");
     } catch { onFeedback("Não foi possível enviar a mensagem."); }
     finally { setSendingMessage(false); }
@@ -4636,12 +5130,24 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       </section>
       <section className="directory-layout">
         <article className="workspace-panel directory-panel">
-          <header><div><span>CADASTROS ATIVOS</span><h3>{students.length} {students.length === 1 ? "aluno" : "alunos"}</h3></div></header>
-          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" /></div>
+          <header><div><span>CADASTROS DA ACADEMIA</span><h3>{filteredStudents.length} de {students.length} alunos</h3><p>Filtre por programa, plano, vencimento ou situação.</p></div></header>
+          <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} type="search" aria-label="Buscar por nome, e-mail, CPF ou telefone" placeholder="Nome, e-mail, CPF ou telefone" /></div>
+          {access.role === "admin" && <>
+            <div className="student-program-counts" aria-label="Quantidade de alunos por programa">
+              {studentRankOrder.map((rank) => { const program = studentRankProgram[rank]; return <button type="button" key={program} className={programFilter === program ? "active" : ""} onClick={() => setProgramFilter((current) => current === program ? "Todos" : program)}><span>{program}</span><b>{programCounts[program] ?? 0}</b></button>; })}
+            </div>
+            <div className="student-directory-filters" aria-label="Filtros da lista de alunos">
+              <label>Programa<select value={programFilter} onChange={(event) => setProgramFilter(event.target.value)}><option>Todos</option>{Object.values(studentRankProgram).filter((value, index, all) => all.indexOf(value) === index).map((program) => <option key={program}>{program}</option>)}</select></label>
+              <label>Plano<select value={planFilter} onChange={(event) => setPlanFilter(event.target.value)}><option>Todos</option>{directoryPlans.map((plan) => <option key={plan}>{plan}</option>)}</select></label>
+              <label>Mensalidade<select value={billingFilter} onChange={(event) => setBillingFilter(event.target.value)}><option value="Todos">Todas</option><option value="overdue">Vencida</option><option value="dueSoon">Vence em até 7 dias</option><option value="pending">Pendente</option><option value="paid">Em dia</option><option value="none">Sem cobrança</option></select></label>
+              <label>Situação<select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)}><option value="Todos">Todas</option><option value="active">Ativo</option><option value="blocked">Bloqueado</option><option value="inactive">Suspenso</option></select></label>
+              {(programFilter !== "Todos" || planFilter !== "Todos" || billingFilter !== "Todos" || accessFilter !== "Todos" || search) && <button type="button" className="student-filter-clear" onClick={() => { setProgramFilter("Todos"); setPlanFilter("Todos"); setBillingFilter("Todos"); setAccessFilter("Todos"); setSearch(""); }}>Limpar filtros</button>}
+            </div>
+          </>}
           <div className="directory-list">
             {filteredStudents.length === 0 ? <div className="directory-empty"><Users /><p>{students.length === 0 ? "Nenhum aluno cadastrado ainda." : "Nenhum aluno encontrado."}</p></div> : filteredStudents.map((student) => (
-              <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => { setSelectedId(student.id); scrollToContent(".student-detail-panel"); }}>
-                <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small></span><span className="directory-row-meta"><em className={student.active === false ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.plan}</em>{access.role === "admin" && <small className={isStudentOnline(student) ? "directory-online online" : "directory-online"}><i aria-hidden="true" />{isStudentOnline(student) ? "Online agora" : "Offline"}</small>}</span><ChevronRight />
+              <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => { setSelectedId(student.id); scrollToContent(".student-detail-panel", true); }}>
+                <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span className="directory-row-main"><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small><small>{student.plan || "Sem plano"} · Programa {studentProgram(student)}</small><small>{(() => { const workout = nextWorkoutForStudent(student); return workout ? `Próximo treino: ${displayWorkoutName(workout.name)}${workout.recommendedDay && workout.recommendedDay !== "Flexível" ? ` · ${workout.recommendedDay}` : ""}` : "Próximo treino: nenhum publicado"; })()}</small></span><span className="directory-row-meta"><em className={student.active === false || student.accessBlocked ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.accessBlocked ? "Bloqueado" : "Ativo"}</em>{access.role === "admin" && <><small className={`directory-billing-status ${paymentForStudent(student)}`}>{(() => { const payment = paymentForStudent(student); const next = chargesForStudent(student).filter((charge) => charge.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]; return payment === "none" ? "Sem cobrança" : `${payment === "overdue" ? "Vencida" : payment === "dueSoon" ? "Vence em breve" : payment === "paid" ? "Em dia" : "Pendente"}${next ? ` · ${formatDate(next.dueDate)}` : ""}`; })()}</small><small className="directory-online"><Users size={11} />{visitsForStudent(student)} visitas · {isStudentOnline(student) ? "online" : "offline"}</small></>}</span><ChevronRight />
               </button>
             ))}
           </div>
@@ -4650,12 +5156,14 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
           {selectedStudent ? <>
             <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false || selectedStudent.accessBlocked ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : selectedStudent.accessBlocked ? "Financeiro bloqueado" : "Ativo"}</span></header>
             <div className="student-profile-overview"><div><small>STATUS DE ACESSO</small><strong>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</strong></div><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>ÚLTIMO TREINO</small><strong>{studentExecutions[0] ? displayWorkoutName(studentExecutions[0].workoutName) : "Sem registro"}</strong></div></div>
-            <StudentFrequency attendance={studentAttendance} executions={studentExecutions} />
+             <StudentFrequency attendance={studentAttendance} executions={studentExecutions} />
+             <StudentRankReviewPanel student={selectedStudent} workouts={studentWorkouts} executions={studentExecutions} canPromote={access.role === "admin" || (access.role === "teacher" && selectedStudent.teacherId === access.userId)} saving={approvingRank} onPromote={() => void approveNextStudentRank()} />
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{displayWorkoutName(workout.name)}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
             <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}><Dumbbell size={15} /> Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}><Activity size={15} /> Nova avaliação</button>{access.role === "admin" && <button type="button" className={financialOpen ? "is-open" : ""} onClick={() => setFinancialOpen((current) => !current)}><WalletCards size={15} /> {financialOpen ? "Ocultar financeiro" : "Ver financeiro"}</button>}</div>
             {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
             <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
             <StudentWhatsAppPanel student={selectedStudent} onFeedback={onFeedback} />
+            <StudentAnamnesisPanel student={selectedStudent} onFeedback={onFeedback} />
             {access.role === "admin" && selectedStudent.accessBlocked && <button className="detail-toggle" type="button" onClick={() => void releaseFinancialAccess()} disabled={releasingAccess}>{releasingAccess ? "Liberando..." : "Liberar acesso manualmente"}</button>}
             <StudentWorkoutFeedbackPanel feedbacks={studentFeedback} />
             <details className="student-profile-collapse"><summary><span><small>CADASTRO E ACESSO</small><strong>Dados pessoais, plano e permissões</strong></span><ChevronDown /></summary><div className="student-profile-collapse-content">
@@ -4722,9 +5230,15 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
       cnpj: maskCnpj(form.cnpj ?? ""),
       cpf: maskCpf(form.cpf ?? ""),
       whatsappUrl: normalizeWhatsappLink(form.whatsappUrl),
+      whatsappGroupUrl: normalizeWhatsappLink(form.whatsappGroupUrl),
     };
     if (form.whatsappUrl?.trim() && !normalized.whatsappUrl) {
       onFeedback("Use um link HTTPS do WhatsApp ou do grupo da academia.");
+      setSaving(false);
+      return;
+    }
+    if (form.whatsappGroupUrl?.trim() && !normalized.whatsappGroupUrl) {
+      onFeedback("Use um link HTTPS válido para o grupo da academia.");
       setSaving(false);
       return;
     }
@@ -4734,12 +5248,12 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
         const settingsKey = `orquestra-fit:${access.academyId}:academy-settings`;
         let currentSettings: Record<string, unknown> = {};
         try { currentSettings = JSON.parse(window.localStorage.getItem(settingsKey) ?? "{}") as Record<string, unknown>; } catch { currentSettings = {}; }
-        window.localStorage.setItem(settingsKey, JSON.stringify({ ...currentSettings, name: normalized.name, phone: normalized.phone, instagramUrl: normalized.instagramUrl, siteUrl: normalized.siteUrl, whatsappUrl: normalized.whatsappUrl }));
+        window.localStorage.setItem(settingsKey, JSON.stringify({ ...currentSettings, name: normalized.name, phone: normalized.phone, instagramUrl: normalized.instagramUrl, siteUrl: normalized.siteUrl, whatsappUrl: normalized.whatsappUrl, whatsappGroupUrl: normalized.whatsappGroupUrl }));
         window.dispatchEvent(new Event("orquestra-fit:profile-updated"));
         window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
       } else {
         await setDoc(doc(db, "users", access.userId), { ...normalized, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, whatsappUrl: normalized.whatsappUrl || null, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, whatsappUrl: normalized.whatsappUrl || null, whatsappGroupUrl: normalized.whatsappGroupUrl || null, updatedAt: serverTimestamp() }, { merge: true });
       }
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "profile_updated", label: isManager ? "Perfil da academia atualizado" : "Perfil profissional atualizado" });
       onFeedback("Perfil atualizado.");
@@ -4767,7 +5281,8 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
       <form className="student-detail-form" onSubmit={save}>
         {form.photoUrl && <img className="manager-profile-photo" src={form.photoUrl} alt="Foto do gestor" />}
         <label>Foto do perfil<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importPhoto} disabled={photoSaving} /><small>{photoSaving ? "Importando..." : "Importe uma imagem do dispositivo."}</small></label>
-        {(["name", "phone", "cnpj", "cpf", "instagramUrl", "siteUrl", ...(isManager ? ["whatsappUrl" as const] : [])] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site", whatsappUrl: "WhatsApp ou grupo da academia" } as Record<string, string>)[key]}<input type={key === "whatsappUrl" ? "url" : undefined} value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} placeholder={key === "whatsappUrl" ? "https://chat.whatsapp.com/..." : undefined} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}
+        {(["name", "phone", ...(!isManager ? ["cnpj" as const] : []), "cpf", "instagramUrl", "siteUrl", ...(isManager ? ["whatsappUrl" as const, "whatsappGroupUrl" as const] : [])] as const).map((key) => <label key={key}>{({ name: "Nome completo", phone: "Telefone", cnpj: "CNPJ", cpf: "CPF", instagramUrl: "Link do Instagram", siteUrl: "Link do site", whatsappUrl: "WhatsApp da academia", whatsappGroupUrl: "Grupo da academia" } as Record<string, string>)[key]}<input type={key === "whatsappUrl" || key === "whatsappGroupUrl" ? "url" : undefined} value={form[key] ?? ""} onChange={(event) => update(key, event.target.value)} placeholder={key === "whatsappGroupUrl" ? "https://chat.whatsapp.com/..." : key === "whatsappUrl" ? "https://wa.me/5511999999999" : undefined} inputMode={key === "phone" || key === "cpf" || key === "cnpj" ? "numeric" : undefined} /></label>)}
+        {isManager && <CompanyFields value={form} onChange={update} onFill={(patch, key, expected) => setForm((current) => { if ((current[key] ?? "") !== expected) return current; const next = { ...current }; for (const [field, value] of Object.entries(patch)) { const name = field as keyof CompanyFieldsValue; if (!next[name]?.trim() && value) next[name] = value; } return next; })} />}
         <div className="form-actions"><button className="detail-save" type="submit" disabled={saving || photoSaving}>{saving ? "Salvando..." : "Salvar perfil"}</button><button className="secondary-action" type="button" onClick={() => void logout()}>Sair da conta</button></div>
       </form>
       {isManager && <div className="manager-profile-hours"><AcademyHoursSettings onFeedback={onFeedback} /></div>}
@@ -4896,15 +5411,10 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           ...(roleToAdd === "admin" ? { academyName: academyName.trim() } : {}),
           active: true, createdBy: access.userId, createdAt: serverTimestamp(),
         });
-        await addDoc(collection(db, "auditLogs"), {
+        if (functions) await httpsCallable(functions, "recordAuditEvent")({
           academyId,
-          userId: access.userId,
-          userName: access.user.displayName ?? access.user.email ?? "Desenvolvedor",
-          userEmail: access.user.email ?? null,
-          role: "developer",
           action: roleToAdd === "admin" ? "academy_provisioned" : "invite_created",
-          label: roleToAdd === "admin" ? "Nova academia provisionada" : `Convite de ${roleToAdd === "teacher" ? "professor" : "aluno"} criado`,
-          createdAt: serverTimestamp(),
+          details: null,
         });
       }
       setGeneratedCode(code);
@@ -5114,7 +5624,7 @@ function DeveloperConsolePanel({ onFeedback, fullScreen = false, onClose }: { on
     setSaving(true);
     try {
       await updateDoc(doc(firestore, "academies", selectedId), { plan: plan.trim() || "basic", billingDueDate: dueDate || null, billingStatus: status, status: status === "suspended" ? "suspended" : "active", monthlyAmount: parseCurrency(amount), updatedAt: serverTimestamp(), updatedBy: access.userId });
-      await addDoc(collection(firestore, "auditLogs"), { academyId: selectedId, userId: access.userId, userName: access.user.displayName ?? access.user.email ?? "Desenvolvedor", userEmail: access.user.email ?? null, role: "developer", action: "academy_billing_update", label: "Controle da academia atualizado", createdAt: serverTimestamp() });
+      if (functions) await httpsCallable(functions, "recordAuditEvent")({ academyId: selectedId, action: "academy_billing_update", details: null });
       setEditing(false);
       onFeedback("Controle da academia atualizado.");
     } catch {
@@ -5327,8 +5837,8 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
     }
     return onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setAvailablePlans(snapshot.docs.map((item) => {
-        const data = item.data() as { name?: string; price?: number; interval?: string; active?: boolean };
-        return { id: item.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", active: data.active !== false };
+        const data = item.data() as { name?: string; price?: number; registrationFee?: number; interval?: string; active?: boolean };
+        return { id: item.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), registrationFee: Number(data.registrationFee ?? 0), interval: data.interval ?? "Mensal", active: data.active !== false };
       }).filter((item) => item.active));
     }, () => setAvailablePlans([]));
   }, [access.academyId]);
@@ -5356,7 +5866,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
           role,
           invitedName: capitalizeName(name.trim()),
           invitedEmail: email.trim() || null,
-          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planInterval: selectedPlan?.interval ?? null, planPrice: selectedPlan?.price ?? null, initialDueDate: selectedPlan ? firstDueDate : null, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
+          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planInterval: selectedPlan?.interval ?? null, planPrice: selectedPlan?.price ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, initialDueDate: selectedPlan ? firstDueDate : null, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
           active: true,
           createdBy: access.userId,
           createdAt: serverTimestamp(),
@@ -5377,15 +5887,35 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             createdAt: serverTimestamp(),
           });
         }
+        if (role === "student" && selectedPlan && (selectedPlan.registrationFee ?? 0) > 0) {
+          batch.set(doc(db, "academies", access.academyId, "monthlyCharges", `registration-fee-${invitationCode}`), {
+            studentId: invitationCode,
+            studentName: capitalizeName(name.trim()),
+            planId: selectedPlan.id,
+            planName: `${selectedPlan.name} · Taxa de inscrição`,
+            amount: selectedPlan.registrationFee,
+            dueDate: todayIso(),
+            status: "pending",
+            chargeType: "registration",
+            accessCodeId: invitationCode,
+            origin: "student_registration",
+            createdBy: access.userId,
+            createdAt: serverTimestamp(),
+          });
+        }
         await batch.commit();
       } else {
         const id = `local-${role}-${Date.now()}`;
         if (role === "student") {
           const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planPrice: selectedPlan?.price ?? null, planInterval: selectedPlan?.interval ?? null, initialDueDate: selectedPlan ? firstDueDate : null, nextBillingDate: selectedPlan ? firstDueDate : null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true, accessBlocked: false }]);
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planPrice: selectedPlan?.price ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, planInterval: selectedPlan?.interval ?? null, initialDueDate: selectedPlan ? firstDueDate : null, nextBillingDate: selectedPlan ? firstDueDate : null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true, accessBlocked: false }]);
           if (selectedPlan && selectedPlan.price > 0) {
             const charges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
             writeLocalCollection(access.academyId, "monthlyCharges", [...charges, { id: `local-registration-${id}`, studentId: id, studentName: capitalizeName(name.trim()), planId: selectedPlan.id, planName: selectedPlan.name, amount: selectedPlan.price, dueDate: firstDueDate, status: "pending", chargeType: "monthly", origin: "student_registration" }]);
+          }
+          if (selectedPlan && (selectedPlan.registrationFee ?? 0) > 0) {
+            const charges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
+            writeLocalCollection(access.academyId, "monthlyCharges", [...charges, { id: `local-registration-fee-${id}`, studentId: id, studentName: capitalizeName(name.trim()), planId: selectedPlan.id, planName: `${selectedPlan.name} · Taxa de inscrição`, amount: selectedPlan.registrationFee ?? 0, dueDate: todayIso(), status: "pending", chargeType: "registration", origin: "student_registration" }]);
           }
         } else {
           const teachers = readLocalCollection<RegisteredTeacher>(access.academyId, "teachers");
@@ -5400,7 +5930,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
       setSaving(false);
     }
   }
-  const inviteWhatsappHref = phone ? whatsappMessageHref(phone, `Olá ${name.trim() || "!"}. Seu acesso à Orquestra Fit foi criado pela academia. Use o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://orquestra-fit.vercel.app"} e toque em “Ativar minha conta” para começar.`) : "";
+  const inviteWhatsappHref = phone ? whatsappMessageHref(phone, `Olá ${name.trim() || "!"}. Seu acesso à Orquestra Fit foi criado pela academia. Use o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://fit.orquestracs.com"} e toque em “Ativar minha conta” para começar.`) : "";
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-student-title">
       <section className="student-modal">
@@ -5411,7 +5941,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <label>E-mail Google <small>(opcional — use somente se a pessoa tiver)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
             {role === "student" && <><label>Telefone / WhatsApp<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Endereço<input value={address} onChange={(event) => setAddress(event.target.value)} autoComplete="street-address" placeholder="Rua, número, bairro e cidade" /></label></>}
             {role === "teacher" && <><label>Telefone<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} /></label><label>CREF<input value={cref} onChange={(event) => setCref(event.target.value.toUpperCase())} placeholder="Ex.: 012345-G/SP" /></label><label>Especialidade<input value={specialty} onChange={(event) => setSpecialty(capitalizeName(event.target.value))} placeholder="Ex.: Musculação" /></label></>}
-            {role === "student" && (availablePlans.length > 0 ? <label>Plano da academia<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{availablePlans.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} · {item.interval}</option>)}</select><small>O primeiro vencimento será lançado automaticamente no financeiro.</small></label> : <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select><small>Nenhum plano com valor foi cadastrado ainda. A cobrança poderá ser criada depois.</small></label>)}
+            {role === "student" && (availablePlans.length > 0 ? <label>Plano da academia<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{availablePlans.map((item) => <option key={item.id} value={item.id}>{item.name} · mensalidade {item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}{(item.registrationFee ?? 0) > 0 ? ` · inscrição ${item.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""} · {item.interval}</option>)}</select><small>{selectedPlan && (selectedPlan.registrationFee ?? 0) > 0 ? `Taxa única de inscrição: ${selectedPlan.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}, lançada para hoje. ` : ""}A primeira mensalidade será lançada para o vencimento escolhido.</small></label> : <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select><small>Nenhum plano com valor foi cadastrado ainda. A cobrança poderá ser criada depois.</small></label>)}
             {role === "student" && selectedPlan && <label>Primeiro vencimento<input type="date" value={firstDueDate} onChange={(event) => setFirstDueDate(event.target.value)} min={todayIso()} required /></label>}
             {role === "student" && <label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} required /><small>Usada para calcular a idade e felicitar o aluno no aniversário.</small></label>}
             {role === "student" && <label>Perfil anatômico<select value={anatomyProfile} onChange={(event) => setAnatomyProfile(event.target.value === "feminino" ? "feminino" : "masculino")}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>Define o modelo exibido durante o treino.</small></label>}
@@ -5419,7 +5949,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
           </form>
         ) : (
-          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` A primeira cobrança de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} vence em ${formatDate(firstDueDate)} e já foi lançada no financeiro.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div>{inviteWhatsappHref && <a className="whatsapp-invite-action" href={inviteWhatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Enviar código pelo WhatsApp</a>}<button className="student-modal-close" onClick={onClose}>Concluir</button></div>
+          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` Mensalidade de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para ${formatDate(firstDueDate)}${(selectedPlan.registrationFee ?? 0) > 0 ? `; taxa única de inscrição de ${selectedPlan.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para hoje` : ""}.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div>{inviteWhatsappHref && <a className="whatsapp-invite-action" href={inviteWhatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Enviar código pelo WhatsApp</a>}<button className="student-modal-close" onClick={onClose}>Concluir</button></div>
         )}
       </section>
     </div>
@@ -5543,38 +6073,41 @@ function ManagerAnnouncementComposer() {
   const [body, setBody] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [visibility, setVisibility] = useState<"7" | "30" | "welcome">("7");
   async function publish(event: React.FormEvent) {
     event.preventDefault();
     if (!title.trim() || !body.trim()) { feedback("Informe o título e o texto do comunicado."); return; }
     setSending(true);
     const senderName = profile?.name || profile?.displayName || accountName(access.user.displayName, access.user.email);
+    const expiresAt = new Date(Date.now() + (visibility === "welcome" ? 1 : Number(visibility)) * 24 * 60 * 60 * 1000);
+    const isWelcome = visibility === "welcome";
     try {
       if (!db) {
-        const announcement: AcademyAnnouncement = { id: editingId ?? `local-announcement-${Date.now()}`, title: capitalizeName(title.trim()), body: body.trim(), senderName };
+        const announcement: AcademyAnnouncement = { id: editingId ?? `local-announcement-${Date.now()}`, title: capitalizeName(title.trim()), body: body.trim(), senderName, createdAt: editingId ? announcements.find((item) => item.id === editingId)?.createdAt ?? new Date().toISOString() : new Date().toISOString(), expiresAt: expiresAt.toISOString(), isWelcome };
         writeLocalCollection(access.academyId, "announcements", editingId ? announcements.map((item) => item.id === editingId ? announcement : item) : [announcement, ...announcements]);
       } else {
-        const data = { title: capitalizeName(title.trim()), body: body.trim(), senderName, senderId: access.userId, updatedAt: serverTimestamp() };
+        const data = { title: capitalizeName(title.trim()), body: body.trim(), senderName, senderId: access.userId, expiresAt, isWelcome, updatedAt: serverTimestamp() };
         if (editingId) await updateDoc(doc(db, "academies", access.academyId, "announcements", editingId), data);
         else await addDoc(collection(db, "academies", access.academyId, "announcements"), { ...data, createdAt: serverTimestamp() });
       }
-      setTitle(""); setBody(""); setEditingId(null); feedback(editingId ? "Comunicado atualizado." : "Comunicado publicado para toda a academia.");
+      setTitle(""); setBody(""); setEditingId(null); setVisibility("7"); feedback(editingId ? "Comunicado atualizado." : "Comunicado publicado para toda a academia.");
     } catch { feedback("Não foi possível publicar o comunicado."); }
     finally { setSending(false); }
   }
-  function editAnnouncement(item: AcademyAnnouncement) { setEditingId(item.id); setTitle(item.title); setBody(item.body); scrollToContent(".announcement-composer"); }
+  function editAnnouncement(item: AcademyAnnouncement) { setEditingId(item.id); setTitle(item.title); setBody(item.body); setVisibility(item.isWelcome ? "welcome" : "7"); scrollToContent(".announcement-composer"); }
   async function removeAnnouncement(item: AcademyAnnouncement) {
     if (!window.confirm(`Excluir o comunicado “${item.title}”?`)) return;
     try {
       if (!db) writeLocalCollection(access.academyId, "announcements", announcements.filter((current) => current.id !== item.id));
       else await deleteDoc(doc(db, "academies", access.academyId, "announcements", item.id));
-      if (editingId === item.id) { setEditingId(null); setTitle(""); setBody(""); }
+      if (editingId === item.id) { setEditingId(null); setTitle(""); setBody(""); setVisibility("7"); }
       feedback("Comunicado excluído.");
     } catch { feedback("Não foi possível excluir o comunicado."); }
   }
   return <section className="workspace-panel announcement-composer">
     <header><div><span>COMUNICAÇÃO GERAL</span><h3>Comunicado da academia</h3><p>O aviso aparece na página inicial e nas notificações de todos.</p></div><Bell /></header>
-    <form onSubmit={publish}><label>Título<input value={title} onChange={(event) => setTitle(capitalizeName(event.target.value))} placeholder="Ex.: Horário especial neste sábado" maxLength={80} /></label><label>Mensagem<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Escreva um aviso curto e objetivo." maxLength={280} /></label><button type="submit" disabled={sending || !title.trim() || !body.trim()}>{sending ? "Salvando..." : editingId ? "Salvar comunicado" : "Publicar para todos"}</button></form>
-    {announcements.slice(0, 5).map((item) => <div className="announcement-latest" key={item.id}><span>COMUNICADO PUBLICADO</span><strong>{item.title}</strong><p>{item.body}</p><div className="announcement-actions"><button type="button" onClick={() => editAnnouncement(item)}>Editar</button><button type="button" onClick={() => void removeAnnouncement(item)}>Excluir</button></div></div>)}
+    <form onSubmit={publish}><label>Título<input value={title} onChange={(event) => setTitle(capitalizeName(event.target.value))} placeholder="Ex.: Horário especial neste sábado" maxLength={80} /></label><label>Mensagem<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Escreva um aviso curto e objetivo." maxLength={280} /></label><label>Exibir por<select value={visibility} onChange={(event) => setVisibility(event.target.value as "7" | "30" | "welcome")}><option value="7">7 dias</option><option value="30">30 dias</option><option value="welcome">Primeiro acesso (boas-vindas)</option></select></label><small className="announcement-expiry-help">Depois desse prazo o card e a notificação deixam de aparecer para os alunos.</small><button type="submit" disabled={sending || !title.trim() || !body.trim()}>{sending ? "Salvando..." : editingId ? "Salvar comunicado" : "Publicar para todos"}</button></form>
+    {announcements.slice(0, 5).map((item) => <div className="announcement-latest" key={item.id}><span>COMUNICADO PUBLICADO · {item.isWelcome ? "PRIMEIRO ACESSO" : item.expiresAt ? `ATÉ ${dateTimeLabel(item.expiresAt)}` : "SEM EXPIRAÇÃO"}</span><strong>{item.title}</strong><p>{item.body}</p><div className="announcement-actions"><button type="button" onClick={() => editAnnouncement(item)}>Editar</button><button type="button" onClick={() => void removeAnnouncement(item)}>Excluir</button></div></div>)}
   </section>;
 }
 
@@ -5589,7 +6122,7 @@ function AcademyFooter() {
   const siteUrl = academy.siteUrl || profileFallback?.siteUrl;
   const whatsappNumber = contactPhone?.replace(/\D/g, "");
   const whatsappDestination = whatsappNumber?.startsWith("55") ? whatsappNumber : `55${whatsappNumber}`;
-  return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div>{whatsappNumber && <a href={`https://wa.me/${whatsappDestination}`} target="_blank" rel="noreferrer">WhatsApp · {contactPhone}</a>}{instagramUrl && <a href={instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{siteUrl && <a href={siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div></footer>;
+  return <footer className="academy-footer"><span>Dama de Ferro Academia</span><div className="academy-footer-links">{whatsappNumber && <a href={`https://wa.me/${whatsappDestination}`} target="_blank" rel="noreferrer">WhatsApp · {contactPhone}</a>}{instagramUrl && <a href={instagramUrl} target="_blank" rel="noreferrer">Instagram</a>}{siteUrl && <a href={siteUrl} target="_blank" rel="noreferrer">Site oficial</a>}</div><div className="academy-footer-brand" aria-label="Assinatura digital Orquestra CS"><img src="/branding/orquestra-cs/symbol-o.png" alt="" /><span><small>ASSINATURA DIGITAL</small><strong>Orquestra.cs</strong></span></div></footer>;
 }
 
 

@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/c0wDG6BmIOWwWYZNLREU",
+  "fields": {
+    "name": {
+      "stringValue": "Alongamento de quadríceps"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "anatomyRegion": {
+      "stringValue": "Parte frontal da coxa"
+    },
+    "exerciseType": {
+      "stringValue": "Alongamento"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "secondaryMuscles": {
+      "stringValue": ""
+    },
+    "muscleGroup": {
+      "stringValue": "Quadríceps"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "phase": {
+      "stringValue": "Preparação"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

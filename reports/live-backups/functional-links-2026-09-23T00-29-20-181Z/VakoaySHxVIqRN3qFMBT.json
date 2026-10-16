@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/VakoaySHxVIqRN3qFMBT",
+  "fields": {
+    "phase": {
+      "stringValue": "Cardio"
+    },
+    "anatomyRegion": {
+      "stringValue": "Condicionamento cardiovascular"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "equipmentName": {
+      "stringValue": "Escada ergométrica"
+    },
+    "muscleGroup": {
+      "stringValue": "Cardio"
+    },
+    "name": {
+      "stringValue": "Escada ergométrica"
+    },
+    "exerciseType": {
+      "stringValue": "Cardio"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "machineCode": {
+      "stringValue": "escada-ergometrica"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Pernas, glúteos"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

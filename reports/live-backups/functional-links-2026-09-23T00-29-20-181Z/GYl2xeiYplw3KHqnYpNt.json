@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/GYl2xeiYplw3KHqnYpNt",
+  "fields": {
+    "exerciseType": {
+      "stringValue": "Cardio"
+    },
+    "phase": {
+      "stringValue": "Cardio"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Pernas, braços"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "anatomyRegion": {
+      "stringValue": "Condicionamento cardiovascular"
+    },
+    "equipmentName": {
+      "stringValue": "Air bike"
+    },
+    "muscleGroup": {
+      "stringValue": "Cardio"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "machineCode": {
+      "stringValue": "air-bike"
+    },
+    "name": {
+      "stringValue": "Air bike"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

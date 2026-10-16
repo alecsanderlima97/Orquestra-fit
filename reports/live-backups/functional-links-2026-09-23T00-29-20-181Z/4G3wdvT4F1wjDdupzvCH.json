@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/4G3wdvT4F1wjDdupzvCH",
+  "fields": {
+    "name": {
+      "stringValue": "Bicicleta ergométrica"
+    },
+    "exerciseType": {
+      "stringValue": "Cardio"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Pernas"
+    },
+    "machineCode": {
+      "stringValue": "bicicleta-ergometrica"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "equipmentName": {
+      "stringValue": "Bicicleta ergométrica"
+    },
+    "muscleGroup": {
+      "stringValue": "Cardio"
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "anatomyRegion": {
+      "stringValue": "Condicionamento cardiovascular"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "phase": {
+      "stringValue": "Cardio"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

@@ -42,20 +42,17 @@ const guides: Record<Role, { title: string; intro: string; steps: Array<[string,
 export function AppGuide({ role }: { role: Role }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [guideUses, setGuideUses] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    const stored = Number(window.localStorage.getItem(`orquestra-fit:guide-uses:${role}`) ?? "0");
-    return Number.isFinite(stored) ? stored : 0;
-  });
   const guide = guides[role];
 
   useEffect(() => {
-    const key = `orquestra-fit:guide-seen:${role}`;
-    const timer = window.setTimeout(() => {
-      if (!localStorage.getItem(key)) setOpen(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [role]);
+    function showContextualGuide(event: Event) {
+      const requestedStep = (event as CustomEvent<{ step?: number }>).detail?.step ?? 0;
+      setStep(Math.max(0, Math.min(requestedStep, guide.steps.length - 1)));
+      setOpen(true);
+    }
+    window.addEventListener("orquestra-fit:assistant-info", showContextualGuide);
+    return () => window.removeEventListener("orquestra-fit:assistant-info", showContextualGuide);
+  }, [guide.steps.length]);
 
   function close() {
     localStorage.setItem(`orquestra-fit:guide-seen:${role}`, "true");
@@ -63,26 +60,14 @@ export function AppGuide({ role }: { role: Role }) {
     setStep(0);
   }
 
-  function toggleGuide() {
-    setOpen((current) => {
-      const next = !current;
-      if (next) {
-        const usageKey = `orquestra-fit:guide-uses:${role}`;
-        const nextUses = guideUses + 1;
-        setGuideUses(nextUses);
-        localStorage.setItem(usageKey, String(nextUses));
-      }
-      return next;
-    });
-  }
+  if (!open) return null;
 
-  return <div className="app-guide">
-    {open && <section className="app-guide-panel" role="dialog" aria-label={guide.title}>
+  return <div className="app-guide is-presenting">
+    <section className="app-guide-panel" role="dialog" aria-label={guide.title}>
       <header><span><img className="orquestra-guide-icon" src={orquestraAssistantIcon} alt="" /><small>ASSISTENTE ORQUESTRA</small></span><button aria-label="Fechar guia" onClick={close}><X /></button></header>
-      <div className="app-guide-copy"><em>{guide.title} · {step + 1} de {guide.steps.length}</em><h2>{guide.steps[step][0]}</h2><p>{guide.steps[step][1]}</p>{step === 0 && <small>{guideUses > 1 ? "Dica atualizada para a sua área: continue usando o sistema e o guia ficará mais contextual." : guide.intro}</small>}</div>
+      <div className="app-guide-copy"><em>{guide.title} · {step + 1} de {guide.steps.length}</em><h2>{guide.steps[step][0]}</h2><p>{guide.steps[step][1]}</p>{step === 0 && <small>{guide.intro}</small>}</div>
       <div className="app-guide-dots">{guide.steps.map((item, index) => <button key={item[0]} aria-label={`Ir para ${item[0]}`} className={step === index ? "active" : ""} onClick={() => setStep(index)} />)}</div>
       <footer>{step > 0 ? <button className="guide-secondary" onClick={() => setStep(step - 1)}>Voltar</button> : <span />}{step < guide.steps.length - 1 ? <button onClick={() => setStep(step + 1)}>Próximo <ChevronRight /></button> : <button onClick={close}>Concluir <Sparkles /></button>}</footer>
-    </section>}
-    <button className="app-guide-trigger" aria-label="Abrir guia do sistema" title="Ajuda" onClick={toggleGuide}>{open ? <X /> : <img className="orquestra-guide-icon" src={orquestraAssistantIcon} alt="" />}</button>
+    </section>
   </div>;
 }

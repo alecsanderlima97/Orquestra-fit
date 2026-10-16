@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/LI8yzRIHgxA2Hd4AAUCg",
+  "fields": {
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    },
+    "bodyRegion": {
+      "stringValue": "Região central"
+    },
+    "phase": {
+      "stringValue": "Treino principal"
+    },
+    "anatomyRegion": {
+      "stringValue": "Laterais do abdômen"
+    },
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Core"
+    },
+    "exerciseType": {
+      "stringValue": "Força"
+    },
+    "muscleGroup": {
+      "stringValue": "Abdômen"
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "name": {
+      "stringValue": "Abdominal oblíquo"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}

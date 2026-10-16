@@ -1,0 +1,49 @@
+{
+  "name": "projects/orquestra-fit/databases/(default)/documents/academies/RtfBsasHQA6NM0ttC6AO/exercises/nzk6iGBEJ80sMYKsc21d",
+  "fields": {
+    "createdBy": {
+      "stringValue": "h3ObkBceaNSAdZtdGRqIlMpvNei1"
+    },
+    "secondaryMuscles": {
+      "stringValue": "Glúteos, adutores"
+    },
+    "videoUrl": {
+      "stringValue": ""
+    },
+    "instructions": {
+      "stringValue": "Orientação objetiva será adicionada pelo professor."
+    },
+    "source": {
+      "stringValue": "starter-library"
+    },
+    "muscleGroup": {
+      "stringValue": "Mobilidade"
+    },
+    "name": {
+      "stringValue": "Mobilidade de quadril"
+    },
+    "phase": {
+      "stringValue": "Preparação"
+    },
+    "createdAt": {
+      "timestampValue": "2026-09-22T18:32:06.901Z"
+    },
+    "machineCode": {
+      "stringValue": "area-livre-peso-corporal"
+    },
+    "bodyRegion": {
+      "stringValue": "Membros inferiores"
+    },
+    "anatomyRegion": {
+      "stringValue": "Quadril"
+    },
+    "exerciseType": {
+      "stringValue": "Alongamento"
+    },
+    "equipmentName": {
+      "stringValue": "Área livre / peso corporal"
+    }
+  },
+  "createTime": "2026-09-22T18:32:07.511894Z",
+  "updateTime": "2026-09-22T18:32:07.511894Z"
+}
