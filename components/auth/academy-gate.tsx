@@ -255,6 +255,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         planId?: string | null;
         planInterval?: string | null;
         planPrice?: number | null;
+        registrationFee?: number | null;
         initialDueDate?: string | null;
         anatomyProfile?: "masculino" | "feminino";
         birthDate?: string | null;
@@ -299,6 +300,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           planId: invitation.planId ?? null,
           planInterval: invitation.planInterval ?? null,
           planPrice: invitation.planPrice ?? null,
+          registrationFee: invitation.registrationFee ?? 0,
           initialDueDate: invitation.initialDueDate ?? null,
           nextBillingDate: invitation.initialDueDate ?? null,
           planStartedAt: new Date().toISOString(),
@@ -349,6 +351,17 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           });
         } catch {
           // O cadastro continua válido mesmo se a cobrança pendente não puder ser vinculada.
+        }
+      }
+      if (invitation.role === "student" && (invitation.registrationFee ?? 0) > 0) {
+        try {
+          await updateDoc(doc(firestore, "academies", invitation.academyId, "monthlyCharges", `registration-fee-${normalizedCode}`), {
+            studentId: user.uid,
+            studentName: invitation.invitedName ?? user.displayName ?? user.email ?? "Aluno",
+            updatedAt: serverTimestamp(),
+          });
+        } catch {
+          // A ativação não é bloqueada se a cobrança da taxa não puder ser vinculada.
         }
       }
       onActivated(

@@ -11,17 +11,22 @@ import {
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import {
   AlertTriangle,
   Boxes,
   Download,
+  Minus,
   Package,
+  Plus,
   QrCode,
+  Search,
+  ShoppingCart,
   Wrench,
   X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
-import { db } from "@/lib/firebase/client";
+import { db, functions } from "@/lib/firebase/client";
 
 type StockKind = "product" | "machine" | "internal";
 type MovementType = "entrada" | "saída";
@@ -64,6 +69,8 @@ type StockMovement = {
   paymentMethod?: string;
   totalAmount?: number;
 };
+type StockStudent = { id: string; name: string; active: boolean };
+type CounterPaymentMode = "paid" | "on_account";
 const key = (academyId: string, name: string) =>
   `orquestra-fit:${academyId}:stock-${name}`;
 const readFile = (file: File) =>
@@ -86,6 +93,8 @@ const today = () =>
     .filter((part) => part.type === "year" || part.type === "month" || part.type === "day")
     .map((part) => part.value)
     .join("-");
+const createCounterSaleId = () =>
+  globalThis.crypto?.randomUUID?.() || `sale-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const addMonths = (date: string, months: number) => {
   const value = new Date(`${date}T12:00:00`);
   value.setMonth(value.getMonth() + months);
@@ -101,6 +110,7 @@ export function StockModule({
   const [items, setItems] = useState<StockItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [students, setStudents] = useState<StockStudent[]>([]);
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<StockKind>("product");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -141,6 +151,13 @@ export function StockModule({
   const [purchaseInstallments, setPurchaseInstallments] = useState("1");
   const [qrItem, setQrItem] = useState<StockItem | null>(null);
   const [qrImage, setQrImage] = useState("");
+  const [posOpen, setPosOpen] = useState(false);
+  const [posSearch, setPosSearch] = useState("");
+  const [posStudentId, setPosStudentId] = useState("");
+  const [posPaymentMode, setPosPaymentMode] = useState<CounterPaymentMode>("paid");
+  const [posPaymentMethod, setPosPaymentMethod] = useState("Pix");
+  const [posCart, setPosCart] = useState<Record<string, number>>({});
+  const [posSaleId, setPosSaleId] = useState("");
   useEffect(() => {
     if (!db) {
       const timer = window.setTimeout(() => {
@@ -159,6 +176,11 @@ export function StockModule({
             JSON.parse(
               localStorage.getItem(key(access.academyId, "movements")) || "[]",
             ),
+          );
+          setStudents(
+            JSON.parse(
+              localStorage.getItem(`orquestra-fit:${access.academyId}:students`) || "[]",
+            ).filter((student: StockStudent) => student.active !== false),
           );
         } catch {
           setItems([]);
@@ -203,10 +225,19 @@ export function StockModule({
             .sort((a, b) => b.date.localeCompare(a.date)),
         ),
     );
+    const offStudents = onSnapshot(
+      collection(db, "academies", access.academyId, "students"),
+      (snap) => setStudents(snap.docs.map((student) => ({
+        id: student.id,
+        name: String(student.data().name || "Aluno sem nome"),
+        active: student.data().active !== false,
+      })).filter((student) => student.active)),
+    );
     return () => {
       offItems();
       offCategories();
       offMovements();
+      offStudents();
     };
   }, [access.academyId]);
   const products = items.filter((item) => item.kind === "product");
@@ -214,8 +245,103 @@ export function StockModule({
   const internalItems = items.filter((item) => item.kind === "internal");
   const lowStock = products.filter((item) => item.quantity <= item.minimum);
   const visibleItems = items.filter((item) => (categoryFilter === "Todas" || (item.category || "Sem categoria") === categoryFilter) && matchesSearch(search, item.name, item.category, item.supplier, item.barcode, item.brand, item.model, item.serialNumber));
+  const posProducts = products.filter((item) => item.quantity > 0 && Number(item.salePrice) > 0 && matchesSearch(posSearch, item.name, item.category, item.barcode));
+  const posLines = Object.entries(posCart).map(([id, quantity]) => {
+    const item = products.find((product) => product.id === id);
+    return item ? { item, quantity, lineTotal: Number(item.salePrice || 0) * quantity } : null;
+  }).filter((line): line is { item: StockItem; quantity: number; lineTotal: number } => Boolean(line));
+  const posTotal = posLines.reduce((sum, line) => sum + line.lineTotal, 0);
   function write(name: string, data: unknown[]) {
     localStorage.setItem(key(access.academyId, name), JSON.stringify(data));
+  }
+  function openPointOfSale() {
+    setPosCart({});
+    setPosSearch("");
+    setPosStudentId("");
+    setPosPaymentMode("paid");
+    setPosPaymentMethod("Pix");
+    setPosSaleId(createCounterSaleId());
+    setPosOpen(true);
+  }
+  async function registerCounterSale(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (movementSaving) return;
+    if (!posLines.length) { onFeedback("Adicione ao menos um produto à venda."); return; }
+    if (posPaymentMode === "on_account" && !posStudentId) { onFeedback("Selecione o aluno para lançar a compra na conta."); return; }
+    const student = students.find((item) => item.id === posStudentId);
+    if (posPaymentMode === "on_account" && !student) { onFeedback("Não foi possível localizar o aluno selecionado."); return; }
+    setMovementSaving(true);
+    const saleId = posSaleId || createCounterSaleId();
+    if (!posSaleId) setPosSaleId(saleId);
+    try {
+      if (db) {
+        if (!functions) throw new Error("O serviço de vendas não está configurado.");
+        const registerSale = httpsCallable<{
+          academyId: string;
+          saleId: string;
+          studentId: string | null;
+          paymentMode: CounterPaymentMode;
+          paymentMethod: string;
+          items: Array<{ productId: string; quantity: number }>;
+        }, { ok: boolean; amount: number; alreadyProcessed?: boolean }>(functions, "registerCounterSale");
+        const result = await registerSale({
+          academyId: access.academyId,
+          saleId,
+          studentId: student?.id ?? null,
+          paymentMode: posPaymentMode,
+          paymentMethod: posPaymentMethod,
+          items: posLines.map(({ item, quantity }) => ({ productId: item.id, quantity })),
+        });
+        setPosOpen(false);
+        setPosCart({});
+        setPosSaleId("");
+        onFeedback(result.data.alreadyProcessed ? "Esta venda já havia sido registrada." : `Venda registrada: ${money(result.data.amount)}. Estoque e financeiro atualizados.`);
+        return;
+      }
+
+      const now = new Date();
+      const studentName = student?.name ?? null;
+      const newMovements: StockMovement[] = posLines.map(({ item, quantity, lineTotal }) => ({
+        id: `local-movement-${saleId}-${item.id}`,
+        itemId: item.id,
+        itemName: item.name,
+        type: "saída",
+        quantity,
+        date: now.toISOString(),
+        note: `Venda no balcão · ${saleId}`,
+        balance: item.quantity - quantity,
+        buyerName: studentName ?? "Cliente avulso",
+        paymentMethod: posPaymentMode === "paid" ? posPaymentMethod : "Conta do aluno",
+        totalAmount: lineTotal,
+      }));
+      const nextItems = items.map((item) => {
+        const quantity = posCart[item.id] ?? 0;
+        return quantity > 0 ? { ...item, quantity: item.quantity - quantity, exited: item.exited + quantity } : item;
+      });
+      const nextMovements = [...newMovements, ...movements];
+      write("items", nextItems);
+      write("movements", nextMovements);
+      write("sales", [{ id: saleId, studentId: student?.id ?? null, studentName, amount: posTotal, paymentMode: posPaymentMode, paymentMethod: posPaymentMode === "paid" ? posPaymentMethod : "Conta do aluno", date: now.toISOString(), items: posLines.map(({ item, quantity, lineTotal }) => ({ productId: item.id, name: item.name, quantity, unitPrice: item.salePrice, lineTotal })) }, ...JSON.parse(localStorage.getItem(key(access.academyId, "sales")) || "[]")]);
+      if (posPaymentMode === "paid") {
+        const sales = JSON.parse(localStorage.getItem(`orquestra-fit:${access.academyId}:financialSales`) || "[]");
+        localStorage.setItem(`orquestra-fit:${access.academyId}:financialSales`, JSON.stringify([{ id: saleId, description: `Venda no balcão · ${posLines.map(({ item, quantity }) => `${quantity}x ${item.name}`).join(" · ")}`, studentId: student?.id ?? null, studentName, amount: posTotal, paymentMethod: posPaymentMethod, date: now.toISOString(), origin: "stock" }, ...sales]));
+      } else {
+        const charges = JSON.parse(localStorage.getItem(`orquestra-fit:${access.academyId}:monthlyCharges`) || "[]");
+        localStorage.setItem(`orquestra-fit:${access.academyId}:monthlyCharges`, JSON.stringify([{ id: `local-sale-${saleId}`, saleId, studentId: student!.id, studentName: student!.name, planName: `Compra no balcão · ${posLines.map(({ item, quantity }) => `${quantity}x ${item.name}`).join(" · ")}`, amount: posTotal, dueDate: today(), status: "pending", chargeType: "service", origin: "stock_sale" }, ...charges]));
+      }
+      setItems(nextItems);
+      setMovements(nextMovements);
+      window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
+      setPosOpen(false);
+      setPosCart({});
+      setPosSaleId("");
+      onFeedback(`Venda registrada: ${money(posTotal)}. Estoque e financeiro atualizados.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Não foi possível registrar a venda.";
+      onFeedback(message.includes("stock") || message.includes("callable") ? "Não foi possível registrar a venda. Confira sua conexão e tente novamente." : message);
+    } finally {
+      setMovementSaving(false);
+    }
   }
   async function createCategory() {
     const value = newCategory.trim();
@@ -615,6 +741,10 @@ export function StockModule({
           </span>
         </article>
       </div>
+      <div className="stock-quick-actions">
+        <div><strong>Venda rápida</strong><span>Produtos do balcão com baixa de estoque e registro no financeiro.</span></div>
+        <button type="button" className="detail-save" onClick={openPointOfSale} disabled={!products.length}><ShoppingCart size={17} /> Abrir ponto de venda</button>
+      </div>
       <div className="stock-layout">
         <details className="stock-registration">
           <summary className="detail-secondary">Cadastrar ou editar item</summary>
@@ -924,6 +1054,41 @@ export function StockModule({
           <p>Nenhuma movimentação registrada.</p>
         )}
       </section>
+      {posOpen && (
+        <div className="qr-modal-backdrop stock-pos-backdrop" role="dialog" aria-modal="true" aria-labelledby="stock-pos-title">
+          <section className="qr-modal stock-pos-modal">
+            <button className="qr-close" type="button" aria-label="Fechar ponto de venda" onClick={() => setPosOpen(false)}><X /></button>
+            <header><span>PONTO DE VENDA</span><h3 id="stock-pos-title">Venda de produtos</h3><p>Escolha os itens, identifique o aluno se desejar e confirme o recebimento.</p></header>
+            <form onSubmit={registerCounterSale}>
+              <div className="stock-pos-layout">
+                <section className="stock-pos-catalog">
+                  <label className="stock-pos-search"><Search size={16} /><input type="search" value={posSearch} onChange={(event) => setPosSearch(event.target.value)} placeholder="Buscar produto ou código de barras" /></label>
+                  <div className="stock-pos-products">
+                    {posProducts.length ? posProducts.map((item) => {
+                      const inCart = posCart[item.id] ?? 0;
+                      return <article key={item.id}>
+                        <div>{item.photoUrl ? <img src={item.photoUrl} alt="" /> : <span><Package size={17} /></span>}<div><strong>{item.name}</strong><small>Saldo: {item.quantity} · {money(item.salePrice ?? 0)}</small></div></div>
+                        <button type="button" aria-label={`Adicionar ${item.name}`} disabled={inCart >= item.quantity} onClick={() => setPosCart((current) => ({ ...current, [item.id]: Math.min((current[item.id] ?? 0) + 1, item.quantity) }))}><Plus size={16} /></button>
+                      </article>;
+                    }) : <p className="stock-pos-empty">Nenhum produto com saldo e preço de venda foi encontrado.</p>}
+                  </div>
+                </section>
+                <aside className="stock-pos-cart">
+                  <header><strong>Carrinho</strong><small>{posLines.reduce((sum, line) => sum + line.quantity, 0)} item(ns)</small></header>
+                  <div className="stock-pos-cart-lines">
+                    {posLines.length ? posLines.map(({ item, quantity, lineTotal }) => <article key={item.id}><div><strong>{item.name}</strong><small>{money(item.salePrice ?? 0)} cada · {money(lineTotal)}</small></div><div><button type="button" aria-label={`Remover uma unidade de ${item.name}`} onClick={() => setPosCart((current) => { const next = { ...current }; if (next[item.id] <= 1) delete next[item.id]; else next[item.id] -= 1; return next; })}><Minus size={14} /></button><b>{quantity}</b><button type="button" aria-label={`Adicionar uma unidade de ${item.name}`} disabled={quantity >= item.quantity} onClick={() => setPosCart((current) => ({ ...current, [item.id]: Math.min((current[item.id] ?? 0) + 1, item.quantity) }))}><Plus size={14} /></button></div></article>) : <p>Adicione produtos para começar.</p>}
+                  </div>
+                  <div className="stock-pos-total"><span>Total</span><strong>{money(posTotal)}</strong></div>
+                  <label>Vincular ao aluno <small>Opcional para venda no balcão.</small><select value={posStudentId} onChange={(event) => setPosStudentId(event.target.value)}><option value="">Cliente avulso</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>
+                  <label>Como registrar<select value={posPaymentMode} onChange={(event) => setPosPaymentMode(event.target.value as CounterPaymentMode)}><option value="paid">Recebido agora</option><option value="on_account">Lançar na conta do aluno</option></select></label>
+                  {posPaymentMode === "paid" ? <label>Forma de pagamento<select value={posPaymentMethod} onChange={(event) => setPosPaymentMethod(event.target.value)}><option>Pix</option><option>Dinheiro</option><option>Cartão de débito</option><option>Cartão de crédito</option><option>Transferência</option></select></label> : <p className="stock-pos-credit-note">A venda ficará pendente no financeiro do aluno, com vencimento hoje. O estoque será baixado agora.</p>}
+                  <button className="detail-save" type="submit" disabled={movementSaving || !posLines.length || (posPaymentMode === "on_account" && !posStudentId)}>{movementSaving ? "Registrando venda…" : posPaymentMode === "on_account" ? "Lançar e baixar estoque" : "Confirmar venda"}</button>
+                </aside>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
       {selected && (
         <div className="qr-modal-backdrop" role="dialog" aria-modal="true">
           <section className="qr-modal movement-modal">

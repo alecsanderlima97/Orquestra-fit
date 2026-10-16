@@ -857,6 +857,7 @@ export default function Home() {
         )}
         {role === "aluno" && (
         <section className={sessionOpen ? "student-app session-active" : "student-app"}>
+          <StudentFinancialGate>
           <BirthdayGreeting />
           {sessionOpen ? (
             <WorkoutSession
@@ -879,6 +880,7 @@ export default function Home() {
             </>
           )}
           {menuOpen && <StudentDrawer onClose={() => setMenuOpen(false)} onChange={navigateStudentTab} />}
+          </StudentFinancialGate>
         </section>
       )}
         {role === "professor" && <ProfessorWorkspace theme={theme} onThemeChange={setTheme} />}
@@ -1141,24 +1143,25 @@ function useStudentNotificationItems(includeStudentData = true) {
   const [messages, setMessages] = useState<InternalMessage[]>([]);
   const [charges, setCharges] = useState<MonthlyCharge[]>([]);
   useEffect(() => {
-    if (!includeStudentData) { setMessages([]); setCharges([]); return; }
     if (!db) {
       const syncLocal = () => {
         const studentId = localStudentId(access.academyId, access.userId);
-        setMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId));
-        setCharges(readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => item.studentId === studentId));
+        setMessages(includeStudentData ? readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === studentId) : []);
+        const allCharges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
+        setCharges(includeStudentData ? allCharges.filter((item) => item.studentId === studentId) : access.role === "admin" ? allCharges : []);
       };
       syncLocal();
       window.addEventListener("orquestra-fit:collection-updated", syncLocal);
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
     }
-    const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) }))));
-    const unsubscribeCharges = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => setCharges(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" : "pending" }))));
+    const unsubscribeMessages = includeStudentData ? onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", access.userId)), (snapshot) => setMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })))) : () => undefined;
+    const chargesQuery = includeStudentData ? query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)) : collection(db, "academies", access.academyId, "monthlyCharges");
+    const unsubscribeCharges = (!includeStudentData && access.role !== "admin") ? () => undefined : onSnapshot(chargesQuery, (snapshot) => setCharges(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" : "pending" }))));
     return () => { unsubscribeMessages(); unsubscribeCharges(); };
-  }, [access.academyId, access.userId, includeStudentData]);
+  }, [access.academyId, access.role, access.userId, includeStudentData]);
   const items: NotificationItem[] = [
-    ...charges.filter((charge) => chargeViewStatus(charge) === "overdue").map((charge) => ({ id: `charge-${charge.id}`, type: "overdue" as const, title: "Mensalidade vencida", detail: `${charge.planName} venceu em ${formatDate(charge.dueDate)}.` })),
-    ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: "Vencimento próximo", detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
+    ...charges.filter((charge) => chargeViewStatus(charge) === "overdue").map((charge) => ({ id: `charge-${charge.id}`, type: "overdue" as const, title: includeStudentData ? "Mensalidade vencida" : `Vencimento em atraso · ${charge.studentName}`, detail: `${charge.planName} venceu em ${formatDate(charge.dueDate)}.` })),
+    ...charges.filter((charge) => chargeViewStatus(charge) === "dueSoon").map((charge) => ({ id: `charge-${charge.id}`, type: "dueSoon" as const, title: includeStudentData ? "Vencimento próximo" : `Mensalidade próxima · ${charge.studentName}`, detail: `${charge.planName} vence em ${Math.max(daysUntil(charge.dueDate), 0)} dia(s).` })),
     ...announcements.map((item) => ({ id: `announcement-${item.id}`, type: "announcement" as const, title: item.title, detail: item.body, createdAt: item.createdAt })),
     ...messages.filter((item) => contentIsActive(item.expiresAt, Date.now(), item.createdAt)).map((item) => ({ id: `message-${item.id}`, type: "message" as const, title: `Mensagem de ${item.senderName}`, detail: item.body, createdAt: item.createdAt })),
     ...workouts.map((item) => ({ id: `workout-${item.id}`, type: "workout" as const, title: "Novo treino disponível", detail: `${item.name} foi publicado para você.`, createdAt: item.createdAt ?? item.publishedAt ?? item.updatedAt })),
@@ -1358,6 +1361,60 @@ function StudentPaymentStatus() {
       <div><small>Mensalidade</small><strong>{charge ? chargeStatusLabel(status) : "Sem cobrança"}</strong><p>{detail}</p></div><ChevronRight />
     </article>
   );
+}
+
+function StudentFinancialGate({ children }: { children: React.ReactNode }) {
+  const access = useAccess();
+  const [state, setState] = useState<"checking" | "active" | "blocked" | "error">("checking");
+  const [pendingCharge, setPendingCharge] = useState<MonthlyCharge | null>(null);
+
+  useEffect(() => {
+    if (access.role !== "student") {
+      setState("active");
+      return;
+    }
+    setState("checking");
+    setPendingCharge(null);
+    if (!db) {
+      const syncLocal = () => {
+        const student = readLocalCollection<RegisteredStudent>(access.academyId, "students").find((item) => item.id === access.userId || item.userId === access.userId);
+        const member = readLocalCollection<DeveloperMember & { accessBlocked?: boolean }>(access.academyId, "members").find((item) => item.id === access.userId || item.userId === access.userId);
+        setState(student?.accessBlocked || member?.accessBlocked ? "blocked" : "active");
+        const pending = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges").filter((item) => (item.studentId === access.userId || item.studentId === student?.id) && (item.chargeType === "monthly" || (!item.chargeType && Boolean(item.planId))) && item.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+        setPendingCharge(pending ?? null);
+      };
+      syncLocal();
+      window.addEventListener("orquestra-fit:collection-updated", syncLocal);
+      return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocal);
+    }
+
+    let memberReady = false;
+    let studentReady = false;
+    let memberBlocked = false;
+    let studentBlocked = false;
+    const updateState = () => {
+      if (memberReady && studentReady) setState(memberBlocked || studentBlocked ? "blocked" : "active");
+    };
+    const memberUnsubscribe = onSnapshot(doc(db, "academies", access.academyId, "members", access.userId), (snapshot) => {
+      memberReady = true;
+      memberBlocked = snapshot.data()?.accessBlocked === true;
+      updateState();
+    }, () => setState("error"));
+    const studentUnsubscribe = onSnapshot(doc(db, "academies", access.academyId, "students", access.userId), (snapshot) => {
+      studentReady = true;
+      studentBlocked = snapshot.data()?.accessBlocked === true;
+      updateState();
+    }, () => setState("error"));
+    const chargeUnsubscribe = onSnapshot(query(collection(db, "academies", access.academyId, "monthlyCharges"), where("studentId", "==", access.userId)), (snapshot) => {
+      const pending = snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" as const : "pending" as const })).filter((item) => (item.chargeType === "monthly" || (!item.chargeType && Boolean(item.planId))) && item.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+      setPendingCharge(pending ?? null);
+    }, () => undefined);
+    return () => { memberUnsubscribe(); studentUnsubscribe(); chargeUnsubscribe(); };
+  }, [access.academyId, access.role, access.userId]);
+
+  if (state === "active") return children;
+  if (state === "checking") return <div className="student-financial-check"><OrquestraLoader label="Verificando situação da conta" /></div>;
+  return <main className="student-financial-lock" role="alert"><section><span className="student-financial-lock-icon"><LockKeyhole /></span><small>ACESSO ÀS ATIVIDADES</small><h1>{state === "error" ? "Não foi possível confirmar seu acesso" : "Acesso temporariamente bloqueado"}</h1><p>{state === "error" ? "Atualize a página ou fale com a administração da academia para confirmar sua situação." : "Identificamos uma pendência financeira. Para continuar usando treinos e atividades, converse com a administração da academia e regularize sua situação."}</p>{pendingCharge && <div className="student-financial-lock-charge"><span>{pendingCharge.planName} · vencimento {formatDate(pendingCharge.dueDate)}</span><strong>R$ {pendingCharge.amount.toFixed(2).replace(".", ",")}</strong></div>}<p className="student-financial-lock-help">Depois que o pagamento for confirmado pela academia, seu acesso será liberado automaticamente. Se você já pagou, entre em contato para a equipe conferir.</p><StudentAcademyWhatsAppCard /></section></main>;
 }
 
 function StudentMessagesInbox() {
@@ -2306,6 +2363,7 @@ type RegisteredStudent = {
   initialDueDate?: string | null;
   nextBillingDate?: string | null;
   accessBlocked?: boolean;
+  accessOverrideChargeIds?: string[];
   joinedAt?: string | null;
   planStartedAt?: string | null;
   teacherId?: string | null;
@@ -2545,9 +2603,9 @@ function StudentAcademyPanel() {
   return <div className="student-academy-detail"><strong>{academy.name}</strong>{academy.address && <span>{academy.address}</span>}{academy.phone && <span>{academy.phone}</span>}<div><small>Funcionamento</small><b>{academy.openingTime && academy.closingTime ? `${academy.openingTime} – ${academy.closingTime}` : "Horário ainda não informado"}</b><span>{days || "Dias ainda não informados"}</span></div></div>;
 }
 
-type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean };
+type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean; registrationFee?: number };
 type BillingStudent = { id: string; name: string; active: boolean; userId?: string | null; teacherId?: string | null; birthDate?: string | null };
-type BillingPlan = { id: string; name: string; price: number; active: boolean };
+type BillingPlan = { id: string; name: string; price: number; interval?: string; active: boolean; registrationFee?: number };
 type PaymentMethod = "pix" | "cartao_credito" | "cartao_debito" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod; chargeType?: ChargeType; planId?: string | null; accessCodeId?: string | null; origin?: string };
@@ -4072,7 +4130,9 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   const [chargeAmount, setChargeAmount] = useState("");
   const [planName, setPlanName] = useState("");
   const [planPrice, setPlanPrice] = useState("");
+  const [planRegistrationFee, setPlanRegistrationFee] = useState("");
   const [planInterval, setPlanInterval] = useState("Mensal");
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | ChargeViewStatus>("all");
   const [saving, setSaving] = useState(false);
   const [paymentCharge, setPaymentCharge] = useState<MonthlyCharge | null>(null);
@@ -4094,8 +4154,8 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     });
     const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setPlans(snapshot.docs.map((plan) => {
-        const data = plan.data() as { name?: string; price?: number; active?: boolean };
-        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), active: data.active !== false };
+        const data = plan.data() as { name?: string; price?: number; interval?: string; active?: boolean; registrationFee?: number };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", registrationFee: Number(data.registrationFee ?? 0), active: data.active !== false };
       }));
     });
     const unsubscribeCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
@@ -4128,30 +4188,57 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     try {
       await addDoc(collection(db, "academies", access.academyId, "monthlyCharges"), { studentId, studentName: student.name, planId: plan?.id ?? null, planName: chargeType === "monthly" ? plan?.name : chargeDescription.trim() || (chargeType === "registration" ? "Taxa de inscrição" : "Serviço avulso"), chargeType, amount, dueDate, status: "pending", createdBy: access.userId, createdAt: serverTimestamp() });
       setStudentId(""); setPlanId(""); setDueDate(""); setChargeDescription(""); setChargeAmount("");
-      onFeedback("Mensalidade criada.");
-    } catch { onFeedback("Não foi possível criar a mensalidade."); }
+      onFeedback("Lançamento financeiro criado.");
+    } catch { onFeedback("Não foi possível criar o lançamento financeiro."); }
     finally { setSaving(false); }
   }
 
   async function createPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!planName.trim() || !planPrice) { onFeedback("Informe o nome e o valor do plano."); return; }
+    const planValues = {
+      name: capitalizeName(planName.trim()),
+      price: parseCurrency(planPrice),
+      registrationFee: parseCurrency(planRegistrationFee),
+      interval: planInterval,
+    };
     if (!db) {
-      const nextPlan: AcademyPlan = { id: `local-plan-${Date.now()}`, name: capitalizeName(planName.trim()), price: parseCurrency(planPrice), interval: planInterval, active: true };
-      const nextPlans = [...plans, nextPlan];
+      const nextPlans = editingPlanId
+        ? plans.map((plan) => plan.id === editingPlanId ? { ...plan, ...planValues } : plan)
+        : [...plans, { id: `local-plan-${Date.now()}`, ...planValues, active: true }];
       setPlans(nextPlans);
       writeLocalCollection(access.academyId, "plans", nextPlans);
-      setPlanName(""); setPlanPrice(""); setPlanInterval("Mensal");
-      onFeedback("Plano cadastrado no modo local.");
+      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setEditingPlanId(null);
+      onFeedback(editingPlanId ? "Plano atualizado no modo local." : "Plano cadastrado no modo local.");
       return;
     }
     setSaving(true);
     try {
-      await addDoc(collection(db, "academies", access.academyId, "plans"), { name: planName.trim(), price: parseCurrency(planPrice), interval: planInterval, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
-      setPlanName(""); setPlanPrice(""); setPlanInterval("Mensal");
-      onFeedback("Plano cadastrado com sucesso.");
+      if (editingPlanId) {
+        await updateDoc(doc(db, "academies", access.academyId, "plans", editingPlanId), { ...planValues, updatedBy: access.userId, updatedAt: serverTimestamp() });
+      } else {
+        await addDoc(collection(db, "academies", access.academyId, "plans"), { ...planValues, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
+      }
+      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setEditingPlanId(null);
+      onFeedback(editingPlanId ? "Plano atualizado com sucesso." : "Plano cadastrado com sucesso.");
     } catch { onFeedback("Não foi possível cadastrar o plano."); }
     finally { setSaving(false); }
+  }
+
+  function editPlan(plan: BillingPlan) {
+    setEditingPlanId(plan.id);
+    setPlanName(plan.name);
+    setPlanPrice(maskCurrency(String(Math.round(plan.price * 100))));
+    setPlanRegistrationFee(maskCurrency(String(Math.round((plan.registrationFee ?? 0) * 100))));
+    setPlanInterval(plan.interval ?? "Mensal");
+  }
+
+  function clearPlanForm() {
+    setEditingPlanId(null);
+    setPlanName("");
+    setPlanPrice("");
+    setPlanRegistrationFee("");
+    setPlanInterval("Mensal");
   }
 
   async function confirmPayment() {
@@ -4187,6 +4274,22 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     } catch { onFeedback("Não foi possível atualizar a mensalidade."); }
   }
 
+  async function toggleBillingPlan(plan: BillingPlan) {
+    if (!db) {
+      const nextPlans = plans.map((item) => item.id === plan.id ? { ...item, active: !item.active } : item);
+      setPlans(nextPlans);
+      writeLocalCollection(access.academyId, "plans", nextPlans);
+      onFeedback(plan.active ? "Plano desativado no modo local." : "Plano reativado no modo local.");
+      return;
+    }
+    try {
+      await updateDoc(doc(db, "academies", access.academyId, "plans", plan.id), { active: !plan.active, updatedAt: serverTimestamp(), updatedBy: access.userId });
+      onFeedback(plan.active ? "Plano desativado." : "Plano reativado.");
+    } catch {
+      onFeedback("Não foi possível alterar o plano.");
+    }
+  }
+
   const chargeRows = charges.map((charge) => ({ ...charge, viewStatus: chargeViewStatus(charge) }));
   const totals = chargeRows.reduce((summary, charge) => {
     summary.total += charge.amount;
@@ -4197,15 +4300,17 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   }, { total: 0, received: 0, overdue: 0, open: 0 });
   const visibleCharges = chargeRows.filter((charge) => filter === "all" || charge.viewStatus === filter);
   const upcomingCount = chargeRows.filter((charge) => charge.viewStatus === "dueSoon").length;
+  const moneyLabel = (amount: number) => amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
       <section className="billing-layout">
-        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>NOVO PLANO</span><h3>Cadastrar plano</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Valor<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar plano"}</button></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
+        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>{editingPlanId ? "EDITAR PLANO" : "NOVO PLANO"}</span><h3>{editingPlanId ? "Atualizar plano" : "Cadastrar plano"}</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Mensalidade<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Taxa de inscrição <small>Valor único cobrado uma vez no cadastro do aluno.</small><input value={planRegistrationFee} onChange={(event) => setPlanRegistrationFee(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00 · opcional" /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingPlanId ? "Salvar plano" : "Cadastrar plano"}</button>{editingPlanId && <button className="secondary-action" type="button" onClick={clearPlanForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}{(plan.registrationFee ?? 0) > 0 ? ` · inscrição única R$ ${plan.registrationFee!.toFixed(2).replace(".", ",")}` : ""}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
         <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-automation-note"><Check size={14} /> Cobranças recorrentes geradas automaticamente todos os dias</div><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
-      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "mensalidade" : "mensalidades"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar mensalidades">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhuma mensalidade gerada ainda." : "Nenhuma mensalidade neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${paymentMethodLabel(charge.paymentMethod)}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
+      <section className="workspace-panel plans-list-panel billing-plans-panel"><header><div><span>PLANOS CADASTRADOS</span><h3>{plans.length} {plans.length === 1 ? "plano" : "planos"}</h3></div></header><div className="plans-list">{plans.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhum plano cadastrado ainda.</p></div> : plans.map((plan) => { const interval = plan.interval ?? "Mensal"; return <div className="plan-row" key={plan.id}><div><strong>{plan.name}</strong><small>{interval} · {plan.active ? "Disponível" : "Desativado"}{(plan.registrationFee ?? 0) > 0 ? ` · Inscrição única ${moneyLabel(plan.registrationFee ?? 0)}` : " · Sem taxa de inscrição"}</small></div><b>{moneyLabel(plan.price)} / {interval.toLowerCase()}</b><div className="row-actions"><button type="button" className="plan-edit" onClick={() => editPlan(plan)}>Editar</button><button type="button" className={plan.active ? "plan-disable" : "plan-enable"} onClick={() => void toggleBillingPlan(plan)}>{plan.active ? "Desativar" : "Ativar"}</button></div></div>; })}</div></section>
+      <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "lançamento" : "lançamentos"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar lançamentos">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhum lançamento gerado ainda." : "Nenhum lançamento neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${paymentMethodLabel(charge.paymentMethod)}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
       {paymentCharge && <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="payment-title"><section className="payment-modal"><header><div><span>BAIXA MANUAL</span><h2 id="payment-title">Registrar pagamento</h2><p>{paymentCharge.studentName} · R$ {paymentCharge.amount.toFixed(2).replace(".", ",")}</p></div><button aria-label="Fechar registro de pagamento" onClick={() => setPaymentCharge(null)}><X /></button></header><div className="payment-method-grid">{([['pix', 'Pix'], ['cartao_credito', 'Cartão de crédito'], ['cartao_debito', 'Cartão de débito'], ['dinheiro', 'Dinheiro'], ['transferencia', 'Transferência'], ['boleto', 'Boleto']] as const).map(([value, label]) => <button key={value} className={paymentMethod === value ? "active" : ""} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><div className="payment-modal-actions"><button className="modal-secondary" onClick={() => setPaymentCharge(null)}>Cancelar</button><button className="detail-save" onClick={confirmPayment} disabled={savingPayment}>{savingPayment ? "Salvando..." : "Confirmar pagamento"}</button></div></section></div>}
     </div>
   );
@@ -4611,7 +4716,15 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
   const [studentPresence, setStudentPresence] = useState<DeveloperMember[]>([]);
   const [teachers, setTeachers] = useState<RegisteredTeacher[]>([]);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
+  const [directoryCharges, setDirectoryCharges] = useState<MonthlyCharge[]>([]);
+  const [directoryWorkouts, setDirectoryWorkouts] = useState<WorkoutRecord[]>([]);
+  const [directoryAttendance, setDirectoryAttendance] = useState<AttendanceRecord[]>([]);
+  const [directoryExecutions, setDirectoryExecutions] = useState<WorkoutExecution[]>([]);
   const [search, setSearch] = useState("");
+  const [programFilter, setProgramFilter] = useState("Todos");
+  const [planFilter, setPlanFilter] = useState("Todos");
+  const [billingFilter, setBillingFilter] = useState("Todos");
+  const [accessFilter, setAccessFilter] = useState("Todos");
   const [selectedId, setSelectedId] = useState<string | null>(initialStudentId || null);
   const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState("");
@@ -4652,6 +4765,10 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         const localStudents = readLocalCollection<RegisteredStudent>(access.academyId, "students");
         setStudents(localStudents.map((student) => ({ ...student, active: student.active !== false, plan: student.plan ?? "Sem plano" })));
         setStudentPresence(readLocalCollection<DeveloperMember>(access.academyId, "members"));
+        setDirectoryCharges(access.role === "admin" ? readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges") : []);
+        setDirectoryWorkouts(readLocalCollection<WorkoutRecord>(access.academyId, "workouts").filter((item) => item.status === "published"));
+        setDirectoryAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance"));
+        setDirectoryExecutions(readLocalCollection<WorkoutExecution>(access.academyId, "workoutExecutions"));
       };
       syncLocalDirectory();
       window.addEventListener("orquestra-fit:collection-updated", syncLocalDirectory);
@@ -4665,11 +4782,23 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
     const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; planPrice?: number | null; planInterval?: string | null; initialDueDate?: string | null; nextBillingDate?: string | null; accessBlocked?: boolean; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; approvedRank?: StudentRank; rankApprovedAt?: unknown; rankApprovedBy?: string | null; active?: boolean };
-        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, planPrice: data.planPrice ?? null, planInterval: data.planInterval ?? null, initialDueDate: data.initialDueDate ?? null, nextBillingDate: data.nextBillingDate ?? null, accessBlocked: data.accessBlocked === true, joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", approvedRank: normalizeStudentRank(data.approvedRank), rankApprovedAt: data.rankApprovedAt, rankApprovedBy: data.rankApprovedBy ?? null, active: data.active !== false };
+        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; planPrice?: number | null; planInterval?: string | null; initialDueDate?: string | null; nextBillingDate?: string | null; accessBlocked?: boolean; accessOverrideChargeIds?: string[]; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; approvedRank?: StudentRank; rankApprovedAt?: unknown; rankApprovedBy?: string | null; active?: boolean };
+        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, planPrice: data.planPrice ?? null, planInterval: data.planInterval ?? null, initialDueDate: data.initialDueDate ?? null, nextBillingDate: data.nextBillingDate ?? null, accessBlocked: data.accessBlocked === true, accessOverrideChargeIds: Array.isArray(data.accessOverrideChargeIds) ? data.accessOverrideChargeIds : [], joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", approvedRank: normalizeStudentRank(data.approvedRank), rankApprovedAt: data.rankApprovedAt, rankApprovedBy: data.rankApprovedBy ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
-    if (access.role !== "admin") return unsubscribeStudents;
+    const unsubscribeCharges = access.role === "admin" ? onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
+      setDirectoryCharges(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<MonthlyCharge, "id">), amount: Number(item.data().amount ?? 0), status: item.data().status === "paid" ? "paid" : "pending" })));
+    }, (error) => console.error("Não foi possível carregar os vencimentos dos alunos.", error)) : () => undefined;
+    const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("status", "==", "published")), (snapshot) => {
+      setDirectoryWorkouts(snapshot.docs.map((item) => { const data = item.data() as Omit<WorkoutRecord, "id">; return { id: item.id, ...data, exerciseIds: data.exerciseIds ?? [], exerciseDetails: data.exerciseDetails ?? [], status: "published" as const }; }));
+    }, (error) => console.error("Não foi possível carregar os próximos treinos.", error));
+    const unsubscribeAttendance = onSnapshot(collection(db, "academies", access.academyId, "attendance"), (snapshot) => {
+      setDirectoryAttendance(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AttendanceRecord, "id">) })));
+    }, (error) => console.error("Não foi possível carregar as visitas dos alunos.", error));
+    const unsubscribeExecutions = onSnapshot(collection(db, "academies", access.academyId, "workoutExecutions"), (snapshot) => {
+      setDirectoryExecutions(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutExecution, "id">) })));
+    }, (error) => console.error("Não foi possível carregar o histórico de treinos.", error));
+    if (access.role !== "admin") return () => { unsubscribeStudents(); unsubscribeCharges(); unsubscribeWorkouts(); unsubscribeAttendance(); unsubscribeExecutions(); };
     const unsubscribeMembers = onSnapshot(collection(db, "academies", access.academyId, "members"), (snapshot) => {
       setStudentPresence(snapshot.docs.map((member) => ({ id: member.id, ...(member.data() as Omit<DeveloperMember, "id">) })));
     }, (error) => console.error("Não foi possível atualizar o status online dos alunos.", error));
@@ -4681,14 +4810,50 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }, (error) => console.error("Não foi possível carregar os professores.", error));
     const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setPlans(snapshot.docs.map((plan) => {
-        const data = plan.data() as { name?: string; price?: number; active?: boolean };
-        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), active: data.active !== false };
+        const data = plan.data() as { name?: string; price?: number; active?: boolean; registrationFee?: number };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), registrationFee: Number(data.registrationFee ?? 0), active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os planos.", error));
-    return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeTeachers(); unsubscribePlans(); };
+    return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeTeachers(); unsubscribePlans(); unsubscribeCharges(); unsubscribeWorkouts(); unsubscribeAttendance(); unsubscribeExecutions(); };
   }, [access.academyId, access.role, access.userId]);
 
-  const filteredStudents = students.filter((student) => matchesSearch(search, student.name, student.email, student.phone, student.cpf));
+  const studentProgram = (student: RegisteredStudent) => studentRankProgram[normalizeStudentRank(student.approvedRank)];
+  const chargesForStudent = (student: RegisteredStudent) => directoryCharges.filter((charge) => charge.studentId === student.id || charge.studentId === student.userId);
+  const paymentForStudent = (student: RegisteredStudent) => {
+    const pending = chargesForStudent(student).filter((charge) => charge.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    if (!pending.length) return chargesForStudent(student).length ? "paid" : "none";
+    const statuses = pending.map(chargeViewStatus);
+    if (statuses.includes("overdue")) return "overdue";
+    if (statuses.includes("dueSoon")) return "dueSoon";
+    return "pending";
+  };
+  const visitsForStudent = (student: RegisteredStudent) => {
+    const ids = new Set([student.id, student.userId].filter((value): value is string => Boolean(value)));
+    const dates = new Set<string>();
+    directoryAttendance.filter((item) => ids.has(item.studentId) && item.status !== "absent").forEach((item) => { if (item.date) dates.add(item.date); });
+    directoryExecutions.filter((item) => ids.has(item.studentId)).forEach((item) => { const date = dateKeyFromValue(item.completedAt); if (date) dates.add(date); });
+    return dates.size;
+  };
+  const workoutsForStudent = (student: RegisteredStudent) => directoryWorkouts.filter((workout) => workout.studentId === student.id || workout.studentId === student.userId || workout.studentUserId === student.userId || workout.studentRecordId === student.id);
+  const nextWorkoutForStudent = (student: RegisteredStudent) => {
+    const workouts = workoutsForStudent(student);
+    if (!workouts.length) return null;
+    const studentIds = new Set([student.id, student.userId].filter((value): value is string => Boolean(value)));
+    const lastExecution = directoryExecutions.filter((item) => studentIds.has(item.studentId)).sort((a, b) => workoutExecutionTime(b.completedAt) - workoutExecutionTime(a.completedAt))[0];
+    const lastIndex = lastExecution ? workouts.findIndex((workout) => workout.id === lastExecution.workoutId) : -1;
+    return workouts[(lastIndex + 1) % workouts.length];
+  };
+  const directoryPlans = [...new Set(students.map((student) => student.plan || "Sem plano"))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const programCounts = studentRankOrder.reduce<Record<string, number>>((counts, rank) => { const program = studentRankProgram[rank]; counts[program] = students.filter((student) => studentProgram(student) === program).length; return counts; }, {});
+  const filteredStudents = students.filter((student) => {
+    const payment = paymentForStudent(student);
+    const accessStatus = student.active === false ? "inactive" : student.accessBlocked ? "blocked" : "active";
+    return matchesSearch(search, student.name, student.email, student.phone, student.cpf, student.plan, studentProgram(student)) &&
+      (programFilter === "Todos" || studentProgram(student) === programFilter) &&
+      (planFilter === "Todos" || (student.plan || "Sem plano") === planFilter) &&
+      (billingFilter === "Todos" || payment === billingFilter) &&
+      (accessFilter === "Todos" || accessStatus === accessFilter);
+  });
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
   const selectedStudentRank = normalizeStudentRank(selectedStudent?.approvedRank);
   const selectedStudentRankIndex = studentRankOrder.indexOf(selectedStudentRank);
@@ -4819,15 +4984,16 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     if (!selectedStudent || access.role !== "admin") return;
     setReleasingAccess(true);
     try {
+      const overdueChargeIds = studentCharges.filter((charge) => charge.chargeType === "monthly" && charge.status !== "paid" && chargeViewStatus(charge) === "overdue").map((charge) => charge.id);
       if (!db) {
-        const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, accessBlocked: false } : student);
+        const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, accessBlocked: false, accessOverrideChargeIds: overdueChargeIds } : student);
         setStudents(nextStudents);
         writeLocalCollection(access.academyId, "students", nextStudents);
       } else {
         const batch = writeBatch(db);
-        batch.update(doc(db, "academies", access.academyId, "students", selectedStudent.id), { accessBlocked: false, accessBlockReason: null, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() });
+        batch.update(doc(db, "academies", access.academyId, "students", selectedStudent.id), { accessBlocked: false, accessBlockReason: null, accessOverrideChargeIds: overdueChargeIds, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() });
         const memberId = selectedStudent.userId || selectedStudent.id;
-        batch.set(doc(db, "academies", access.academyId, "members", memberId), { accessBlocked: false, accessBlockReason: null, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() }, { merge: true });
+        batch.set(doc(db, "academies", access.academyId, "members", memberId), { accessBlocked: false, accessBlockReason: null, accessOverrideChargeIds: overdueChargeIds, accessOverrideBy: access.userId, accessOverrideAt: serverTimestamp() }, { merge: true });
         await batch.commit();
       }
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "financial_access_released", label: "Acesso liberado manualmente", details: selectedStudent.name });
@@ -4940,12 +5106,24 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       </section>
       <section className="directory-layout">
         <article className="workspace-panel directory-panel">
-          <header><div><span>CADASTROS ATIVOS</span><h3>{students.length} {students.length === 1 ? "aluno" : "alunos"}</h3></div></header>
+          <header><div><span>CADASTROS DA ACADEMIA</span><h3>{filteredStudents.length} de {students.length} alunos</h3><p>Filtre por programa, plano, vencimento ou situação.</p></div></header>
           <div className="workspace-search"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} type="search" aria-label="Buscar por nome, e-mail, CPF ou telefone" placeholder="Nome, e-mail, CPF ou telefone" /></div>
+          {access.role === "admin" && <>
+            <div className="student-program-counts" aria-label="Quantidade de alunos por programa">
+              {studentRankOrder.map((rank) => { const program = studentRankProgram[rank]; return <button type="button" key={program} className={programFilter === program ? "active" : ""} onClick={() => setProgramFilter((current) => current === program ? "Todos" : program)}><span>{program}</span><b>{programCounts[program] ?? 0}</b></button>; })}
+            </div>
+            <div className="student-directory-filters" aria-label="Filtros da lista de alunos">
+              <label>Programa<select value={programFilter} onChange={(event) => setProgramFilter(event.target.value)}><option>Todos</option>{Object.values(studentRankProgram).filter((value, index, all) => all.indexOf(value) === index).map((program) => <option key={program}>{program}</option>)}</select></label>
+              <label>Plano<select value={planFilter} onChange={(event) => setPlanFilter(event.target.value)}><option>Todos</option>{directoryPlans.map((plan) => <option key={plan}>{plan}</option>)}</select></label>
+              <label>Mensalidade<select value={billingFilter} onChange={(event) => setBillingFilter(event.target.value)}><option value="Todos">Todas</option><option value="overdue">Vencida</option><option value="dueSoon">Vence em até 7 dias</option><option value="pending">Pendente</option><option value="paid">Em dia</option><option value="none">Sem cobrança</option></select></label>
+              <label>Situação<select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)}><option value="Todos">Todas</option><option value="active">Ativo</option><option value="blocked">Bloqueado</option><option value="inactive">Suspenso</option></select></label>
+              {(programFilter !== "Todos" || planFilter !== "Todos" || billingFilter !== "Todos" || accessFilter !== "Todos" || search) && <button type="button" className="student-filter-clear" onClick={() => { setProgramFilter("Todos"); setPlanFilter("Todos"); setBillingFilter("Todos"); setAccessFilter("Todos"); setSearch(""); }}>Limpar filtros</button>}
+            </div>
+          </>}
           <div className="directory-list">
             {filteredStudents.length === 0 ? <div className="directory-empty"><Users /><p>{students.length === 0 ? "Nenhum aluno cadastrado ainda." : "Nenhum aluno encontrado."}</p></div> : filteredStudents.map((student) => (
               <button className={selectedId === student.id ? "directory-row selected" : "directory-row"} key={student.id} onClick={() => { setSelectedId(student.id); scrollToContent(".student-detail-panel", true); }}>
-                <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small></span><span className="directory-row-meta"><em className={student.active === false ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.plan}</em>{access.role === "admin" && <small className={isStudentOnline(student) ? "directory-online online" : "directory-online"}><i aria-hidden="true" />{isStudentOnline(student) ? "Online agora" : "Offline"}</small>}</span><ChevronRight />
+                <i>{student.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</i><span className="directory-row-main"><strong>{student.name}</strong><small>{student.email || "E-mail ainda não informado"}</small><small>{student.plan || "Sem plano"} · Programa {studentProgram(student)}</small><small>{(() => { const workout = nextWorkoutForStudent(student); return workout ? `Próximo treino: ${displayWorkoutName(workout.name)}${workout.recommendedDay && workout.recommendedDay !== "Flexível" ? ` · ${workout.recommendedDay}` : ""}` : "Próximo treino: nenhum publicado"; })()}</small></span><span className="directory-row-meta"><em className={student.active === false || student.accessBlocked ? "inactive" : ""}>{student.active === false ? "Suspenso" : student.accessBlocked ? "Bloqueado" : "Ativo"}</em>{access.role === "admin" && <><small className={`directory-billing-status ${paymentForStudent(student)}`}>{(() => { const payment = paymentForStudent(student); const next = chargesForStudent(student).filter((charge) => charge.status !== "paid").sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]; return payment === "none" ? "Sem cobrança" : `${payment === "overdue" ? "Vencida" : payment === "dueSoon" ? "Vence em breve" : payment === "paid" ? "Em dia" : "Pendente"}${next ? ` · ${formatDate(next.dueDate)}` : ""}`; })()}</small><small className="directory-online"><Users size={11} />{visitsForStudent(student)} visitas · {isStudentOnline(student) ? "online" : "offline"}</small></>}</span><ChevronRight />
               </button>
             ))}
           </div>
@@ -5635,8 +5813,8 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
     }
     return onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setAvailablePlans(snapshot.docs.map((item) => {
-        const data = item.data() as { name?: string; price?: number; interval?: string; active?: boolean };
-        return { id: item.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", active: data.active !== false };
+        const data = item.data() as { name?: string; price?: number; registrationFee?: number; interval?: string; active?: boolean };
+        return { id: item.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), registrationFee: Number(data.registrationFee ?? 0), interval: data.interval ?? "Mensal", active: data.active !== false };
       }).filter((item) => item.active));
     }, () => setAvailablePlans([]));
   }, [access.academyId]);
@@ -5664,7 +5842,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
           role,
           invitedName: capitalizeName(name.trim()),
           invitedEmail: email.trim() || null,
-          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planInterval: selectedPlan?.interval ?? null, planPrice: selectedPlan?.price ?? null, initialDueDate: selectedPlan ? firstDueDate : null, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
+          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planInterval: selectedPlan?.interval ?? null, planPrice: selectedPlan?.price ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, initialDueDate: selectedPlan ? firstDueDate : null, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
           active: true,
           createdBy: access.userId,
           createdAt: serverTimestamp(),
@@ -5685,15 +5863,35 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             createdAt: serverTimestamp(),
           });
         }
+        if (role === "student" && selectedPlan && (selectedPlan.registrationFee ?? 0) > 0) {
+          batch.set(doc(db, "academies", access.academyId, "monthlyCharges", `registration-fee-${invitationCode}`), {
+            studentId: invitationCode,
+            studentName: capitalizeName(name.trim()),
+            planId: selectedPlan.id,
+            planName: `${selectedPlan.name} · Taxa de inscrição`,
+            amount: selectedPlan.registrationFee,
+            dueDate: todayIso(),
+            status: "pending",
+            chargeType: "registration",
+            accessCodeId: invitationCode,
+            origin: "student_registration",
+            createdBy: access.userId,
+            createdAt: serverTimestamp(),
+          });
+        }
         await batch.commit();
       } else {
         const id = `local-${role}-${Date.now()}`;
         if (role === "student") {
           const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planPrice: selectedPlan?.price ?? null, planInterval: selectedPlan?.interval ?? null, initialDueDate: selectedPlan ? firstDueDate : null, nextBillingDate: selectedPlan ? firstDueDate : null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true, accessBlocked: false }]);
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planPrice: selectedPlan?.price ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, planInterval: selectedPlan?.interval ?? null, initialDueDate: selectedPlan ? firstDueDate : null, nextBillingDate: selectedPlan ? firstDueDate : null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true, accessBlocked: false }]);
           if (selectedPlan && selectedPlan.price > 0) {
             const charges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
             writeLocalCollection(access.academyId, "monthlyCharges", [...charges, { id: `local-registration-${id}`, studentId: id, studentName: capitalizeName(name.trim()), planId: selectedPlan.id, planName: selectedPlan.name, amount: selectedPlan.price, dueDate: firstDueDate, status: "pending", chargeType: "monthly", origin: "student_registration" }]);
+          }
+          if (selectedPlan && (selectedPlan.registrationFee ?? 0) > 0) {
+            const charges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
+            writeLocalCollection(access.academyId, "monthlyCharges", [...charges, { id: `local-registration-fee-${id}`, studentId: id, studentName: capitalizeName(name.trim()), planId: selectedPlan.id, planName: `${selectedPlan.name} · Taxa de inscrição`, amount: selectedPlan.registrationFee ?? 0, dueDate: todayIso(), status: "pending", chargeType: "registration", origin: "student_registration" }]);
           }
         } else {
           const teachers = readLocalCollection<RegisteredTeacher>(access.academyId, "teachers");
@@ -5719,7 +5917,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <label>E-mail Google <small>(opcional — use somente se a pessoa tiver)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
             {role === "student" && <><label>Telefone / WhatsApp<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Endereço<input value={address} onChange={(event) => setAddress(event.target.value)} autoComplete="street-address" placeholder="Rua, número, bairro e cidade" /></label></>}
             {role === "teacher" && <><label>Telefone<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} /></label><label>CREF<input value={cref} onChange={(event) => setCref(event.target.value.toUpperCase())} placeholder="Ex.: 012345-G/SP" /></label><label>Especialidade<input value={specialty} onChange={(event) => setSpecialty(capitalizeName(event.target.value))} placeholder="Ex.: Musculação" /></label></>}
-            {role === "student" && (availablePlans.length > 0 ? <label>Plano da academia<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{availablePlans.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} · {item.interval}</option>)}</select><small>O primeiro vencimento será lançado automaticamente no financeiro.</small></label> : <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select><small>Nenhum plano com valor foi cadastrado ainda. A cobrança poderá ser criada depois.</small></label>)}
+            {role === "student" && (availablePlans.length > 0 ? <label>Plano da academia<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{availablePlans.map((item) => <option key={item.id} value={item.id}>{item.name} · mensalidade {item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}{(item.registrationFee ?? 0) > 0 ? ` · inscrição ${item.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""} · {item.interval}</option>)}</select><small>{selectedPlan && (selectedPlan.registrationFee ?? 0) > 0 ? `Taxa única de inscrição: ${selectedPlan.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}, lançada para hoje. ` : ""}A primeira mensalidade será lançada para o vencimento escolhido.</small></label> : <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select><small>Nenhum plano com valor foi cadastrado ainda. A cobrança poderá ser criada depois.</small></label>)}
             {role === "student" && selectedPlan && <label>Primeiro vencimento<input type="date" value={firstDueDate} onChange={(event) => setFirstDueDate(event.target.value)} min={todayIso()} required /></label>}
             {role === "student" && <label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} required /><small>Usada para calcular a idade e felicitar o aluno no aniversário.</small></label>}
             {role === "student" && <label>Perfil anatômico<select value={anatomyProfile} onChange={(event) => setAnatomyProfile(event.target.value === "feminino" ? "feminino" : "masculino")}><option value="masculino">Masculino</option><option value="feminino">Feminino</option></select><small>Define o modelo exibido durante o treino.</small></label>}
@@ -5727,7 +5925,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
           </form>
         ) : (
-          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` A primeira cobrança de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} vence em ${formatDate(firstDueDate)} e já foi lançada no financeiro.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div>{inviteWhatsappHref && <a className="whatsapp-invite-action" href={inviteWhatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Enviar código pelo WhatsApp</a>}<button className="student-modal-close" onClick={onClose}>Concluir</button></div>
+          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` Mensalidade de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para ${formatDate(firstDueDate)}${(selectedPlan.registrationFee ?? 0) > 0 ? `; taxa única de inscrição de ${selectedPlan.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para hoje` : ""}.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div>{inviteWhatsappHref && <a className="whatsapp-invite-action" href={inviteWhatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Enviar código pelo WhatsApp</a>}<button className="student-modal-close" onClick={onClose}>Concluir</button></div>
         )}
       </section>
     </div>

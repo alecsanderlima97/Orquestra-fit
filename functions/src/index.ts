@@ -4,6 +4,7 @@ import { CollectionReference, FieldValue, getFirestore } from "firebase-admin/fi
 import { getStorage } from "firebase-admin/storage";
 import { randomUUID } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 
 initializeApp({ storageBucket: "orquestra-fit.firebasestorage.app" });
@@ -24,6 +25,14 @@ type ExerciseGifPayload = {
 };
 type PrepareExerciseGifPayload = { academyId?: unknown; exerciseId?: unknown; profile?: unknown };
 type ClassReservationPayload = { academyId?: unknown; classId?: unknown };
+type CounterSalePayload = {
+  academyId?: unknown;
+  saleId?: unknown;
+  studentId?: unknown;
+  paymentMode?: unknown;
+  paymentMethod?: unknown;
+  items?: unknown;
+};
 
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
 
@@ -135,6 +144,176 @@ export const recordAuditEvent = onCall({ region }, async (request) => {
   return { ok: true };
 });
 
+/**
+ * Registra venda de balcão em uma única transação: valida o estoque atual,
+ * baixa os itens e lança a receita recebida ou a cobrança do aluno.
+ */
+export const registerCounterSale = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para registrar a venda.");
+  if (request.auth.token.passwordChangeRequired === true) {
+    throw new HttpsError("permission-denied", "Altere sua senha antes de continuar.");
+  }
+  const uid = request.auth.uid;
+
+  const payload = (request.data ?? {}) as CounterSalePayload;
+  const academyId = readString(payload.academyId, "a academia");
+  const saleId = readString(payload.saleId, "o identificador da venda");
+  if (!/^[a-zA-Z0-9_-]{8,80}$/.test(saleId)) throw new HttpsError("invalid-argument", "Identificador de venda inválido.");
+  const membership = await activeMembership(academyId, uid);
+  if (membership.data()?.role !== "admin") throw new HttpsError("permission-denied", "Somente a gestão pode registrar vendas de balcão.");
+
+  const paymentMode = payload.paymentMode === "on_account" ? "on_account" : payload.paymentMode === "paid" ? "paid" : null;
+  if (!paymentMode) throw new HttpsError("invalid-argument", "Escolha pagamento imediato ou lançamento na conta do aluno.");
+  const paymentMethods = ["Pix", "Dinheiro", "Cartão de débito", "Cartão de crédito", "Transferência"];
+  const paymentMethod = typeof payload.paymentMethod === "string" && paymentMethods.includes(payload.paymentMethod) ? payload.paymentMethod : null;
+  if (paymentMode === "paid" && !paymentMethod) throw new HttpsError("invalid-argument", "Informe a forma de pagamento.");
+
+  const studentId = payload.studentId == null || payload.studentId === "" ? null : readString(payload.studentId, "o aluno");
+  if (paymentMode === "on_account" && !studentId) throw new HttpsError("invalid-argument", "Selecione o aluno para lançar a venda na conta.");
+  if (studentId?.includes("/")) throw new HttpsError("invalid-argument", "Identificador de aluno inválido.");
+
+  if (!Array.isArray(payload.items) || payload.items.length < 1 || payload.items.length > 30) {
+    throw new HttpsError("invalid-argument", "Adicione de 1 a 30 produtos à venda.");
+  }
+  const quantities = new Map<string, number>();
+  for (const rawItem of payload.items) {
+    if (!rawItem || typeof rawItem !== "object") throw new HttpsError("invalid-argument", "Um produto da venda é inválido.");
+    const item = rawItem as { productId?: unknown; quantity?: unknown };
+    const productId = readString(item.productId, "um produto");
+    const quantity = Number(item.quantity);
+    if (productId.includes("/") || productId.length > 140 || !Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
+      throw new HttpsError("invalid-argument", "Produto ou quantidade inválida.");
+    }
+    quantities.set(productId, (quantities.get(productId) ?? 0) + quantity);
+  }
+  if (quantities.size > 30 || [...quantities.values()].some((quantity) => quantity > 100)) {
+    throw new HttpsError("invalid-argument", "Limite da venda excedido.");
+  }
+
+  const saleRef = firestore.doc(`academies/${academyId}/stockSales/${saleId}`);
+  const financialSaleRef = firestore.doc(`academies/${academyId}/financialSales/${saleId}`);
+  const studentRef = studentId ? firestore.doc(`academies/${academyId}/students/${studentId}`) : null;
+  const lines = [...quantities.entries()].map(([productId, quantity]) => ({
+    productId,
+    quantity,
+    itemRef: firestore.doc(`academies/${academyId}/stockItems/${productId}`),
+    movementRef: firestore.doc(`academies/${academyId}/stockMovements/${saleId}-${productId}`),
+  }));
+  const chargeRef = paymentMode === "on_account" ? firestore.doc(`academies/${academyId}/monthlyCharges/sale-${saleId}`) : null;
+  const saleDate = new Date().toISOString();
+  const dueDate = todayInSaoPaulo();
+
+  return firestore.runTransaction(async (transaction) => {
+    const saleSnapshot = await transaction.get(saleRef);
+    if (saleSnapshot.exists) {
+      return { ok: true, saleId, alreadyProcessed: true, amount: Number(saleSnapshot.data()?.amount ?? 0) };
+    }
+
+    const refs = [...lines.map((line) => line.itemRef), ...(studentRef ? [studentRef] : [])];
+    const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
+    const productSnapshots = snapshots.slice(0, lines.length);
+    const studentSnapshot = studentRef ? snapshots[lines.length] : undefined;
+    if (studentSnapshot && (!studentSnapshot.exists || studentSnapshot.data()?.active === false)) {
+      throw new HttpsError("not-found", "O aluno selecionado não está ativo nesta academia.");
+    }
+
+    let amount = 0;
+    const saleItems = lines.map((line, index) => {
+      const snapshot = productSnapshots[index];
+      if (!snapshot.exists) throw new HttpsError("not-found", "Um produto não foi encontrado no estoque.");
+      const data = snapshot.data() ?? {};
+      if (data.kind !== "product") throw new HttpsError("failed-precondition", "Somente produtos cadastrados para venda podem entrar no caixa.");
+      const stockQuantity = Number(data.quantity ?? 0);
+      const unitPrice = Number(data.salePrice ?? 0);
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) throw new HttpsError("failed-precondition", `${String(data.name ?? "Produto")} não tem preço de venda cadastrado.`);
+      if (!Number.isInteger(stockQuantity) || stockQuantity < line.quantity) throw new HttpsError("failed-precondition", `Estoque insuficiente para ${String(data.name ?? "o produto")}. Saldo atual: ${Math.max(0, stockQuantity)}.`);
+      const lineTotal = Math.round(unitPrice * line.quantity * 100) / 100;
+      amount += lineTotal;
+      return {
+        ...line,
+        name: String(data.name ?? "Produto"),
+        unitPrice,
+        lineTotal,
+        quantityBefore: stockQuantity,
+        quantityAfter: stockQuantity - line.quantity,
+        exited: Number(data.exited ?? 0),
+      };
+    });
+    amount = Math.round(amount * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) throw new HttpsError("failed-precondition", "O valor calculado da venda é inválido.");
+
+    const studentName = studentSnapshot?.data()?.name ? String(studentSnapshot.data()?.name).slice(0, 120) : null;
+    const description = saleItems.map((item) => `${item.quantity}x ${item.name}`).join(" · ").slice(0, 500);
+    const saleRecord = {
+      saleId,
+      description,
+      studentId,
+      studentName,
+      amount,
+      paymentMethod: paymentMode === "paid" ? paymentMethod : "Conta do aluno",
+      paymentStatus: paymentMode === "paid" ? "paid" : "pending",
+      date: saleDate,
+      items: saleItems.map(({ productId, name, quantity, unitPrice, lineTotal }) => ({ productId, name, quantity, unitPrice, lineTotal })),
+      createdBy: uid,
+      createdAt: FieldValue.serverTimestamp(),
+    };
+    transaction.create(saleRef, saleRecord);
+    for (const item of saleItems) {
+      transaction.update(item.itemRef, {
+        quantity: item.quantityAfter,
+        exited: item.exited + item.quantity,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(item.movementRef, {
+        itemId: item.productId,
+        itemName: item.name,
+        type: "saída",
+        quantity: item.quantity,
+        date: saleDate,
+        note: `Venda no balcão · ${saleId}`,
+        balance: item.quantityAfter,
+        saleId,
+        studentId,
+        buyerName: studentName ?? "Cliente avulso",
+        paymentMethod: paymentMode === "paid" ? paymentMethod : "Conta do aluno",
+        totalAmount: item.lineTotal,
+        createdBy: uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (paymentMode === "paid") {
+      transaction.create(financialSaleRef, {
+        description: `Venda no balcão · ${description}`,
+        studentId,
+        studentName,
+        amount,
+        paymentMethod,
+        date: saleDate,
+        saleId,
+        origin: "stock",
+        createdBy: uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    } else if (chargeRef) {
+      transaction.create(chargeRef, {
+        studentId,
+        studentName,
+        planName: `Compra no balcão · ${description}`,
+        amount,
+        dueDate,
+        status: "pending",
+        chargeType: "service",
+        origin: "stock_sale",
+        saleId,
+        createdBy: uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+    return { ok: true, saleId, alreadyProcessed: false, amount };
+  });
+});
+
 function isoDate(value: unknown) {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   if (value && typeof value === "object" && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function") {
@@ -155,6 +334,47 @@ function dateFromIso(value: unknown) {
 function todayInSaoPaulo() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
+
+function isMonthlyCharge(data: FirebaseFirestore.DocumentData) {
+  // Backward compatibility for monthly charges created before chargeType existed.
+  return data.chargeType === "monthly" || (!data.chargeType && typeof data.planId === "string" && data.planId.length > 0);
+}
+
+async function syncStudentFinancialAccess(academyId: string, studentId: string) {
+  if (!academyId || !studentId) return;
+  const studentRef = firestore.doc(`academies/${academyId}/students/${studentId}`);
+  const studentSnapshot = await studentRef.get();
+  if (!studentSnapshot.exists) return;
+  const student = studentSnapshot.data() ?? {};
+  const chargesSnapshot = await firestore.collection(`academies/${academyId}/monthlyCharges`).where("studentId", "==", studentId).get();
+  const today = todayInSaoPaulo();
+  const overdueChargeIds = chargesSnapshot.docs.filter((charge) => {
+    const data = charge.data();
+    return isMonthlyCharge(data) && data.status !== "paid" && (isoDate(data.dueDate) ?? "9999-12-31") < today;
+  }).map((charge) => charge.id);
+  const manualExemptions = Array.isArray(student.accessOverrideChargeIds) ? student.accessOverrideChargeIds.filter((id: unknown): id is string => typeof id === "string") : [];
+  const blocked = overdueChargeIds.some((chargeId) => !manualExemptions.includes(chargeId));
+  const remainingExemptions = manualExemptions.filter((chargeId: string) => overdueChargeIds.includes(chargeId));
+  const userId = typeof student.userId === "string" ? student.userId : studentId;
+  const payload = {
+    accessBlocked: blocked,
+    accessBlockReason: blocked ? "cobranca_em_atraso" : null,
+    accessOverrideChargeIds: remainingExemptions,
+    accessStatusUpdatedAt: FieldValue.serverTimestamp(),
+  };
+  const batch = firestore.batch();
+  batch.set(studentRef, payload, { merge: true });
+  batch.set(firestore.doc(`academies/${academyId}/members/${userId}`), payload, { merge: true });
+  await batch.commit();
+}
+
+export const syncFinancialAccessAfterChargeChange = onDocumentWritten({ document: "academies/{academyId}/monthlyCharges/{chargeId}", region }, async (event) => {
+  const before = event.data?.before.exists ? event.data.before.data() : undefined;
+  const after = event.data?.after.exists ? event.data.after.data() : undefined;
+  const studentId = typeof after?.studentId === "string" ? after.studentId : typeof before?.studentId === "string" ? before.studentId : "";
+  if (!studentId) return;
+  await syncStudentFinancialAccess(event.params.academyId, studentId);
+});
 
 function addBillingMonths(date: Date, months: number) {
   const next = new Date(date.getFullYear(), date.getMonth() + months, 1);
@@ -194,12 +414,12 @@ export const generateRecurringCharges = onSchedule({ schedule: "15 3 * * *", tim
       firestore.collection(`academies/${academyId}/monthlyCharges`).get(),
     ]);
     const plans = new Map(plansSnapshot.docs.filter((item) => item.data().active !== false).map((item) => [item.id, item.data()]));
-    const chargesByStudent = new Map<string, Array<{ dueDate?: unknown; status?: unknown; chargeType?: unknown; planId?: unknown }>>();
+    const chargesByStudent = new Map<string, Array<{ id: string; dueDate?: unknown; status?: unknown; chargeType?: unknown; planId?: unknown }>>();
     chargesSnapshot.docs.forEach((item) => {
       const data = item.data();
       const studentId = typeof data.studentId === "string" ? data.studentId : "";
       if (!studentId) return;
-      chargesByStudent.set(studentId, [...(chargesByStudent.get(studentId) ?? []), data]);
+      chargesByStudent.set(studentId, [...(chargesByStudent.get(studentId) ?? []), { id: item.id, ...data }]);
     });
     let batch = firestore.batch();
     let writes = 0;
@@ -222,9 +442,10 @@ export const generateRecurringCharges = onSchedule({ schedule: "15 3 * * *", tim
       let iterations = 0;
       while (isoDate(cursor)! <= today && iterations < 24) {
         const dueDate = isoDate(cursor)!;
-        const existing = studentCharges.some((charge) => isoDate(charge.dueDate) === dueDate && charge.chargeType === "monthly" && charge.planId === planId);
+        const existing = studentCharges.some((charge) => isoDate(charge.dueDate) === dueDate && isMonthlyCharge(charge) && charge.planId === planId);
         if (!existing) {
-          batch.create(firestore.doc(`academies/${academyId}/monthlyCharges/${recurringChargeId(studentSnapshot.id, planId, dueDate)}`), {
+          const chargeId = recurringChargeId(studentSnapshot.id, planId, dueDate);
+          batch.create(firestore.doc(`academies/${academyId}/monthlyCharges/${chargeId}`), {
             studentId: studentSnapshot.id,
             studentName: String(student.name ?? "Aluno"),
             planId,
@@ -236,6 +457,7 @@ export const generateRecurringCharges = onSchedule({ schedule: "15 3 * * *", tim
             origin: "recurring_scheduler",
             createdAt: FieldValue.serverTimestamp(),
           });
+          studentCharges.push({ id: chargeId, dueDate, status: "pending", chargeType: "monthly", planId });
           writes += 1;
           created += 1;
         }
@@ -243,14 +465,18 @@ export const generateRecurringCharges = onSchedule({ schedule: "15 3 * * *", tim
         iterations += 1;
         if (writes >= 450) await flush();
       }
-      const overdue = studentCharges.some((charge) => charge.status !== "paid" && (isoDate(charge.dueDate) ?? "9999-12-31") <= today);
+      const overdueChargeIds = studentCharges.filter((charge) => isMonthlyCharge(charge) && charge.status !== "paid" && (isoDate(charge.dueDate) ?? "9999-12-31") < today).map((charge) => charge.id);
+      const manualExemptions = Array.isArray(student.accessOverrideChargeIds) ? student.accessOverrideChargeIds.filter((id: unknown): id is string => typeof id === "string") : [];
+      const overdue = overdueChargeIds.some((chargeId) => !manualExemptions.includes(chargeId));
+      const remainingExemptions = manualExemptions.filter((chargeId: string) => overdueChargeIds.includes(chargeId));
       if (overdue) blocked += 1;
       const nextBillingDate = isoDate(cursor);
-      batch.set(studentSnapshot.ref, { nextBillingDate, accessBlocked: overdue, accessBlockReason: overdue ? "cobranca_em_atraso" : null, accessStatusUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      const accessPayload = { nextBillingDate, accessBlocked: overdue, accessBlockReason: overdue ? "cobranca_em_atraso" : null, accessOverrideChargeIds: remainingExemptions, accessStatusUpdatedAt: FieldValue.serverTimestamp() };
+      batch.set(studentSnapshot.ref, accessPayload, { merge: true });
       writes += 1;
       const userId = typeof student.userId === "string" ? student.userId : "";
       if (userId) {
-        batch.set(firestore.doc(`academies/${academyId}/members/${userId}`), { accessBlocked: overdue, accessBlockReason: overdue ? "cobranca_em_atraso" : null, accessStatusUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        batch.set(firestore.doc(`academies/${academyId}/members/${userId}`), { accessBlocked: overdue, accessBlockReason: overdue ? "cobranca_em_atraso" : null, accessOverrideChargeIds: remainingExemptions, accessStatusUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
         writes += 1;
       }
       if (writes >= 450) await flush();
