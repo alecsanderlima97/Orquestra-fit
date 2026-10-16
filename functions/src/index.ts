@@ -29,6 +29,7 @@ type CounterSalePayload = {
   academyId?: unknown;
   saleId?: unknown;
   studentId?: unknown;
+  buyerName?: unknown;
   paymentMode?: unknown;
   paymentMethod?: unknown;
   items?: unknown;
@@ -243,12 +244,15 @@ export const registerCounterSale = onCall({ region }, async (request) => {
     if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) throw new HttpsError("failed-precondition", "O valor calculado da venda é inválido.");
 
     const studentName = studentSnapshot?.data()?.name ? String(studentSnapshot.data()?.name).slice(0, 120) : null;
+    const submittedBuyerName = typeof payload.buyerName === "string" ? payload.buyerName.trim().slice(0, 120) : "";
+    const buyerName = studentName ?? (submittedBuyerName || "Cliente avulso");
     const description = saleItems.map((item) => `${item.quantity}x ${item.name}`).join(" · ").slice(0, 500);
     const saleRecord = {
       saleId,
       description,
       studentId,
       studentName,
+      buyerName,
       amount,
       paymentMethod: paymentMode === "paid" ? paymentMethod : "Conta do aluno",
       paymentStatus: paymentMode === "paid" ? "paid" : "pending",
@@ -274,7 +278,7 @@ export const registerCounterSale = onCall({ region }, async (request) => {
         balance: item.quantityAfter,
         saleId,
         studentId,
-        buyerName: studentName ?? "Cliente avulso",
+        buyerName,
         paymentMethod: paymentMode === "paid" ? paymentMethod : "Conta do aluno",
         totalAmount: item.lineTotal,
         createdBy: uid,
@@ -287,6 +291,7 @@ export const registerCounterSale = onCall({ region }, async (request) => {
         description: `Venda no balcão · ${description}`,
         studentId,
         studentName,
+        buyerName,
         amount,
         paymentMethod,
         date: saleDate,

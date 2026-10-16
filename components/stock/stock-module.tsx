@@ -154,6 +154,7 @@ export function StockModule({
   const [posOpen, setPosOpen] = useState(false);
   const [posSearch, setPosSearch] = useState("");
   const [posStudentId, setPosStudentId] = useState("");
+  const [posBuyerName, setPosBuyerName] = useState("");
   const [posPaymentMode, setPosPaymentMode] = useState<CounterPaymentMode>("paid");
   const [posPaymentMethod, setPosPaymentMethod] = useState("Pix");
   const [posCart, setPosCart] = useState<Record<string, number>>({});
@@ -259,6 +260,7 @@ export function StockModule({
     setPosCart({});
     setPosSearch("");
     setPosStudentId("");
+    setPosBuyerName("");
     setPosPaymentMode("paid");
     setPosPaymentMethod("Pix");
     setPosSaleId(createCounterSaleId());
@@ -269,6 +271,7 @@ export function StockModule({
     if (movementSaving) return;
     if (!posLines.length) { onFeedback("Adicione ao menos um produto à venda."); return; }
     if (posPaymentMode === "on_account" && !posStudentId) { onFeedback("Selecione o aluno para lançar a compra na conta."); return; }
+    if (!posStudentId && !posBuyerName.trim()) { onFeedback("Informe o nome do cliente que está comprando."); return; }
     const student = students.find((item) => item.id === posStudentId);
     if (posPaymentMode === "on_account" && !student) { onFeedback("Não foi possível localizar o aluno selecionado."); return; }
     setMovementSaving(true);
@@ -281,6 +284,7 @@ export function StockModule({
           academyId: string;
           saleId: string;
           studentId: string | null;
+          buyerName: string | null;
           paymentMode: CounterPaymentMode;
           paymentMethod: string;
           items: Array<{ productId: string; quantity: number }>;
@@ -289,6 +293,7 @@ export function StockModule({
           academyId: access.academyId,
           saleId,
           studentId: student?.id ?? null,
+          buyerName: student ? null : posBuyerName.trim(),
           paymentMode: posPaymentMode,
           paymentMethod: posPaymentMethod,
           items: posLines.map(({ item, quantity }) => ({ productId: item.id, quantity })),
@@ -302,6 +307,7 @@ export function StockModule({
 
       const now = new Date();
       const studentName = student?.name ?? null;
+      const identifiedBuyer = studentName ?? posBuyerName.trim();
       const newMovements: StockMovement[] = posLines.map(({ item, quantity, lineTotal }) => ({
         id: `local-movement-${saleId}-${item.id}`,
         itemId: item.id,
@@ -311,7 +317,7 @@ export function StockModule({
         date: now.toISOString(),
         note: `Venda no balcão · ${saleId}`,
         balance: item.quantity - quantity,
-        buyerName: studentName ?? "Cliente avulso",
+        buyerName: identifiedBuyer,
         paymentMethod: posPaymentMode === "paid" ? posPaymentMethod : "Conta do aluno",
         totalAmount: lineTotal,
       }));
@@ -322,10 +328,10 @@ export function StockModule({
       const nextMovements = [...newMovements, ...movements];
       write("items", nextItems);
       write("movements", nextMovements);
-      write("sales", [{ id: saleId, studentId: student?.id ?? null, studentName, amount: posTotal, paymentMode: posPaymentMode, paymentMethod: posPaymentMode === "paid" ? posPaymentMethod : "Conta do aluno", date: now.toISOString(), items: posLines.map(({ item, quantity, lineTotal }) => ({ productId: item.id, name: item.name, quantity, unitPrice: item.salePrice, lineTotal })) }, ...JSON.parse(localStorage.getItem(key(access.academyId, "sales")) || "[]")]);
+      write("sales", [{ id: saleId, studentId: student?.id ?? null, studentName, buyerName: identifiedBuyer, amount: posTotal, paymentMode: posPaymentMode, paymentMethod: posPaymentMode === "paid" ? posPaymentMethod : "Conta do aluno", date: now.toISOString(), items: posLines.map(({ item, quantity, lineTotal }) => ({ productId: item.id, name: item.name, quantity, unitPrice: item.salePrice, lineTotal })) }, ...JSON.parse(localStorage.getItem(key(access.academyId, "sales")) || "[]")]);
       if (posPaymentMode === "paid") {
         const sales = JSON.parse(localStorage.getItem(`orquestra-fit:${access.academyId}:financialSales`) || "[]");
-        localStorage.setItem(`orquestra-fit:${access.academyId}:financialSales`, JSON.stringify([{ id: saleId, description: `Venda no balcão · ${posLines.map(({ item, quantity }) => `${quantity}x ${item.name}`).join(" · ")}`, studentId: student?.id ?? null, studentName, amount: posTotal, paymentMethod: posPaymentMethod, date: now.toISOString(), origin: "stock" }, ...sales]));
+        localStorage.setItem(`orquestra-fit:${access.academyId}:financialSales`, JSON.stringify([{ id: saleId, description: `Venda no balcão · ${posLines.map(({ item, quantity }) => `${quantity}x ${item.name}`).join(" · ")}`, studentId: student?.id ?? null, studentName, buyerName: identifiedBuyer, amount: posTotal, paymentMethod: posPaymentMethod, date: now.toISOString(), origin: "stock" }, ...sales]));
       } else {
         const charges = JSON.parse(localStorage.getItem(`orquestra-fit:${access.academyId}:monthlyCharges`) || "[]");
         localStorage.setItem(`orquestra-fit:${access.academyId}:monthlyCharges`, JSON.stringify([{ id: `local-sale-${saleId}`, saleId, studentId: student!.id, studentName: student!.name, planName: `Compra no balcão · ${posLines.map(({ item, quantity }) => `${quantity}x ${item.name}`).join(" · ")}`, amount: posTotal, dueDate: today(), status: "pending", chargeType: "service", origin: "stock_sale" }, ...charges]));
@@ -1082,7 +1088,7 @@ export function StockModule({
                     {posLines.length ? posLines.map(({ item, quantity, lineTotal }) => <article key={item.id}><div><strong>{item.name}</strong><small>{money(item.salePrice ?? 0)} cada · {money(lineTotal)}</small></div><div><button type="button" aria-label={`Remover uma unidade de ${item.name}`} onClick={() => setPosCart((current) => { const next = { ...current }; if (next[item.id] <= 1) delete next[item.id]; else next[item.id] -= 1; return next; })}><Minus size={14} /></button><b>{quantity}</b><button type="button" aria-label={`Adicionar uma unidade de ${item.name}`} disabled={quantity >= item.quantity} onClick={() => setPosCart((current) => ({ ...current, [item.id]: Math.min((current[item.id] ?? 0) + 1, item.quantity) }))}><Plus size={14} /></button></div></article>) : <p>Adicione produtos para começar.</p>}
                   </div>
                   <div className="stock-pos-total"><span>Total</span><strong>{money(posTotal)}</strong></div>
-                  <label>Vincular ao aluno <small>{eligibleStudents.length ? `${eligibleStudents.length} aluno(s) cadastrado(s); escolha quem está comprando.` : "Nenhum aluno cadastrado; a venda ficará como cliente avulso."}</small><select value={posStudentId} onChange={(event) => setPosStudentId(event.target.value)}><option value="">Venda avulsa · sem vínculo</option>{eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.name}{student.active === false ? " · inativo" : ""}</option>)}</select></label>
+                  <label>Quem está comprando? <small>Selecione o aluno ou informe o nome de um cliente avulso.</small><select value={posStudentId} onChange={(event) => setPosStudentId(event.target.value)}><option value="">Cliente avulso · informar nome</option>{eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.name}{student.active === false ? " · inativo" : ""}</option>)}</select>{!posStudentId && <input value={posBuyerName} onChange={(event) => setPosBuyerName(event.target.value)} placeholder="Nome do cliente" maxLength={120} required aria-label="Nome do cliente que está comprando" />}</label>
                   <label>Como registrar<select value={posPaymentMode} onChange={(event) => setPosPaymentMode(event.target.value as CounterPaymentMode)}><option value="paid">Recebido agora</option><option value="on_account">Lançar na conta do aluno</option></select></label>
                   {posPaymentMode === "paid" ? <label>Forma de pagamento<select value={posPaymentMethod} onChange={(event) => setPosPaymentMethod(event.target.value)}><option>Pix</option><option>Dinheiro</option><option>Cartão de débito</option><option>Cartão de crédito</option><option>Transferência</option></select></label> : <p className="stock-pos-credit-note">A venda ficará pendente no financeiro do aluno, com vencimento hoje. O estoque será baixado agora.</p>}
                   <button className="detail-save" type="submit" disabled={movementSaving || !posLines.length || (posPaymentMode === "on_account" && !posStudentId)}>{movementSaving ? "Registrando venda…" : posPaymentMode === "on_account" ? "Lançar e baixar estoque" : "Confirmar venda"}</button>
