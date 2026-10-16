@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionClock } from "@/lib/workouts/session-clock";
 import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, Clock3, Dumbbell, PersonStanding, Play, QrCode, Trophy } from "lucide-react";
 
@@ -151,8 +151,14 @@ function MetricStepper({
 
 export function WorkoutSessionView(props: Props) {
   const { exercises, completedSets, openIndex, restTimer } = props;
+  const completedSetLookup = useMemo(() => new Set(completedSets), [completedSets]);
   const totalSets = exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
-  const doneSets = exercises.reduce((sum, exercise, index) => sum + Array.from({ length: exercise.sets }).filter((_, set) => completedSets.includes(`${index}-${set}`)).length, 0);
+  const doneSets = exercises.reduce((sum, exercise, index) => {
+    for (let set = 0; set < exercise.sets; set += 1) {
+      if (completedSetLookup.has(`${index}-${set}`)) sum += 1;
+    }
+    return sum;
+  }, 0);
   const progress = totalSets ? Math.round(doneSets / totalSets * 100) : 0;
 
   return <div className="workout-flow">
@@ -181,7 +187,10 @@ export function WorkoutSessionView(props: Props) {
       <div className="workout-list-heading"><h2>Seus exercícios</h2><span>Toque para abrir</span></div>
       {exercises.map((exercise, index) => {
         const isOpen = openIndex === index;
-        const completed = Array.from({ length: exercise.sets }).filter((_, set) => completedSets.includes(`${index}-${set}`)).length;
+        let completed = 0;
+        for (let set = 0; set < exercise.sets; set += 1) {
+          if (completedSetLookup.has(`${index}-${set}`)) completed += 1;
+        }
         const isComplete = completed === exercise.sets;
         const activeRest = restTimer?.exerciseIndex === index ? restTimer : null;
         const isResting = Boolean(activeRest);
@@ -219,7 +228,7 @@ export function WorkoutSessionView(props: Props) {
             <div className="workout-set-labels" aria-hidden="true"><span>Série</span><span>{metricLabels.load}{metricLabels.loadUnit ? ` (${metricLabels.loadUnit})` : ""}</span><span>{metricLabels.reps}{metricLabels.repsUnit ? ` (${metricLabels.repsUnit})` : ""}</span><span>Feito</span></div>
             {Array.from({ length: exercise.sets }).map((_, set) => {
               const id = `${index}-${set}`;
-              const done = completedSets.includes(id);
+              const done = completedSetLookup.has(id);
               return <div className={`workout-set${done ? " is-done" : ""}`} key={id}>
                 <span>{String(set + 1).padStart(2, "0")}</span>
                 <MetricStepper id={id} field="load" label={`${metricLabels.load} da série ${set + 1} de ${exercise.name}`} value={props.setValues[id]?.load ?? exercise.load} exercise={exercise} onValueChange={props.onValueChange} />

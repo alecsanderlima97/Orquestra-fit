@@ -42,7 +42,8 @@
 .workout-list-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 2px 2px; }
 .workout-list-heading h2 { margin: 0; font-family: inherit; font-size: 14px; font-weight: 650; }
 .workout-list-heading > span { color: var(--workout-muted); font-size: 11px; }
-.workout-flow .workout-exercise { overflow: hidden; border: 1px solid var(--workout-border); border-radius: 20px; background: var(--workout-surface); box-shadow: 0 3px 10px #0000000d; scroll-margin-top: 96px; transition: border-color .2s ease, background-color .2s ease; }
+.workout-flow .workout-exercise { overflow: hidden; border: 1px solid var(--workout-border); border-radius: 20px; background: var(--workout-surface); box-shadow: 0 3px 10px #0000000d; scroll-margin-top: 96px; transition: border-color .2s ease, background-color .2s ease; content-visibility: auto; contain-intrinsic-size: auto 90px; }
+.workout-flow .workout-exercise.is-open { content-visibility: visible; contain-intrinsic-size: none; }
 .workout-flow .workout-exercise.is-open { border-color: var(--bronze-400, #d09a5c); background: #1b1915; }
 .workout-flow .workout-exercise.is-complete { border-color: #496c57; background: #141c18; }
 .workout-flow .workout-exercise.is-collapsed { min-height: 66px; }

@@ -3201,8 +3201,18 @@ function WorkoutComposition({ exercises, selectedExercises, exerciseDetails, can
 }
 
 function HoverGifPreview({ src, alt, className, placeholder = "GIF" }: { src?: string; alt: string; className: string; placeholder?: string }) {
+  const [playing, setPlaying] = useState(false);
   if (!src) return <span className={`${className} is-empty`} aria-label={`${alt}. ${placeholder} ainda não vinculado`}>{placeholder}<small>Sem demonstração</small></span>;
-  return <span className={`${className} is-playing`} role="img" aria-label={alt}><img src={src} alt="" loading="lazy" /></span>;
+  return <button
+    type="button"
+    className={`${className} exercise-gif-preview${playing ? " is-playing" : ""}`}
+    aria-label={playing ? `Parar demonstração de ${alt.replace(/^Demonstração de /, "")}` : `Reproduzir ${alt}`}
+    aria-pressed={playing}
+    title={playing ? "Parar demonstração" : "Carregar demonstração somente ao solicitar"}
+    onClick={() => setPlaying((current) => !current)}
+  >
+    {playing ? <img src={src} alt="" /> : <><span aria-hidden="true">▶</span><small>Ver GIF</small></>}
+  </button>;
 }
 
 function gifLibraryStoragePath(file: string) {
