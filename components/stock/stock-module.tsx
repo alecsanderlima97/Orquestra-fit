@@ -180,7 +180,7 @@ export function StockModule({
           setStudents(
             JSON.parse(
               localStorage.getItem(`orquestra-fit:${access.academyId}:students`) || "[]",
-            ).filter((student: StockStudent) => student.active !== false),
+            ),
           );
         } catch {
           setItems([]);
@@ -231,7 +231,7 @@ export function StockModule({
         id: student.id,
         name: String(student.data().name || "Aluno sem nome"),
         active: student.data().active !== false,
-      })).filter((student) => student.active)),
+      }))),
     );
     return () => {
       offItems();
@@ -245,7 +245,8 @@ export function StockModule({
   const internalItems = items.filter((item) => item.kind === "internal");
   const lowStock = products.filter((item) => item.quantity <= item.minimum);
   const visibleItems = items.filter((item) => (categoryFilter === "Todas" || (item.category || "Sem categoria") === categoryFilter) && matchesSearch(search, item.name, item.category, item.supplier, item.barcode, item.brand, item.model, item.serialNumber));
-  const posProducts = products.filter((item) => item.quantity > 0 && Number(item.salePrice) > 0 && matchesSearch(posSearch, item.name, item.category, item.barcode));
+  const posProducts = products.filter((item) => matchesSearch(posSearch, item.name, item.category, item.barcode));
+  const eligibleStudents = [...students].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   const posLines = Object.entries(posCart).map(([id, quantity]) => {
     const item = products.find((product) => product.id === id);
     return item ? { item, quantity, lineTotal: Number(item.salePrice || 0) * quantity } : null;
@@ -1066,11 +1067,13 @@ export function StockModule({
                   <div className="stock-pos-products">
                     {posProducts.length ? posProducts.map((item) => {
                       const inCart = posCart[item.id] ?? 0;
+                      const hasPrice = Number(item.salePrice) > 0;
+                      const hasStock = item.quantity > inCart;
                       return <article key={item.id}>
-                        <div>{item.photoUrl ? <img src={item.photoUrl} alt="" /> : <span><Package size={17} /></span>}<div><strong>{item.name}</strong><small>Saldo: {item.quantity} · {money(item.salePrice ?? 0)}</small></div></div>
-                        <button type="button" aria-label={`Adicionar ${item.name}`} disabled={inCart >= item.quantity} onClick={() => setPosCart((current) => ({ ...current, [item.id]: Math.min((current[item.id] ?? 0) + 1, item.quantity) }))}><Plus size={16} /></button>
+                        <div>{item.photoUrl ? <img src={item.photoUrl} alt="" /> : <span><Package size={17} /></span>}<div><strong>{item.name}</strong><small>{hasPrice ? money(item.salePrice ?? 0) : "Preço de venda não cadastrado"} · Saldo: {item.quantity}</small>{(!hasStock || !hasPrice) && <small className="stock-pos-product-warning">{!hasStock ? "Sem unidades disponíveis" : "Cadastre o preço de venda para incluir"}</small>}</div></div>
+                        <button type="button" aria-label={`Adicionar ${item.name}`} title={!hasStock ? "Sem saldo disponível" : !hasPrice ? "Cadastre o preço de venda" : `Adicionar ${item.name}`} disabled={!hasStock || !hasPrice} onClick={() => setPosCart((current) => ({ ...current, [item.id]: Math.min((current[item.id] ?? 0) + 1, item.quantity) }))}><Plus size={16} /></button>
                       </article>;
-                    }) : <p className="stock-pos-empty">Nenhum produto com saldo e preço de venda foi encontrado.</p>}
+                    }) : <p className="stock-pos-empty">Nenhum produto cadastrado no estoque.</p>}
                   </div>
                 </section>
                 <aside className="stock-pos-cart">
@@ -1079,7 +1082,7 @@ export function StockModule({
                     {posLines.length ? posLines.map(({ item, quantity, lineTotal }) => <article key={item.id}><div><strong>{item.name}</strong><small>{money(item.salePrice ?? 0)} cada · {money(lineTotal)}</small></div><div><button type="button" aria-label={`Remover uma unidade de ${item.name}`} onClick={() => setPosCart((current) => { const next = { ...current }; if (next[item.id] <= 1) delete next[item.id]; else next[item.id] -= 1; return next; })}><Minus size={14} /></button><b>{quantity}</b><button type="button" aria-label={`Adicionar uma unidade de ${item.name}`} disabled={quantity >= item.quantity} onClick={() => setPosCart((current) => ({ ...current, [item.id]: Math.min((current[item.id] ?? 0) + 1, item.quantity) }))}><Plus size={14} /></button></div></article>) : <p>Adicione produtos para começar.</p>}
                   </div>
                   <div className="stock-pos-total"><span>Total</span><strong>{money(posTotal)}</strong></div>
-                  <label>Vincular ao aluno <small>Opcional para venda no balcão.</small><select value={posStudentId} onChange={(event) => setPosStudentId(event.target.value)}><option value="">Cliente avulso</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>
+                  <label>Vincular ao aluno <small>{eligibleStudents.length ? `${eligibleStudents.length} aluno(s) cadastrado(s); escolha quem está comprando.` : "Nenhum aluno cadastrado; a venda ficará como cliente avulso."}</small><select value={posStudentId} onChange={(event) => setPosStudentId(event.target.value)}><option value="">Venda avulsa · sem vínculo</option>{eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.name}{student.active === false ? " · inativo" : ""}</option>)}</select></label>
                   <label>Como registrar<select value={posPaymentMode} onChange={(event) => setPosPaymentMode(event.target.value as CounterPaymentMode)}><option value="paid">Recebido agora</option><option value="on_account">Lançar na conta do aluno</option></select></label>
                   {posPaymentMode === "paid" ? <label>Forma de pagamento<select value={posPaymentMethod} onChange={(event) => setPosPaymentMethod(event.target.value)}><option>Pix</option><option>Dinheiro</option><option>Cartão de débito</option><option>Cartão de crédito</option><option>Transferência</option></select></label> : <p className="stock-pos-credit-note">A venda ficará pendente no financeiro do aluno, com vencimento hoje. O estoque será baixado agora.</p>}
                   <button className="detail-save" type="submit" disabled={movementSaving || !posLines.length || (posPaymentMode === "on_account" && !posStudentId)}>{movementSaving ? "Registrando venda…" : posPaymentMode === "on_account" ? "Lançar e baixar estoque" : "Confirmar venda"}</button>
