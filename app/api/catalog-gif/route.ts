@@ -1,4 +1,5 @@
 import femaleCatalog from "@/public/gif-catalog-feminine.json";
+import { verifiedFemaleGifUrls } from "@/lib/workouts/verified-female-gifs";
 
 type CatalogGif = {
   id: string;
@@ -6,6 +7,19 @@ type CatalogGif = {
 };
 
 const catalogById = new Map((femaleCatalog as CatalogGif[]).map((item) => [item.id, item]));
+const verifiedById = new Map(
+  Object.values(verifiedFemaleGifUrls)
+    .map((url) => {
+      try {
+        const parsed = new URL(url);
+        const id = parsed.searchParams.get("id");
+        return id ? ([id, { id, url }] as const) : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is readonly [string, CatalogGif] => Boolean(item)),
+);
 
 /**
  * Entrega somente GIFs conhecidos do catálogo feminino pelo mesmo domínio do
@@ -15,7 +29,7 @@ const catalogById = new Map((femaleCatalog as CatalogGif[]).map((item) => [item.
  */
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get("id") ?? "";
-  const item = catalogById.get(id);
+  const item = catalogById.get(id) ?? verifiedById.get(id);
 
   if (!item) return new Response("GIF não encontrado.", { status: 404 });
 

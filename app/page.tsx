@@ -713,11 +713,36 @@ function packagedGifUrl(file: string) {
   return `/exercise-gifs/${file.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
 }
 
+const verifiedFemaleGifIds = new Set(
+  Object.values(verifiedFemaleGifUrls).flatMap((url) => {
+    try {
+      const id = new URL(url).searchParams.get("id");
+      return id ? [id] : [];
+    } catch {
+      return [];
+    }
+  }),
+);
+
+function proxiedFemaleGifUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const id = parsed.searchParams.get("id");
+    return parsed.hostname === "drive.usercontent.google.com" && id && verifiedFemaleGifIds.has(id)
+      ? `/api/catalog-gif?id=${encodeURIComponent(id)}`
+      : url;
+  } catch {
+    return url;
+  }
+}
+
 function verifiedExerciseGif(name: string, profile: "masculino" | "feminino" = "masculino") {
   const key = exerciseGifKey(name);
   const gif = verifiedGifDefinition(name);
   if (!gif) return "";
-  return profile === "feminino" ? (verifiedFemaleGifUrls[key] || gif.femaleUrl || packagedGifUrl(gif.maleFile)) : packagedGifUrl(gif.maleFile);
+  return profile === "feminino"
+    ? proxiedFemaleGifUrl(verifiedFemaleGifUrls[key] || gif.femaleUrl || packagedGifUrl(gif.maleFile))
+    : packagedGifUrl(gif.maleFile);
 }
 
 function verifiedGifDefinition(name: string): VerifiedExerciseGif | undefined {
@@ -732,7 +757,7 @@ function exerciseGifSource(exercise: Pick<ExerciseRecord, "name" | "gifUrl" | "g
   const saved = profile === "feminino"
     ? (exercise.gifFemaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifFemaleUrl || exercise.gifUrl)
     : (exercise.gifMaleOptimizedUrl || exercise.gifOptimizedUrl || exercise.gifMaleUrl || exercise.gifUrl);
-  if (saved) return saved;
+  if (saved) return profile === "feminino" ? proxiedFemaleGifUrl(saved) : saved;
   const path = profile === "masculino" ? exercise.gifMalePath : exercise.gifFemalePath;
   return (path ? packagedGifUrl(path) : "") || verifiedExerciseGif(exercise.name, profile);
 }
