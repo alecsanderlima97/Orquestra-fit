@@ -21,7 +21,7 @@ function openPrintDocument(sheets: Sheet[], studentName: string, title: string) 
   printWindow.opener = null;
   const logoUrl = `${window.location.origin}/dama-de-ferro.jpeg`;
   const sections = sheets.map((sheet) => {
-    const rows = sheet.exerciseDetails?.length ? sheet.exerciseDetails.map((exercise, index) => {
+    const rows = sheet.exerciseDetails?.length ? sheet.exerciseDetails.map((exercise) => {
       const metrics = exerciseMetricLabels(exercise);
       return `<tr><td><strong>${escapePrintText(exercise.name)}</strong>${exercise.instructions ? `<small>${escapePrintText(exercise.instructions)}</small>` : ""}</td><td>${escapePrintText(exercise.sets || "—")}</td><td>${escapePrintText(exercise.reps ? `${exercise.reps} ${metrics.repsUnit}` : "—")}</td><td>${escapePrintText(exercise.load ? `${exercise.load} ${metrics.loadUnit}` : "—")}</td><td>${escapePrintText(exercise.rest || "—")}</td></tr>`;
     }).join("") : `<tr><td colspan="5">Detalhes dos exercícios ainda não cadastrados.</td></tr>`;
@@ -46,7 +46,7 @@ export function KioskWorkouts() {
   const detail = useRef<HTMLDivElement>(null);
   const selected = sheets.find((sheet) => sheet.id === selectedId);
   useEffect(() => {
-    if (!db || access.role !== "student") { setLoading(false); return; }
+    if (!db || access.role !== "student") return;
     const firestore = db;
     const queries = [
       query(collection(firestore, "academies", access.academyId, "workouts"), where("studentId", "==", access.userId), where("status", "==", "published")),

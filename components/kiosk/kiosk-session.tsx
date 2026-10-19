@@ -7,7 +7,7 @@ import { auth } from "@/lib/firebase/client";
 import { KIOSK_WARNING_MS, kioskRemainingSeconds } from "@/lib/kiosk-session";
 
 export function KioskSession({ children }: { children: ReactNode }) {
-  const lastActivity = useRef(Date.now());
+  const lastActivity = useRef(0);
   const closing = useRef(false);
   const [remaining, setRemaining] = useState(120);
   const [locked, setLocked] = useState(false);
@@ -25,6 +25,7 @@ export function KioskSession({ children }: { children: ReactNode }) {
     }
   }, []);
   useEffect(() => {
+    lastActivity.current = Date.now();
     const check = () => {
       const seconds = kioskRemainingSeconds(lastActivity.current, Date.now());
       setRemaining(seconds);

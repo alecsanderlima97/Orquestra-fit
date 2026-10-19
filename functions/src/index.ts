@@ -814,8 +814,8 @@ function optimizedGifFields(profile: "masculino" | "feminino", url: string, path
 }
 
 type StorageFileForUrl = {
-  getMetadata: (...args: any[]) => Promise<any>;
-  setMetadata: (...args: any[]) => Promise<any>;
+  getMetadata: () => Promise<[{ metadata?: Record<string, unknown> }]>;
+  setMetadata: (metadata: { metadata: Record<string, string> }) => Promise<unknown>;
   bucket: { name: string };
 };
 
@@ -885,7 +885,7 @@ export const prepareExerciseGif = onCall({ region, timeoutSeconds: 120, memory: 
       },
     });
   }
-  const url = await storageDownloadUrl(optimizedFile, optimizedPath);
+  const url = await storageDownloadUrl(optimizedFile as unknown as StorageFileForUrl, optimizedPath);
   const media = optimizedGifFields(profile, url, optimizedPath);
   await exerciseRef.set(media, { merge: true });
   return { ok: true, url, path: optimizedPath, profile };
