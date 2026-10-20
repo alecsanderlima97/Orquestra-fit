@@ -5303,8 +5303,8 @@ input, select, textarea { border-radius: 10px; }
 .central-admin-search { display: flex; height: 42px; align-items: center; gap: 8px; margin: 12px 16px; border: 1px solid #ccdad3; padding: 0 12px; background: #fff; color: #83a0a3; }
 .central-admin-search input { width: 100%; border: 0; outline: 0; background: transparent; color: #193646; font-size: 11px; }
 .central-admin-table-scroll { overflow-x: auto; }
-.central-admin-table { min-width: 1120px; }
-.central-admin-table-head, .central-admin-client-row { display: grid; grid-template-columns: minmax(205px, 1.6fr) minmax(95px, .75fr) 76px 86px 96px minmax(130px, 1fr) 110px 70px 72px 126px; gap: 12px; align-items: center; padding: 0 16px; }
+.central-admin-table { min-width: 1185px; }
+.central-admin-table-head, .central-admin-client-row { display: grid; grid-template-columns: minmax(205px, 1.6fr) minmax(95px, .75fr) 76px 86px 96px minmax(130px, 1fr) 110px 70px 72px 170px; gap: 12px; align-items: center; padding: 0 16px; }
 .central-admin-table-head { min-height: 47px; border-top: 1px solid #d1ded7; border-bottom: 1px solid #d1ded7; background: #f9fcfa; color: #66808b; font-size: 10px; font-weight: 800; }
 .central-admin-table-head > span { cursor: grab; user-select: none; }
 .central-admin-table-head > span:active { cursor: grabbing; }
@@ -5335,9 +5335,10 @@ input, select, textarea { border-radius: 10px; }
 .central-admin-online.online { color: #237757; background: #d3f7e8; }
 .central-admin-actions { display: flex; align-items: center; gap: 5px; }
 .central-admin-actions button { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid #7ad6dc; border-radius: 50%; background: #f8ffff; color: #19829a; }
-.central-admin-actions button:nth-child(2) { border-color: #78d4b0; color: #22875f; }
-.central-admin-actions button:nth-child(3) { border-color: #e3be63; color: #aa7920; }
-.central-admin-actions button:nth-child(4) { border-color: #f09aa0; color: #c25f6a; }
+.central-admin-actions button:nth-child(2) { border-color: #b19be9; color: #7347c8; background: #fbf8ff; }
+.central-admin-actions button:nth-child(3) { border-color: #78d4b0; color: #22875f; }
+.central-admin-actions button:nth-child(4) { border-color: #e3be63; color: #aa7920; }
+.central-admin-actions button:nth-child(5) { border-color: #f09aa0; color: #c25f6a; }
 .central-admin-details-toggle { width: calc(100% - 32px); display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 0 16px 10px; border: 1px solid #bfd7cd; border-radius: 4px; padding: 10px 14px; background: #ecfbf8; color: #1b5164; text-align: left; }
 .central-admin-details-toggle > span:first-child { display: grid; gap: 3px; }
 .central-admin-details-toggle strong { font-size: 11px; }
@@ -5371,6 +5372,12 @@ input, select, textarea { border-radius: 10px; }
 .central-admin-modal header p { margin: 0; color: #70868b; font-size: 9px; }
 .central-admin-modal > header button { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid #b7cbc6; border-radius: 3px; background: #fff; color: #567177; }
 .central-admin-modal form { padding: 14px 16px 16px; }
+.central-admin-plan-reference { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; border: 1px solid #c9d9bd; padding: 12px; background: #fffbea; }
+.central-admin-plan-reference > div { display: grid; gap: 4px; }
+.central-admin-plan-reference span { color: #8d6c2b; font-size: 8px; font-weight: 900; letter-spacing: .13em; }
+.central-admin-plan-reference strong { color: #1b3544; font: 500 18px Georgia, serif; }
+.central-admin-plan-reference small { color: #72858b; font-size: 9px; }
+.central-admin-plan-reference > b { color: #7449bf; font-size: 13px; white-space: nowrap; }
 .central-admin-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .central-admin-form-grid label { display: grid; gap: 5px; color: #668087; font-size: 8px; font-weight: 800; }
 .central-admin-form-grid input, .central-admin-form-grid select, .central-admin-form-grid textarea { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid #bcd1ca; border-radius: 3px; padding: 9px 8px; outline: 0; background: #fff; color: #203b49; font: inherit; font-size: 10px; }
@@ -5387,6 +5394,23 @@ input, select, textarea { border-radius: 10px; }
 .central-admin-secondary { border: 1px solid #b7ccc4; background: #fff; color: #557177; }
 .central-admin-primary { border: 1px solid #143546; background: #12344a; color: #fff; }
 .central-admin-primary:disabled { opacity: .6; }
+.central-admin-credits-modal { width: min(410px, 100%); border: 1px solid #b9d8d0; border-radius: 5px; background: #f8fcf8; box-shadow: 0 25px 80px #05233555; }
+.central-admin-credits-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid #d7e6de; padding: 15px 16px; background: #f1fbf8; }
+.central-admin-credits-modal > header span { color: #8c55d1; font-size: 8px; font-weight: 900; letter-spacing: .13em; }
+.central-admin-credits-modal h2 { margin: 5px 0 3px; color: #1e3340; font: 500 17px Georgia, serif; }
+.central-admin-credits-modal > header p { margin: 0; color: #70868b; font-size: 9px; }
+.central-admin-credits-modal > header button { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid #b7cbc6; border-radius: 50%; background: #fff; color: #567177; }
+.central-admin-credits-body { display: grid; gap: 13px; padding: 15px 16px 8px; }
+.central-admin-credits-balance { display: grid; gap: 6px; border: 1px solid #ddd5f6; padding: 11px; background: #fbf9ff; color: #455363; font-size: 10px; }
+.central-admin-credits-balance strong { color: #5c31a9; }
+.central-admin-credits-balance small { color: #748296; font-size: 9px; }
+.central-admin-credits-body label { display: grid; gap: 5px; color: #668087; font-size: 8px; font-weight: 800; }
+.central-admin-credits-body input, .central-admin-credits-body textarea { width: 100%; box-sizing: border-box; border: 1px solid #bcd1ca; border-radius: 3px; padding: 10px 9px; outline: 0; background: #fff; color: #203b49; font: inherit; font-size: 11px; }
+.central-admin-credits-body textarea { min-height: 70px; resize: vertical; }
+.central-admin-credits-body input:focus, .central-admin-credits-body textarea:focus { border-color: #8c55d1; box-shadow: 0 0 0 2px #8c55d122; }
+.central-admin-credits-modal > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 16px; }
+.central-admin-credit-submit { display: inline-flex; min-height: 34px; align-items: center; gap: 6px; border: 1px solid #6b35c0; border-radius: 4px; padding: 0 13px; background: #792ddd; color: #fff; font-size: 10px; font-weight: 800; }
+.central-admin-credit-submit:disabled { opacity: .6; }
 @media (max-width: 1040px) {
   .central-admin-screen { grid-template-columns: 76px minmax(0, 1fr); }
   .central-admin-sidebar { padding-right: 10px; padding-left: 10px; }
@@ -5427,4 +5451,6 @@ input, select, textarea { border-radius: 10px; }
   .central-admin-modal-backdrop { align-items: start; padding: 10px; }
   .central-admin-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .central-admin-form-wide { grid-column: 1 / -1; }
+  .central-admin-plan-reference { align-items: flex-start; flex-direction: column; }
+  .central-admin-plan-reference > b { white-space: normal; }
 }

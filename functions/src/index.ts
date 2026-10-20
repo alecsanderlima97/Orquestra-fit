@@ -34,6 +34,7 @@ type CounterSalePayload = {
   paymentMethod?: unknown;
   items?: unknown;
 };
+type AddAiCreditsPayload = { academyId?: unknown; credits?: unknown; reason?: unknown };
 
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
 
@@ -143,6 +144,99 @@ export const recordAuditEvent = onCall({ region }, async (request) => {
     createdAt: FieldValue.serverTimestamp(),
   });
   return { ok: true };
+});
+
+/**
+ * Ajuste administrativo de créditos de IA.
+ * A escrita passa exclusivamente por esta função para que o navegador nunca
+ * possa escolher o saldo, o responsável ou o tenant diretamente.
+ */
+export const addAiCredits = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para adicionar créditos.");
+  const actorId = request.auth.uid;
+  const actorSnapshot = await firestore.doc(`users/${actorId}`).get();
+  if (actorSnapshot.data()?.accountType !== "developer") {
+    throw new HttpsError("permission-denied", "Somente o administrador da plataforma pode ajustar créditos.");
+  }
+
+  const payload = (request.data ?? {}) as AddAiCreditsPayload;
+  const academyId = readString(payload.academyId, "a academia");
+  const reason = readString(payload.reason, "o motivo");
+  if (reason.length < 5 || reason.length > 300) {
+    throw new HttpsError("invalid-argument", "O motivo deve ter entre 5 e 300 caracteres.");
+  }
+  const credits = Number(payload.credits);
+  if (!Number.isInteger(credits) || credits < 1 || credits > 100_000) {
+    throw new HttpsError("invalid-argument", "A quantidade deve ser um inteiro entre 1 e 100.000 créditos.");
+  }
+
+  const academyRef = firestore.doc(`academies/${academyId}`);
+  const adjustmentRef = academyRef.collection("aiCreditAdjustments").doc();
+  const auditRef = firestore.collection("auditLogs").doc();
+  const actorEmail = typeof request.auth.token.email === "string" ? request.auth.token.email.slice(0, 160) : null;
+  const actorName = typeof request.auth.token.name === "string" ? request.auth.token.name.slice(0, 120) : actorEmail ?? "Administrador";
+
+  const result = await firestore.runTransaction(async (transaction) => {
+    const academySnapshot = await transaction.get(academyRef);
+    if (!academySnapshot.exists) throw new HttpsError("not-found", "Cliente não encontrado.");
+    const data = academySnapshot.data() ?? {};
+    const ledger = data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits as Record<string, unknown> : null;
+    const monthly = Math.max(0, Number(data.aiCreditsMonthly ?? data.aiCreditsTotal ?? ledger?.included ?? (typeof data.aiCredits === "number" ? data.aiCredits : 0)));
+    const extras = Math.max(0, Number(data.aiCreditsExtras ?? ledger?.bonus ?? 0));
+    const balance = Math.max(0, Number(data.aiCreditsBalance ?? ledger?.balance ?? (typeof data.aiCredits === "number" ? data.aiCredits : monthly + extras)));
+    const total = Math.max(monthly + extras, Number(data.aiCreditsTotal ?? 0));
+    const nextBalance = balance + credits;
+    const nextExtras = extras + credits;
+    const nextTotal = monthly + nextExtras;
+    const timestamp = FieldValue.serverTimestamp();
+
+    transaction.set(academyRef, {
+      aiCredits: {
+        balance: nextBalance,
+        bonus: nextExtras,
+        included: monthly,
+        renewalMonth: new Date().toISOString().slice(0, 7),
+        status: "active",
+        used: Math.max(0, Number(ledger?.used ?? data.aiCreditsUsed ?? 0)),
+        lastAdjustmentAt: timestamp,
+        lastAdjustmentBy: actorId,
+      },
+      aiCreditsBalance: nextBalance,
+      aiCreditsMonthly: monthly,
+      aiCreditsExtras: nextExtras,
+      aiCreditsTotal: nextTotal,
+      aiCreditsLastReason: reason,
+      aiCreditsUpdatedAt: timestamp,
+      aiCreditsUpdatedBy: actorId,
+      updatedAt: timestamp,
+      updatedBy: actorId,
+    }, { merge: true });
+    transaction.create(adjustmentRef, {
+      type: "manual_bonus",
+      credits,
+      reason,
+      balanceBefore: balance,
+      balanceAfter: nextBalance,
+      bonusBefore: extras,
+      bonusAfter: nextExtras,
+      createdBy: actorEmail ?? actorId,
+      createdAt: timestamp,
+    });
+    transaction.create(auditRef, {
+      academyId,
+      userId: actorId,
+      userName: actorName,
+      userEmail: actorEmail,
+      role: "developer",
+      action: "central_admin_ai_credits_added",
+      label: "Créditos IA adicionados",
+      details: JSON.stringify({ credits, reason, balanceBefore: balance, balanceAfter: nextBalance }),
+      createdAt: timestamp,
+    });
+    return { balance: nextBalance, total: nextTotal, extras: nextExtras };
+  });
+
+  return { ok: true, ...result };
 });
 
 /**

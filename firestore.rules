@@ -42,6 +42,15 @@ service cloud.firestore {
       return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountType == 'developer';
     }
 
+    function canUpdateAcademy(academyId) {
+      return (isDeveloper() || isAdmin(academyId)) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'aiCredits', 'aiCreditsBalance', 'aiCreditsMonthly', 'aiCreditsExtras',
+          'aiCreditsTotal', 'aiCreditsUsed', 'aiCreditsLastReason',
+          'aiCreditsUpdatedAt', 'aiCreditsUpdatedBy'
+        ]);
+    }
+
     function isOnboardingOwner(academyId) {
       return signedIn() &&
         getAfter(/databases/$(database)/documents/academies/$(academyId)).data.ownerId == request.auth.uid &&
@@ -100,7 +109,10 @@ service cloud.firestore {
     match /academies/{academyId} {
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
       allow read: if isDeveloper() || belongsToAcademy(academyId);
-      allow update, delete: if isDeveloper() || isAdmin(academyId);
+      // Saldo e bônus de IA só podem ser alterados pela callable addAiCredits,
+      // que valida o administrador da plataforma e grava o histórico.
+      allow update: if canUpdateAcademy(academyId);
+      allow delete: if isAdmin(academyId);
     }
 
     match /academies/{academyId}/members/{memberId} {
@@ -296,7 +308,7 @@ service cloud.firestore {
 
     match /academies/{academyId}/{document=**} {
       allow read: if isDeveloper() || isAdmin(academyId);
-      allow write: if isDeveloper() || isAdmin(academyId);
+      allow write: if isAdmin(academyId);
     }
 
     match /auditLogs/{logId} {

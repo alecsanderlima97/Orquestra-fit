@@ -5,9 +5,8 @@ import type { CSSProperties } from "react";
 import { httpsCallable } from "firebase/functions";
 import { collection, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import {
-  Activity, BarChart3, Bell, Building2, CalendarClock, ChevronDown, ChevronRight, CircleDollarSign,
-  ClipboardList, CloudCog, FileText, LayoutDashboard, LockKeyhole, PauseCircle, Pencil, Plus,
-  RefreshCw, Search, Settings, ShieldCheck, Trash2, User, Users, WalletCards, X,
+  Bell, Building2, ChevronDown, ChevronRight, CircleDollarSign, CloudCog, FileText, LockKeyhole,
+  PauseCircle, Pencil, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { db, functions } from "@/lib/firebase/client";
@@ -34,6 +33,22 @@ type AcademyRecord = {
   legalName?: string | null;
   tradeName?: string | null;
   address?: Record<string, string> | null;
+  aiCredits?: number | AiCreditsRecord | null;
+  aiCreditsBalance?: number | null;
+  aiCreditsTotal?: number | null;
+  aiCreditsMonthly?: number | null;
+  aiCreditsExtras?: number | null;
+};
+
+type AiCreditsRecord = {
+  balance?: number;
+  bonus?: number;
+  included?: number;
+  renewalMonth?: string;
+  status?: string;
+  used?: number;
+  lastAdjustmentAt?: unknown;
+  lastAdjustmentBy?: string | null;
 };
 
 type AcademyMember = {
@@ -74,6 +89,9 @@ type AcademyForm = {
 
 type CentralAdminColumnKey = "client" | "plan" | "status" | "signup" | "due" | "calculated" | "lastAccess" | "online" | "credits" | "action";
 
+const ORQUESTRA_PLAN_NAME = "Pró";
+const ORQUESTRA_PLAN_PRICE = 350;
+
 const centralAdminColumns: Array<{ key: CentralAdminColumnKey; label: string }> = [
   { key: "client", label: "Cliente" }, { key: "plan", label: "Plano" }, { key: "status", label: "Status" },
   { key: "signup", label: "Inscrição" }, { key: "due", label: "Vencimento" }, { key: "calculated", label: "Situação calculada" },
@@ -81,11 +99,7 @@ const centralAdminColumns: Array<{ key: CentralAdminColumnKey; label: string }> 
   { key: "action", label: "Ação" },
 ];
 
-const navigation = [
-  ["Dashboard", LayoutDashboard], ["Lojas", Building2], ["Fornecedores", Users], ["Compras", ClipboardList],
-  ["Contas a pagar", WalletCards], ["Despesas fixas", CalendarClock], ["Relatórios", BarChart3],
-  ["Auditoria", Activity], ["Perfil", User], ["Configurações", Settings], ["Admin Orquestra", ShieldCheck],
-] as const;
+const navigation = [["Admin Orquestra", ShieldCheck]] as const;
 
 function firestoreDate(value: unknown) {
   if (!value) return null;
@@ -139,7 +153,7 @@ function calculatedStatus(academy: AcademyRecord) {
 
 function emptyForm(): AcademyForm {
   return {
-    name: "", ownerEmail: "", plan: "Plano Profissional", status: "active", monthlyAmount: "", billingDueDate: "",
+    name: "", ownerEmail: "", plan: ORQUESTRA_PLAN_NAME, status: "active", monthlyAmount: ORQUESTRA_PLAN_PRICE.toFixed(2).replace(".", ","), billingDueDate: "",
     billingToleranceDays: "5", contactPhone: "", commercialEmail: "", taxId: "", legalName: "", tradeName: "",
     zip: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "", paymentMethod: "Pix",
     startDate: new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()), notes: "",
@@ -149,9 +163,9 @@ function emptyForm(): AcademyForm {
 function academyToForm(academy: AcademyRecord): AcademyForm {
   const address = academy.address ?? {};
   return {
-    ...emptyForm(), name: academy.name, ownerEmail: academy.ownerEmail ?? "", plan: academy.plan ?? "Plano Profissional",
+    ...emptyForm(), name: academy.name, ownerEmail: academy.ownerEmail ?? "", plan: ORQUESTRA_PLAN_NAME,
     status: academy.billingStatus === "past_due" || academy.billingStatus === "suspended" ? academy.billingStatus : "active",
-    monthlyAmount: academy.monthlyAmount ? String(academy.monthlyAmount).replace(".", ",") : "", billingDueDate: academy.billingDueDate ?? "",
+    monthlyAmount: ORQUESTRA_PLAN_PRICE.toFixed(2).replace(".", ","), billingDueDate: academy.billingDueDate ?? "",
     contactPhone: academy.contactPhone ?? "", commercialEmail: academy.commercialEmail ?? "", taxId: academy.taxId ?? "",
     legalName: academy.legalName ?? "", tradeName: academy.tradeName ?? "", zip: address.zip ?? "", street: address.street ?? "",
     number: address.number ?? "", complement: address.complement ?? "", neighborhood: address.neighborhood ?? "", city: address.city ?? "",
@@ -159,14 +173,24 @@ function academyToForm(academy: AcademyRecord): AcademyForm {
   };
 }
 
-function parseMoney(value: string) {
-  const normalized = value.replace(/\s/g, "").replace(/R\$/i, "").replace(/\./g, "").replace(",", ".");
-  const result = Number(normalized);
-  return Number.isFinite(result) ? result : 0;
-}
-
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "AC";
+}
+
+function academyCredits(academy: AcademyRecord) {
+  const ledger = academy.aiCredits && typeof academy.aiCredits === "object" ? academy.aiCredits : null;
+  const monthly = Math.max(0, Number(academy.aiCreditsMonthly ?? academy.aiCreditsTotal ?? ledger?.included ?? (typeof academy.aiCredits === "number" ? academy.aiCredits : 0)));
+  const extras = Math.max(0, Number(academy.aiCreditsExtras ?? ledger?.bonus ?? 0));
+  const total = Math.max(monthly + extras, Number(academy.aiCreditsTotal ?? 0));
+  const balance = Math.max(0, Number(academy.aiCreditsBalance ?? ledger?.balance ?? total));
+  return { balance, monthly, extras, total };
+}
+
+type CreditModalState = { academy: AcademyRecord; amount: string; reason: string };
+
+function AiCreditsModal({ state, onClose, onChange, onSubmit, saving }: { state: CreditModalState; onClose: () => void; onChange: (field: "amount" | "reason", value: string) => void; onSubmit: () => void; saving: boolean }) {
+  const credits = academyCredits(state.academy);
+  return <div className="central-admin-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="central-admin-credits-title"><section className="central-admin-credits-modal"><header><div><span>CRÉDITOS IA</span><h2 id="central-admin-credits-title">Adicionar créditos extras</h2><p>{state.academy.name}</p></div><button type="button" onClick={onClose} aria-label="Fechar créditos IA"><X size={17} /></button></header><div className="central-admin-credits-body"><div className="central-admin-credits-balance"><span>Saldo atual: <strong>{credits.balance} crédito(s)</strong></span><small>Mensais: {credits.monthly} · Extras acumulados: {credits.extras}</small></div><label>Quantidade de créditos<input type="number" min="1" max="100000" step="1" value={state.amount} onChange={(event) => onChange("amount", event.target.value)} /></label><label>Motivo obrigatório<textarea value={state.reason} maxLength={300} onChange={(event) => onChange("reason", event.target.value)} placeholder="Ex.: compra do pacote de 300 créditos" /></label></div><footer><button type="button" className="central-admin-secondary" onClick={onClose}>Cancelar</button><button type="button" className="central-admin-credit-submit" onClick={onSubmit} disabled={saving}><Sparkles size={14} />{saving ? "Adicionando…" : "Adicionar créditos"}</button></footer></section></div>;
 }
 
 export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: CentralAdminPanelProps) {
@@ -182,6 +206,8 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(() => new Date());
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
+  const [creditModal, setCreditModal] = useState<CreditModalState | null>(null);
+  const [creditSaving, setCreditSaving] = useState(false);
   const [columnOrder, setColumnOrder] = useState<CentralAdminColumnKey[]>(() => centralAdminColumns.map((column) => column.key));
   const [draggedColumn, setDraggedColumn] = useState<CentralAdminColumnKey | null>(null);
 
@@ -202,11 +228,16 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
       }).map((item) => {
         const data = item.data();
         return {
-          id: item.id, name: String(data.name ?? "Academia sem nome"), ownerEmail: data.ownerEmail ?? null, plan: data.plan ?? "Plano Profissional",
+          id: item.id, name: String(data.name ?? "Academia sem nome"), ownerEmail: data.ownerEmail ?? null, plan: ORQUESTRA_PLAN_NAME,
           status: data.status ?? "active", billingStatus: data.billingStatus ?? data.status ?? "active", billingDueDate: data.billingDueDate ?? null,
-          monthlyAmount: Number(data.monthlyAmount ?? 0), createdAt: data.createdAt, contactPhone: data.contactPhone ?? null,
+          monthlyAmount: ORQUESTRA_PLAN_PRICE, createdAt: data.createdAt, contactPhone: data.contactPhone ?? null,
           commercialEmail: data.commercialEmail ?? null, taxId: data.taxId ?? null, legalName: data.legalName ?? null,
           tradeName: data.tradeName ?? null, address: data.address ?? null,
+          aiCredits: data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits as AiCreditsRecord : Number(data.aiCredits ?? 0),
+          aiCreditsBalance: Number(data.aiCreditsBalance ?? (data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits.balance : data.aiCredits) ?? 0),
+          aiCreditsTotal: Number(data.aiCreditsTotal ?? data.aiCreditsMonthly ?? (data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits.included : data.aiCredits) ?? 0),
+          aiCreditsMonthly: Number(data.aiCreditsMonthly ?? data.aiCreditsTotal ?? (data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits.included : data.aiCredits) ?? 0),
+          aiCreditsExtras: Number(data.aiCreditsExtras ?? (data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits.bonus : 0) ?? 0),
         } as AcademyRecord;
       }).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
       setAcademies(next);
@@ -253,6 +284,50 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
     setModalMode("edit");
   }
 
+  function openCredits(academy: AcademyRecord) {
+    setSelectedId(academy.id);
+    setCreditModal({ academy, amount: "100", reason: "" });
+  }
+
+  function updateCreditForm(field: "amount" | "reason", value: string) {
+    setCreditModal((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  async function addCredits() {
+    if (!creditModal) return;
+    const amount = Math.floor(Number(creditModal.amount));
+    const reason = creditModal.reason.trim();
+    if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
+      onFeedback("Informe uma quantidade inteira entre 1 e 100.000 créditos.");
+      return;
+    }
+    if (reason.length < 5 || reason.length > 300) {
+      onFeedback("Informe um motivo entre 5 e 300 caracteres.");
+      return;
+    }
+    if (!window.confirm(`Adicionar ${amount} créditos IA para ${creditModal.academy.name}?\n\nMotivo: ${reason}`)) return;
+    const current = academyCredits(creditModal.academy);
+    const nextBalance = current.balance + amount;
+    const nextExtras = current.extras + amount;
+    const nextTotal = current.monthly + nextExtras;
+    setCreditSaving(true);
+    try {
+      if (db && functions) {
+        const result = await httpsCallable<{ academyId: string; credits: number; reason: string }, { ok: boolean; balance: number; total: number; extras: number }>(functions, "addAiCredits")({ academyId: creditModal.academy.id, credits: amount, reason });
+        const data = result.data;
+        setAcademies((currentAcademies) => currentAcademies.map((academy) => academy.id === creditModal.academy.id ? { ...academy, aiCredits: data.balance, aiCreditsBalance: data.balance, aiCreditsMonthly: current.monthly, aiCreditsExtras: data.extras, aiCreditsTotal: data.total } : academy));
+      } else {
+        setAcademies((currentAcademies) => currentAcademies.map((academy) => academy.id === creditModal.academy.id ? { ...academy, aiCredits: nextBalance, aiCreditsBalance: nextBalance, aiCreditsMonthly: current.monthly, aiCreditsExtras: nextExtras, aiCreditsTotal: nextTotal } : academy));
+      }
+      setCreditModal(null);
+      onFeedback(`${amount} créditos IA adicionados para ${creditModal.academy.name}.`);
+    } catch {
+      onFeedback("Não foi possível adicionar os créditos IA.");
+    } finally {
+      setCreditSaving(false);
+    }
+  }
+
   function updateForm<K extends keyof AcademyForm>(key: K, value: AcademyForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
@@ -267,8 +342,8 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
       const address = { zip: form.zip, street: form.street, number: form.number, complement: form.complement, neighborhood: form.neighborhood, city: form.city, state: form.state };
       if (modalMode === "edit" && selectedId) {
         await updateDoc(doc(db, "academies", selectedId), {
-          name: form.name.trim(), ownerEmail: form.ownerEmail.trim() || null, plan: form.plan.trim() || "Plano Profissional",
-          billingStatus: form.status, status: form.status === "suspended" ? "suspended" : "active", monthlyAmount: parseMoney(form.monthlyAmount),
+          name: form.name.trim(), ownerEmail: form.ownerEmail.trim() || null, plan: ORQUESTRA_PLAN_NAME,
+          billingStatus: form.status, status: form.status === "suspended" ? "suspended" : "active", monthlyAmount: ORQUESTRA_PLAN_PRICE,
           billingDueDate: form.billingDueDate || null, billingToleranceDays: Number(form.billingToleranceDays) || 5, contactPhone: form.contactPhone.trim() || null,
           commercialEmail: form.commercialEmail.trim() || null, taxId: form.taxId.trim() || null, legalName: form.legalName.trim() || null,
           tradeName: form.tradeName.trim() || null, address, updatedAt: serverTimestamp(), updatedBy: access.userId,
@@ -283,8 +358,8 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
         const batch = writeBatch(db);
         batch.set(academyRef, {
           name: form.name.trim(), ownerId: access.userId, ownerEmail: form.ownerEmail.trim() || null, accountType: "academy_admin",
-          environment: "production", demoData: false, plan: form.plan.trim() || "Plano Profissional", status: "active", billingStatus: form.status,
-          monthlyAmount: parseMoney(form.monthlyAmount), billingDueDate: form.billingDueDate || null, billingToleranceDays: Number(form.billingToleranceDays) || 5,
+          environment: "production", demoData: false, plan: ORQUESTRA_PLAN_NAME, status: "active", billingStatus: form.status,
+          monthlyAmount: ORQUESTRA_PLAN_PRICE, billingDueDate: form.billingDueDate || null, billingToleranceDays: Number(form.billingToleranceDays) || 5,
           contactPhone: form.contactPhone.trim() || null, commercialEmail: form.commercialEmail.trim() || null, taxId: form.taxId.trim() || null,
           legalName: form.legalName.trim() || null, tradeName: form.tradeName.trim() || null, address, provisionedBy: access.userId, createdAt: serverTimestamp(),
         });
@@ -337,14 +412,16 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
             const lastAccess = members.map((member) => firestoreDate(member.lastAccessAt)).filter((value): value is Date => Boolean(value)).sort((a, b) => b.getTime() - a.getTime())[0];
             const online = members.some((member) => { const date = firestoreDate(member.lastSeenAt); return Boolean(date && date.getTime() >= presenceNow - 5 * 60 * 1000 && member.presenceStatus !== "left"); });
             const calculated = calculatedStatus(academy);
+            const credits = academyCredits(academy);
             const gridStyle = Object.fromEntries(columnOrder.map((column, index) => [`--central-${column}`, index + 1])) as CSSProperties;
-            return <div className="central-admin-client-group" key={academy.id}><div className="central-admin-client-row" role="row" style={gridStyle}><div className="central-admin-cell central-admin-client-name" data-label="Cliente"><i>{initials(academy.name)}</i><span><strong>{academy.name}</strong><small>{academy.ownerEmail || "Responsável não informado"}</small><em>{academy.contactPhone || "Contato não informado"}</em><b>{academy.billingStatus === "past_due" ? "Cobrança em atraso" : "Sem cobrança PIX"}</b></span></div><div className="central-admin-cell" data-label="Plano">{academy.plan || "Plano Profissional"}</div><div className="central-admin-cell" data-label="Status"><em className={`central-admin-status ${statusTone(academy.billingStatus)}`}>{statusLabel(academy.billingStatus)}</em></div><div className="central-admin-cell" data-label="Inscrição">{dateLabel(academy.createdAt)}</div><div className="central-admin-cell" data-label="Vencimento">{academy.billingDueDate ? dateLabel(academy.billingDueDate) : "Sem vencimento"}</div><div className="central-admin-cell" data-label="Situação calculada"><em className={`central-admin-calculated ${calculated.tone}`}>{calculated.label}</em></div><div className="central-admin-cell" data-label="Último acesso">{dateTimeLabel(lastAccess)}</div><div className="central-admin-cell" data-label="Online"><em className={online ? "central-admin-online online" : "central-admin-online"}>{online ? "Online" : "Offline"}</em></div><div className="central-admin-cell" data-label="Créditos IA">{(academy as AcademyRecord & { aiCredits?: number }).aiCredits ?? "—"}</div><div className="central-admin-actions" data-label="Ação"><button type="button" onClick={() => openEdit(academy)} aria-label={`Editar ${academy.name}`} title="Editar"><Pencil size={15} /></button><button type="button" onClick={() => openEdit(academy)} aria-label={`Abrir cobrança de ${academy.name}`} title="Cobrança"><CircleDollarSign size={15} /></button><button type="button" onClick={() => void toggleStatus(academy)} aria-label={`Alterar status de ${academy.name}`} title="Suspender ou reativar"><PauseCircle size={15} /></button><button type="button" onClick={() => onFeedback("Para preservar o histórico, o cliente deve ser suspenso em vez de excluído.")} aria-label={`Preservar histórico de ${academy.name}`} title="Preservar histórico"><Trash2 size={15} /></button></div></div><button type="button" className="central-admin-details-toggle" onClick={() => { setSelectedId(academy.id); setDetailsId((current) => current === academy.id ? "" : academy.id); }}><span><strong>Detalhes operacionais</strong><small>{academy.name} · atualização {dateTimeLabel(academy.createdAt)}</small></span><span>{detailsId === academy.id ? "Fechar detalhes" : "Abrir detalhes"} <ChevronRight size={14} /></span></button>{detailsId === academy.id && <div className="central-admin-details"><div className="central-admin-detail-card"><header><strong>SINCRONIZAÇÃO COM PORTAL</strong><em>Sincronizado</em></header><dl><div><dt>Identificador externo</dt><dd>{academy.id}</dd></div><div><dt>ID interno</dt><dd>{academy.id}</dd></div><div><dt>Última atualização</dt><dd>{dateTimeLabel(academy.createdAt)}</dd></div><div><dt>Última sincronização</dt><dd>{lastSync.toLocaleString("pt-BR")}</dd></div></dl></div><div className="central-admin-detail-card"><header><strong>Usuários e acessos</strong><em>Administradores: {members.filter((member) => member.role === "admin").length}/4</em></header><div className="central-admin-owner"><ShieldCheck size={16} /><span><small>RESPONSÁVEL PRINCIPAL</small><strong>{academy.ownerEmail || "Responsável não informado"}</strong><em>{academy.ownerEmail ? "Gmail cadastrado" : "Gmail não informado"}</em></span></div><div className="central-admin-detail-summary"><span>Colaboradores administrativos</span><strong>{members.filter((member) => member.role === "teacher").length} cadastrado(s)</strong></div><div className="central-admin-detail-summary"><span>Usuários finais</span><strong>{activeMembers.length} ativo(s) · {onlineMembers.length} online</strong></div></div></div>}</div>;
+            return <div className="central-admin-client-group" key={academy.id}><div className="central-admin-client-row" role="row" style={gridStyle}><div className="central-admin-cell central-admin-client-name" data-label="Cliente"><i>{initials(academy.name)}</i><span><strong>{academy.name}</strong><small>{academy.ownerEmail || "Responsável não informado"}</small><em>{academy.contactPhone || "Contato não informado"}</em><b>{academy.billingStatus === "past_due" ? "Cobrança em atraso" : "Sem cobrança PIX"}</b></span></div><div className="central-admin-cell" data-label="Plano">{ORQUESTRA_PLAN_NAME}</div><div className="central-admin-cell" data-label="Status"><em className={`central-admin-status ${statusTone(academy.billingStatus)}`}>{statusLabel(academy.billingStatus)}</em></div><div className="central-admin-cell" data-label="Inscrição">{dateLabel(academy.createdAt)}</div><div className="central-admin-cell" data-label="Vencimento">{academy.billingDueDate ? dateLabel(academy.billingDueDate) : "Sem vencimento"}</div><div className="central-admin-cell" data-label="Situação calculada"><em className={`central-admin-calculated ${calculated.tone}`}>{calculated.label}</em></div><div className="central-admin-cell" data-label="Último acesso">{dateTimeLabel(lastAccess)}</div><div className="central-admin-cell" data-label="Online"><em className={online ? "central-admin-online online" : "central-admin-online"}>{online ? "Online" : "Offline"}</em></div><div className="central-admin-cell" data-label="Créditos IA">{credits.balance}/{credits.total}</div><div className="central-admin-actions" data-label="Ação"><button type="button" onClick={() => openEdit(academy)} aria-label={`Editar ${academy.name}`} title="Editar"><Pencil size={15} /></button><button type="button" onClick={() => openCredits(academy)} aria-label={`Adicionar créditos IA para ${academy.name}`} title="Adicionar créditos IA"><Sparkles size={15} /></button><button type="button" onClick={() => openEdit(academy)} aria-label={`Abrir cobrança de ${academy.name}`} title="Cobrança"><CircleDollarSign size={15} /></button><button type="button" onClick={() => void toggleStatus(academy)} aria-label={`Alterar status de ${academy.name}`} title="Suspender ou reativar"><PauseCircle size={15} /></button><button type="button" onClick={() => onFeedback("Para preservar o histórico, o cliente deve ser suspenso em vez de excluído.")} aria-label={`Preservar histórico de ${academy.name}`} title="Preservar histórico"><Trash2 size={15} /></button></div></div><button type="button" className="central-admin-details-toggle" onClick={() => { setSelectedId(academy.id); setDetailsId((current) => current === academy.id ? "" : academy.id); }}><span><strong>Detalhes operacionais</strong><small>{academy.name} · atualização {dateTimeLabel(academy.createdAt)}</small></span><span>{detailsId === academy.id ? "Fechar detalhes" : "Abrir detalhes"} <ChevronRight size={14} /></span></button>{detailsId === academy.id && <div className="central-admin-details"><div className="central-admin-detail-card"><header><strong>SINCRONIZAÇÃO COM PORTAL</strong><em>Sincronizado</em></header><dl><div><dt>Identificador externo</dt><dd>{academy.id}</dd></div><div><dt>ID interno</dt><dd>{academy.id}</dd></div><div><dt>Última atualização</dt><dd>{dateTimeLabel(academy.createdAt)}</dd></div><div><dt>Última sincronização</dt><dd>{lastSync.toLocaleString("pt-BR")}</dd></div></dl></div><div className="central-admin-detail-card"><header><strong>Usuários e acessos</strong><em>Administradores: {members.filter((member) => member.role === "admin").length}/4</em></header><div className="central-admin-owner"><ShieldCheck size={16} /><span><small>RESPONSÁVEL PRINCIPAL</small><strong>{academy.ownerEmail || "Responsável não informado"}</strong><em>{academy.ownerEmail ? "Gmail cadastrado" : "Gmail não informado"}</em></span></div><div className="central-admin-detail-summary"><span>Colaboradores administrativos</span><strong>{members.filter((member) => member.role === "teacher").length} cadastrado(s)</strong></div><div className="central-admin-detail-summary"><span>Usuários finais</span><strong>{activeMembers.length} ativo(s) · {onlineMembers.length} online</strong></div></div></div>}</div>;
           })}
         </div></div>
       </section>
       <footer className="central-admin-footer"><span><LockKeyhole size={13} /> Dados isolados por cliente e protegidos pelo Firebase.</span><small>Desenvolvido por <strong>Orquestra.cs</strong></small></footer>
     </main>
-    {modalMode && <div className="central-admin-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="central-admin-modal-title"><section className="central-admin-modal"><header><div><span>CADASTRO COMPLETO DO CLIENTE</span><h2 id="central-admin-modal-title">{modalMode === "new" ? "Novo cliente e convite" : `Editar ${form.name}`}</h2><p>Altere os dados e salve o resultado de forma segura.</p></div><button type="button" onClick={() => setModalMode(null)} aria-label="Fechar formulário"><X size={17} /></button></header><form onSubmit={(event) => { event.preventDefault(); void saveForm(); }}><div className="central-admin-form-grid"><label>Nome da empresa<input value={form.name} onChange={(event) => updateForm("name", event.target.value)} required /></label><label>Plano<input value={form.plan} onChange={(event) => updateForm("plan", event.target.value)} /></label><label>Situação<select value={form.status} onChange={(event) => updateForm("status", event.target.value as AcademyForm["status"])}><option value="active">ativo</option><option value="past_due">em atraso</option><option value="suspended">suspenso</option></select></label><label>Responsável<input value={form.ownerEmail} onChange={(event) => updateForm("ownerEmail", event.target.value)} placeholder="Nome ou Gmail" /></label><label>Telefone/WhatsApp<input value={form.contactPhone} onChange={(event) => updateForm("contactPhone", event.target.value)} /></label><label>E-mail comercial<input type="email" value={form.commercialEmail} onChange={(event) => updateForm("commercialEmail", event.target.value)} /></label><label>Mensalidade<input value={form.monthlyAmount} onChange={(event) => updateForm("monthlyAmount", event.target.value)} inputMode="decimal" placeholder="R$ 120,00" /></label><label>Tolerância após vencimento<input value={form.billingToleranceDays} onChange={(event) => updateForm("billingToleranceDays", event.target.value)} inputMode="numeric" /></label><label>Dia de vencimento<input type="date" value={form.billingDueDate} onChange={(event) => updateForm("billingDueDate", event.target.value)} /></label><label>Forma de pagamento<select value={form.paymentMethod} onChange={(event) => updateForm("paymentMethod", event.target.value)}><option>Pix</option><option>Boleto</option><option>Cartão</option><option>Transferência</option></select></label><label>Data de início<input type="date" value={form.startDate} onChange={(event) => updateForm("startDate", event.target.value)} /></label><label className="central-admin-form-wide">Observações internas<textarea value={form.notes} onChange={(event) => updateForm("notes", event.target.value)} placeholder="Observações sobre o cliente" /></label></div><section className="central-admin-cadastral"><header><div><strong>Dados cadastrais e localização</strong><small>Consulte os dados quando desejar e confirme antes de salvar.</small></div><FileText size={17} /></header><div className="central-admin-form-grid"><label>CNPJ / CPF<input value={form.taxId} onChange={(event) => updateForm("taxId", event.target.value)} /></label><label>Razão social<input value={form.legalName} onChange={(event) => updateForm("legalName", event.target.value)} /></label><label>Nome fantasia<input value={form.tradeName} onChange={(event) => updateForm("tradeName", event.target.value)} /></label><label>CEP<input value={form.zip} onChange={(event) => updateForm("zip", event.target.value)} /></label><label>Endereço<input value={form.street} onChange={(event) => updateForm("street", event.target.value)} /></label><label>Número<input value={form.number} onChange={(event) => updateForm("number", event.target.value)} /></label><label>Complemento<input value={form.complement} onChange={(event) => updateForm("complement", event.target.value)} /></label><label>Bairro<input value={form.neighborhood} onChange={(event) => updateForm("neighborhood", event.target.value)} /></label><label>Cidade<input value={form.city} onChange={(event) => updateForm("city", event.target.value)} /></label><label>UF<input value={form.state} onChange={(event) => updateForm("state", event.target.value)} /></label></div></section><footer><button type="button" className="central-admin-secondary" onClick={() => setModalMode(null)}>Cancelar</button><button type="submit" className="central-admin-primary" disabled={saving}>{saving ? "Salvando…" : modalMode === "new" ? "Criar cliente e convite" : "Salvar alterações"}</button></footer></form></section></div>}
+    {creditModal && <AiCreditsModal state={creditModal} onClose={() => setCreditModal(null)} onChange={updateCreditForm} onSubmit={() => void addCredits()} saving={creditSaving} />}
+    {modalMode && <div className="central-admin-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="central-admin-modal-title"><section className="central-admin-modal"><header><div><span>CADASTRO COMPLETO DO CLIENTE</span><h2 id="central-admin-modal-title">{modalMode === "new" ? "Novo cliente e convite" : `Editar ${form.name}`}</h2><p>Altere os dados e salve o resultado de forma segura.</p></div><button type="button" onClick={() => setModalMode(null)} aria-label="Fechar formulário"><X size={17} /></button></header><form onSubmit={(event) => { event.preventDefault(); void saveForm(); }}><section className="central-admin-plan-reference"><div><span>PLANO ORQUESTRA.CS</span><strong>{ORQUESTRA_PLAN_NAME}</strong><small>Plano único vigente para os clientes.</small></div><b>R$ {ORQUESTRA_PLAN_PRICE.toFixed(2).replace(".", ",")} / mês</b></section><div className="central-admin-form-grid"><label>Nome da empresa<input value={form.name} onChange={(event) => updateForm("name", event.target.value)} required /></label><label>Plano<input value={ORQUESTRA_PLAN_NAME} readOnly /></label><label>Situação<select value={form.status} onChange={(event) => updateForm("status", event.target.value as AcademyForm["status"])}><option value="active">ativo</option><option value="past_due">em atraso</option><option value="suspended">suspenso</option></select></label><label>Responsável<input value={form.ownerEmail} onChange={(event) => updateForm("ownerEmail", event.target.value)} placeholder="Nome ou Gmail" /></label><label>Telefone/WhatsApp<input value={form.contactPhone} onChange={(event) => updateForm("contactPhone", event.target.value)} /></label><label>E-mail comercial<input type="email" value={form.commercialEmail} onChange={(event) => updateForm("commercialEmail", event.target.value)} /></label><label>Mensalidade<input value={`R$ ${ORQUESTRA_PLAN_PRICE.toFixed(2).replace(".", ",")}`} readOnly /></label><label>Tolerância após vencimento<input value={form.billingToleranceDays} onChange={(event) => updateForm("billingToleranceDays", event.target.value)} inputMode="numeric" /></label><label>Dia de vencimento<input type="date" value={form.billingDueDate} onChange={(event) => updateForm("billingDueDate", event.target.value)} /></label><label>Forma de pagamento<select value={form.paymentMethod} onChange={(event) => updateForm("paymentMethod", event.target.value)}><option>Pix</option><option>Boleto</option><option>Cartão</option><option>Transferência</option></select></label><label>Data de início<input type="date" value={form.startDate} onChange={(event) => updateForm("startDate", event.target.value)} /></label><label className="central-admin-form-wide">Observações internas<textarea value={form.notes} onChange={(event) => updateForm("notes", event.target.value)} placeholder="Observações sobre o cliente" /></label></div><section className="central-admin-cadastral"><header><div><strong>Dados cadastrais e localização</strong><small>Consulte os dados quando desejar e confirme antes de salvar.</small></div><FileText size={17} /></header><div className="central-admin-form-grid"><label>CNPJ / CPF<input value={form.taxId} onChange={(event) => updateForm("taxId", event.target.value)} /></label><label>Razão social<input value={form.legalName} onChange={(event) => updateForm("legalName", event.target.value)} /></label><label>Nome fantasia<input value={form.tradeName} onChange={(event) => updateForm("tradeName", event.target.value)} /></label><label>CEP<input value={form.zip} onChange={(event) => updateForm("zip", event.target.value)} /></label><label>Endereço<input value={form.street} onChange={(event) => updateForm("street", event.target.value)} /></label><label>Número<input value={form.number} onChange={(event) => updateForm("number", event.target.value)} /></label><label>Complemento<input value={form.complement} onChange={(event) => updateForm("complement", event.target.value)} /></label><label>Bairro<input value={form.neighborhood} onChange={(event) => updateForm("neighborhood", event.target.value)} /></label><label>Cidade<input value={form.city} onChange={(event) => updateForm("city", event.target.value)} /></label><label>UF<input value={form.state} onChange={(event) => updateForm("state", event.target.value)} /></label></div></section><footer><button type="button" className="central-admin-secondary" onClick={() => setModalMode(null)}>Cancelar</button><button type="submit" className="central-admin-primary" disabled={saving}>{saving ? "Salvando…" : modalMode === "new" ? "Criar cliente e convite" : "Salvar alterações"}</button></footer></form></section></div>}
   </div>;
 
   return fullScreen ? page : page;
