@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     const contentType = upstream.headers.get("content-type") ?? "";
     const contentLength = Number(upstream.headers.get("content-length") ?? 0);
 
-    if (!upstream.ok || !upstream.body || !contentType.toLocaleLowerCase().includes("image/gif") || contentLength > 25 * 1024 * 1024) {
+    if (!upstream.ok || !upstream.body || !contentType.toLocaleLowerCase().includes("image/gif") || contentLength > 50 * 1024 * 1024) {
       return new Response("A fonte deste GIF não está disponível.", { status: 502 });
     }
 
