@@ -5306,6 +5306,18 @@ input, select, textarea { border-radius: 10px; }
 .central-admin-table { min-width: 1120px; }
 .central-admin-table-head, .central-admin-client-row { display: grid; grid-template-columns: minmax(205px, 1.6fr) minmax(95px, .75fr) 76px 86px 96px minmax(130px, 1fr) 110px 70px 72px 126px; gap: 12px; align-items: center; padding: 0 16px; }
 .central-admin-table-head { min-height: 47px; border-top: 1px solid #d1ded7; border-bottom: 1px solid #d1ded7; background: #f9fcfa; color: #66808b; font-size: 10px; font-weight: 800; }
+.central-admin-table-head > span { cursor: grab; user-select: none; }
+.central-admin-table-head > span:active { cursor: grabbing; }
+.central-admin-table-head > [data-column="client"], .central-admin-client-row > [data-label="Cliente"] { grid-column: var(--central-client); }
+.central-admin-table-head > [data-column="plan"], .central-admin-client-row > [data-label="Plano"] { grid-column: var(--central-plan); }
+.central-admin-table-head > [data-column="status"], .central-admin-client-row > [data-label="Status"] { grid-column: var(--central-status); }
+.central-admin-table-head > [data-column="signup"], .central-admin-client-row > [data-label="Inscrição"] { grid-column: var(--central-signup); }
+.central-admin-table-head > [data-column="due"], .central-admin-client-row > [data-label="Vencimento"] { grid-column: var(--central-due); }
+.central-admin-table-head > [data-column="calculated"], .central-admin-client-row > [data-label="Situação calculada"] { grid-column: var(--central-calculated); }
+.central-admin-table-head > [data-column="lastAccess"], .central-admin-client-row > [data-label="Último acesso"] { grid-column: var(--central-lastAccess); }
+.central-admin-table-head > [data-column="online"], .central-admin-client-row > [data-label="Online"] { grid-column: var(--central-online); }
+.central-admin-table-head > [data-column="credits"], .central-admin-client-row > [data-label="Créditos IA"] { grid-column: var(--central-credits); }
+.central-admin-table-head > [data-column="action"], .central-admin-client-row > [data-label="Ação"] { grid-column: var(--central-action); }
 .central-admin-client-row { min-height: 88px; border-bottom: 1px solid #d8e2dc; color: #1a3443; font-size: 11px; }
 .central-admin-cell { min-width: 0; }
 .central-admin-client-name { display: flex; align-items: center; gap: 9px; }
@@ -5401,6 +5413,7 @@ input, select, textarea { border-radius: 10px; }
   .central-admin-table { min-width: 0; }
   .central-admin-table-head { display: none; }
   .central-admin-client-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; padding: 14px; }
+  .central-admin-client-row > .central-admin-cell, .central-admin-client-row > .central-admin-actions { grid-column: auto !important; }
   .central-admin-cell { display: grid; gap: 4px; }
   .central-admin-cell::before { content: attr(data-label); color: #789198; font-size: 8px; font-weight: 800; }
   .central-admin-client-name { grid-column: 1 / -1; }
