@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
 import { OrquestraLoader } from "@/components/ui/orquestra-loader";
+import { CentralAdminPanel } from "@/components/admin/central-admin-panel";
 import type { ExerciseAnatomyData } from "@/components/workouts/exercise-anatomy-view";
 import { auth, db, functions, storage } from "@/lib/firebase/client";
 import { createSessionClock } from "@/lib/workouts/session-clock";
@@ -5465,7 +5466,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
          {access.accountType === "developer" && <section className="settings-section settings-card developer-console-launch">
           <div className="settings-section-heading"><div><span>OPERAÇÃO SAAS</span><h3>Auditoria e academias</h3></div><small>Central exclusiva do desenvolvedor</small></div>
           <p>Abra a central em uma tela própria para acompanhar academias reais, mensalidades, acessos e auditoria sem apertar as configurações.</p>
-          <button className="detail-save" type="button" onClick={() => setDeveloperConsoleOpen(true)}>Abrir Central do Desenvolvedor</button>
+          <button className="detail-save" type="button" onClick={() => setDeveloperConsoleOpen(true)}>Abrir Central Admin Orquestra.cs</button>
         </section>}
          {access.accountType === "developer" && <section className="settings-section settings-card media-settings-section">
           <div className="settings-section-heading"><div><span>MÍDIAS</span><h3>GIFs e vídeos da plataforma</h3></div><small>Biblioteca global</small></div>
@@ -5678,13 +5679,7 @@ function DeveloperConsolePanel({ onFeedback, fullScreen = false, onClose }: { on
       </div>}
     </div>
   </section>;
-  if (fullScreen) return <div className="developer-console-screen" role="dialog" aria-modal="true" aria-label="Central do desenvolvedor">
-    <header className="developer-console-screen-header">
-      <div><span>CENTRAL DE DESENVOLVIMENTO</span><h2>Auditoria e academias</h2><p>Acompanhe apenas academias comerciais provisionadas pela Orquestra.cs.</p></div>
-      <button type="button" aria-label="Fechar Central do Desenvolvedor" onClick={onClose}><X /></button>
-    </header>
-    {panel}
-  </div>;
+  if (fullScreen) return <CentralAdminPanel fullScreen onClose={onClose} onFeedback={onFeedback} />;
   return panel;
 }
 
