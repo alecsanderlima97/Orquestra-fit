@@ -41,6 +41,9 @@ type Theme = "bronze" | "prata";
 type StudentRank = "Bronze" | "Prata" | "Ouro" | "Diamante";
 const studentRankOrder: StudentRank[] = ["Bronze", "Prata", "Ouro", "Diamante"];
 const studentRankProgram: Record<StudentRank, WorkoutLevel> = { Bronze: "Fundação", Prata: "Evolução", Ouro: "Performance", Diamante: "Elite" };
+const ORQUESTRA_SUBSCRIPTION_PLAN = "Pró";
+const ORQUESTRA_SUBSCRIPTION_PRICE = 350;
+const ORQUESTRA_PORTAL_PAYMENTS_URL = process.env.NEXT_PUBLIC_ORQUESTRA_PORTAL_PAYMENTS_URL || "https://portal.orquestracs.com/pagamentos";
 type AccountProfile = CompanyFieldsValue & { name?: string; displayName?: string; photoUrl?: string; phone?: string; cnpj?: string; cpf?: string; instagramUrl?: string; siteUrl?: string; whatsappUrl?: string; whatsappGroupUrl?: string };
 type AcademyAnnouncement = { id: string; title: string; body: string; senderName?: string; senderId?: string; createdAt?: unknown; updatedAt?: unknown; expiresAt?: unknown; isWelcome?: boolean };
 type NotificationItem = { id: string; type: "announcement" | "message" | "workout" | "dueSoon" | "overdue"; title: string; detail: string; createdAt?: unknown };
@@ -5377,6 +5380,51 @@ function AcademyHoursSettings({ onFeedback }: { onFeedback: (message: string) =>
   </section>;
 }
 
+function AcademySubscriptionSettings({ onFeedback }: { onFeedback: (message: string) => void }) {
+  const access = useAccess();
+  const [billingStatus, setBillingStatus] = useState("active");
+  const [billingDueDate, setBillingDueDate] = useState<string | null>(null);
+  const [monthlyAmount, setMonthlyAmount] = useState(ORQUESTRA_SUBSCRIPTION_PRICE);
+
+  useEffect(() => {
+    if (!db || !access.academyId) return;
+    return onSnapshot(doc(db, "academies", access.academyId), (snapshot) => {
+      const data = snapshot.data() as { billingStatus?: unknown; status?: unknown; billingDueDate?: unknown; monthlyAmount?: unknown } | undefined;
+      const status = typeof data?.billingStatus === "string" ? data.billingStatus : typeof data?.status === "string" ? data.status : "active";
+      setBillingStatus(status);
+      setBillingDueDate(typeof data?.billingDueDate === "string" ? data.billingDueDate : null);
+      const amount = Number(data?.monthlyAmount);
+      setMonthlyAmount(Number.isFinite(amount) && amount > 0 ? amount : ORQUESTRA_SUBSCRIPTION_PRICE);
+    }, () => onFeedback("Não foi possível carregar os dados da assinatura."));
+  }, [access.academyId, onFeedback]);
+
+  function openPaymentPortal() {
+    try {
+      const url = new URL(ORQUESTRA_PORTAL_PAYMENTS_URL);
+      url.searchParams.set("sourceSystem", "orquestra_fit");
+      url.searchParams.set("product", "subscription");
+      url.searchParams.set("planId", "pro");
+      url.searchParams.set("externalCustomerId", access.academyId);
+      if (typeof window !== "undefined") url.searchParams.set("returnUrl", window.location.href);
+      const paymentWindow = window.open(url.toString(), "_blank", "noopener,noreferrer");
+      if (!paymentWindow) onFeedback("Permita a abertura de novas abas para acessar o pagamento.");
+    } catch {
+      onFeedback("Não foi possível abrir o portal de pagamento agora.");
+    }
+  }
+
+  const statusLabel = billingStatus === "past_due" ? "Mensalidade em atraso" : billingStatus === "suspended" ? "Acesso suspenso" : "Mensalidade ativa";
+  const statusTone = billingStatus === "past_due" || billingStatus === "suspended" ? "warning" : "active";
+
+  return <section className="settings-section settings-card academy-subscription-section">
+    <div className="settings-section-heading"><div><span>ASSINATURA ORQUESTRA.CS</span><h3>Plano da academia</h3></div><small>Gestão da assinatura</small></div>
+    <div className="academy-subscription-layout">
+      <div className="academy-subscription-plan"><div className="academy-subscription-plan-icon"><WalletCards size={18} /></div><div><strong>{ORQUESTRA_SUBSCRIPTION_PLAN}</strong><small>Plano único da Orquestra.cs</small></div><b>R$ {monthlyAmount.toFixed(2).replace(".", ",")}<small>/mês</small></b></div>
+      <div className="academy-subscription-details"><span className={`academy-subscription-status ${statusTone}`}><span aria-hidden="true" />{statusLabel}</span><small>{billingDueDate ? `Próximo vencimento: ${formatDate(billingDueDate)}` : "O vencimento será informado pela administração."}</small><p>Abra o portal seguro para consultar a cobrança e concluir o pagamento da mensalidade.</p><button className="detail-save academy-subscription-payment" type="button" onClick={openPaymentPortal}>{billingStatus === "past_due" || billingStatus === "suspended" ? "Regularizar mensalidade" : "Pagar mensalidade"}<ArrowRight size={16} /></button></div>
+    </div>
+  </section>;
+}
+
 function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme: Theme; onThemeChange: (theme: Theme) => void; onClose: () => void; onFeedback: (message: string) => void }) {
   const access = useAccess();
   const [roleToAdd, setRoleToAdd] = useState<"admin" | "teacher" | "student" | null>(null);
@@ -5421,7 +5469,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           provisioningBatch.set(academyRef, {
             name: academyName.trim(), ownerId: access.userId, ownerEmail: normalizedEmail,
             accountType: "academy_admin", environment: "production", demoData: false,
-            plan: "basic", status: "active", provisionedBy: access.userId, createdAt: serverTimestamp(),
+            plan: ORQUESTRA_SUBSCRIPTION_PLAN, status: "active", billingStatus: "active", monthlyAmount: ORQUESTRA_SUBSCRIPTION_PRICE, provisionedBy: access.userId, createdAt: serverTimestamp(),
           });
           provisioningBatch.set(memberRef, {
             userId: access.userId, displayName: access.user.displayName ?? "Orquestra.cs",
@@ -5474,6 +5522,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           <GifLibraryImporter onFeedback={onFeedback} />
         </section>}
         {access.accountType !== "developer" && <AcademyHoursSettings onFeedback={onFeedback} />}
+        {access.accountType !== "developer" && access.role === "admin" && <AcademySubscriptionSettings onFeedback={onFeedback} />}
          <section className="settings-section settings-card appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />

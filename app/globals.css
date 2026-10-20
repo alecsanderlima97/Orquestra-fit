@@ -3620,6 +3620,157 @@ input, select, textarea { border-radius: 10px; }
   .academy-hours-days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
+/* Refinamento da tela de configurações: cartões mais finos e leitura mais elegante. */
+.permissions-panel {
+  padding: 22px;
+  background: #101415;
+}
+.permissions-panel > header {
+  padding-bottom: 16px;
+}
+.permissions-panel .settings-section {
+  padding-top: 14px;
+}
+.permissions-panel .settings-section + .settings-section {
+  margin-top: 10px;
+}
+.permissions-panel .settings-card {
+  padding: 14px;
+  border-radius: 10px;
+  background: #14191a;
+  box-shadow: none;
+}
+.permissions-panel .settings-section-heading {
+  margin-bottom: 10px;
+}
+.permissions-panel .settings-section-heading h3 {
+  font-size: 19px;
+}
+.permissions-panel .permission-roles {
+  gap: 8px;
+}
+.permissions-panel .permission-role {
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 8px;
+}
+.permissions-panel .permission-role-icon {
+  width: 32px;
+  height: 32px;
+}
+.permissions-panel .invite-box {
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+}
+.academy-subscription-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, .9fr);
+  gap: 10px;
+  align-items: stretch;
+}
+.academy-subscription-plan,
+.academy-subscription-details {
+  min-width: 0;
+  border: 1px solid #3e3930;
+  border-radius: 8px;
+  background: #111617;
+  padding: 11px 12px;
+}
+.academy-subscription-plan {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+.academy-subscription-plan-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #6a5133;
+  border-radius: 7px;
+  color: var(--bronze-300);
+}
+.academy-subscription-plan strong,
+.academy-subscription-plan small,
+.academy-subscription-details small {
+  display: block;
+}
+.academy-subscription-plan strong {
+  color: var(--paper);
+  font-size: 15px;
+}
+.academy-subscription-plan small,
+.academy-subscription-details small {
+  margin-top: 3px;
+  color: var(--steel-500);
+  font-size: 10px;
+}
+.academy-subscription-plan > b {
+  color: var(--bronze-300);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.academy-subscription-plan > b small {
+  display: inline;
+  margin-left: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.academy-subscription-details {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+.academy-subscription-details p {
+  margin: 4px 0 7px;
+  color: var(--steel-500);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.academy-subscription-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b8d99d;
+  font-size: 11px;
+  font-weight: 750;
+}
+.academy-subscription-status > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9aca79;
+}
+.academy-subscription-status.warning {
+  color: #e4ad83;
+}
+.academy-subscription-status.warning > span {
+  background: #d88e5f;
+}
+.academy-subscription-payment {
+  width: 100%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 12px;
+}
+@media (max-width: 640px) {
+  .permissions-panel {
+    padding: 16px;
+  }
+  .permissions-panel .settings-card {
+    padding: 12px;
+  }
+  .academy-subscription-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Login em composição única, seguindo a referência visual da Orquestra Fit. */
 .auth-page {
   display: grid;

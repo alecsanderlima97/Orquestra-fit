@@ -420,8 +420,9 @@ function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: U
         accountType: developer ? "developer" : "academy_admin",
         environment: developer ? "test" : "production",
         demoData: developer,
-        plan: "basic",
+        plan: developer ? "basic" : "Pró",
         status: "active",
+        ...(developer ? {} : { billingStatus: "active", monthlyAmount: 350 }),
         createdAt: now,
       });
       batch.set(memberRef, {
