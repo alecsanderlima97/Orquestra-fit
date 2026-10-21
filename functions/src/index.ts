@@ -2,9 +2,9 @@ import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { CollectionReference, FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { defineSecret } from "firebase-functions/params";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { buildFitPortalSnapshot } from "./portal-sync.js";
@@ -61,6 +61,25 @@ function readString(value: unknown, field: string) {
     throw new HttpsError("invalid-argument", `Informe ${field}.`);
   }
   return value.trim();
+}
+
+function commandRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function commandText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function commandSecretMatches(received: string, expected: string) {
+  const receivedBuffer = Buffer.from(received);
+  const expectedBuffer = Buffer.from(expected);
+  return receivedBuffer.length === expectedBuffer.length && timingSafeEqual(receivedBuffer, expectedBuffer);
+}
+
+function commandDate(value: unknown) {
+  const normalized = commandText(value);
+  return normalized && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(normalized) ? normalized.slice(0, 10) : null;
 }
 
 function validatePassword(value: unknown) {
@@ -1008,6 +1027,77 @@ export const prepareExerciseGif = onCall({ region, timeoutSeconds: 120, memory: 
  * Portal. A chamada exige a conta de plataforma e usa um segredo de Secret
  * Manager; nenhum segredo ou dado bruto do Firestore chega ao navegador.
  */
+export const receivePortalCommand = onRequest({ region, secrets: [portalConnectorSecret] }, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ error: "Método não permitido." });
+    return;
+  }
+  const expectedSecret = portalConnectorSecret.value().trim();
+  const authorization = request.get("authorization") || "";
+  const receivedSecret = commandText(request.get("x-orquestra-connector-secret") || authorization.replace(/^Bearer\s+/i, ""));
+  if (!expectedSecret || !commandSecretMatches(receivedSecret, expectedSecret)) {
+    response.status(401).json({ error: "Conector não autorizado." });
+    return;
+  }
+
+  const body = commandRecord(request.body);
+  const commandId = commandText(body.commandId);
+  const sourceSystem = commandText(body.sourceSystem);
+  const targetSystem = commandText(body.targetSystem);
+  const commandType = commandText(body.commandType);
+  const externalTenantId = commandText(body.externalTenantId);
+  const contract = commandRecord(body.contract);
+  if (!commandId || !externalTenantId || sourceSystem !== "orquestra_portal" || targetSystem !== "orquestra_fit" || commandType !== "tenant.updated") {
+    response.status(400).json({ error: "Comando contratual inválido." });
+    return;
+  }
+
+  const academyId = externalTenantId.replace(/^orquestra_fit_/, "");
+  const academyRef = firestore.doc(`academies/${academyId}`);
+  const commandRef = firestore.doc(`connectorCommands/${commandId}`);
+  const plan = commandText(contract.plan);
+  const monthlyAmount = contract.monthlyFee === null || contract.monthlyFee === undefined || contract.monthlyFee === "" ? null : Number(contract.monthlyFee);
+  const billingDay = contract.billingDay === null || contract.billingDay === undefined || contract.billingDay === "" ? null : Number(contract.billingDay);
+  const graceDays = contract.graceDays === null || contract.graceDays === undefined || contract.graceDays === "" ? null : Number(contract.graceDays);
+  const startDate = commandDate(contract.startDate);
+  const billingDueDate = commandDate(contract.renewalDate || contract.nextDueDate);
+  const paymentMethod = commandText(contract.paymentMethod);
+  const billingStatus = commandText(contract.billingStatus);
+  const subscriptionStatus = commandText(contract.subscriptionStatus).toLowerCase();
+  if (monthlyAmount !== null && (!Number.isFinite(monthlyAmount) || monthlyAmount < 0)) { response.status(400).json({ error: "Mensalidade inválida." }); return; }
+  if (billingDay !== null && (!Number.isInteger(billingDay) || billingDay < 1 || billingDay > 31)) { response.status(400).json({ error: "Dia de vencimento inválido." }); return; }
+  if (graceDays !== null && (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 60)) { response.status(400).json({ error: "Tolerância inválida." }); return; }
+  if ((contract.startDate !== undefined && !startDate) || (contract.renewalDate !== undefined && !billingDueDate) || (contract.nextDueDate !== undefined && !billingDueDate)) { response.status(400).json({ error: "Data contratual inválida." }); return; }
+
+  let duplicate = false;
+  try {
+    await firestore.runTransaction(async (transaction) => {
+      const [commandSnapshot, academySnapshot] = await Promise.all([transaction.get(commandRef), transaction.get(academyRef)]);
+      if (commandSnapshot.exists) { duplicate = true; return; }
+      if (!academySnapshot.exists) throw new Error("academy_not_found");
+      const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+      if (plan) updates.plan = plan;
+      if (monthlyAmount !== null) updates.monthlyAmount = monthlyAmount;
+      if (billingDay !== null) updates.billingDay = billingDay;
+      if (graceDays !== null) updates.billingToleranceDays = graceDays;
+      if (billingDueDate) updates.billingDueDate = billingDueDate;
+      if (startDate) updates.startDate = startDate;
+      if (paymentMethod) updates.paymentMethod = paymentMethod;
+      if (billingStatus) updates.billingStatus = billingStatus;
+      if (subscriptionStatus) updates.status = subscriptionStatus;
+      transaction.update(academyRef, updates);
+      const now = new Date().toISOString();
+      transaction.create(commandRef, { commandId, commandType, sourceSystem, targetSystem, externalTenantId, status: "applied", fields: Object.keys(updates).filter((field) => field !== "updatedAt"), createdAt: now, appliedAt: now });
+      transaction.set(firestore.doc(`academies/${academyId}/auditLogs/${commandId}`), { type: "portal_contract_updated", actorId: "orquestra_portal", targetUserId: "orquestra_portal", createdAt: now });
+    });
+    response.json({ ok: true, duplicate, academyId });
+  } catch (error) {
+    if (error instanceof Error && error.message === "academy_not_found") { response.status(404).json({ error: "Academia de origem não encontrada." }); return; }
+    console.error("Fit portal command failed", error);
+    response.status(500).json({ error: "Não foi possível aplicar o comando no sistema de origem." });
+  }
+});
+
 export const syncPortalSnapshot = onCall<unknown, Promise<PortalSyncResponse>>({
   region,
   timeoutSeconds: 120,
