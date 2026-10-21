@@ -3,15 +3,19 @@ import { getAuth } from "firebase-admin/auth";
 import { CollectionReference, FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { randomUUID } from "node:crypto";
+import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { buildFitPortalSnapshot } from "./portal-sync.js";
 
 initializeApp({ storageBucket: "orquestra-fit.firebasestorage.app" });
 
 const firestore = getFirestore();
 const auth = getAuth();
 const region = "southamerica-east1";
+const portalConnectorSecret = defineSecret("ORQUESTRA_CONNECTOR_SHARED_SECRET");
+const portalConnectorEndpoint = "https://portal.orquestracs.com/api/connectors/snapshot";
 
 type PasswordPayload = { academyId?: unknown; newPassword?: unknown };
 type ResetPayload = PasswordPayload & { targetUserId?: unknown };
@@ -35,6 +39,20 @@ type CounterSalePayload = {
   items?: unknown;
 };
 type AddAiCreditsPayload = { academyId?: unknown; credits?: unknown; reason?: unknown };
+
+type PortalSyncResponse = {
+  ok: boolean;
+  summary: {
+    clientCount: number;
+    contractVersion: "v1";
+    dataVersion: number;
+    generatedAt: string;
+    onlineUserCount: number;
+    payloadBytes: number;
+    updatedAt: string;
+    userCount: number;
+  };
+};
 
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
 
@@ -983,4 +1001,49 @@ export const prepareExerciseGif = onCall({ region, timeoutSeconds: 120, memory: 
   const media = optimizedGifFields(profile, url, optimizedPath);
   await exerciseRef.set(media, { merge: true });
   return { ok: true, url, path: optimizedPath, profile };
+});
+
+/**
+ * Envia um retrato comercial sanitizado das academias para o Central Admin do
+ * Portal. A chamada exige a conta de plataforma e usa um segredo de Secret
+ * Manager; nenhum segredo ou dado bruto do Firestore chega ao navegador.
+ */
+export const syncPortalSnapshot = onCall<unknown, Promise<PortalSyncResponse>>({
+  region,
+  timeoutSeconds: 120,
+  secrets: [portalConnectorSecret],
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para sincronizar o Portal.");
+  const actor = await firestore.doc(`users/${request.auth.uid}`).get();
+  if (actor.data()?.accountType !== "developer") {
+    throw new HttpsError("permission-denied", "Somente o administrador da plataforma pode sincronizar o Portal.");
+  }
+
+  const secret = portalConnectorSecret.value().trim();
+  if (!secret) throw new HttpsError("failed-precondition", "O conector seguro do Portal ainda não foi configurado.");
+  const snapshot = await buildFitPortalSnapshot(firestore);
+  const response = await fetch(portalConnectorEndpoint, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+      "X-Orquestra-Contract-Version": snapshot.summary.contractVersion,
+      "X-Orquestra-Source-System": "orquestra_fit",
+    },
+    body: snapshot.serializedPayload,
+  });
+  if (!response.ok) {
+    console.error("orquestra_fit_portal_sync_failed", { status: response.status, summary: snapshot.summary });
+    throw new HttpsError("internal", "O Portal recusou a sincronização. Tente novamente em instantes.");
+  }
+
+  const syncedAt = FieldValue.serverTimestamp();
+  await Promise.all(snapshot.academyIds.map((academyId) => firestore.doc(`academies/${academyId}`).set({
+    portalExternalCustomerId: `orquestra_fit_${academyId}`,
+    portalLastSyncedAt: syncedAt,
+    portalSyncStatus: "success",
+    portalSyncError: null,
+  }, { merge: true })));
+  return { ok: true, summary: snapshot.summary };
 });

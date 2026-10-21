@@ -38,6 +38,10 @@ type AcademyRecord = {
   aiCreditsTotal?: number | null;
   aiCreditsMonthly?: number | null;
   aiCreditsExtras?: number | null;
+  portalExternalCustomerId?: string | null;
+  portalLastSyncedAt?: unknown;
+  portalSyncStatus?: "success" | "error" | null;
+  portalSyncError?: string | null;
 };
 
 type AiCreditsRecord = {
@@ -238,6 +242,10 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
           aiCreditsTotal: Number(data.aiCreditsTotal ?? data.aiCreditsMonthly ?? (data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits.included : data.aiCredits) ?? 0),
           aiCreditsMonthly: Number(data.aiCreditsMonthly ?? data.aiCreditsTotal ?? (data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits.included : data.aiCredits) ?? 0),
           aiCreditsExtras: Number(data.aiCreditsExtras ?? (data.aiCredits && typeof data.aiCredits === "object" ? data.aiCredits.bonus : 0) ?? 0),
+          portalExternalCustomerId: data.portalExternalCustomerId ?? null,
+          portalLastSyncedAt: data.portalLastSyncedAt,
+          portalSyncStatus: data.portalSyncStatus === "success" || data.portalSyncStatus === "error" ? data.portalSyncStatus : null,
+          portalSyncError: data.portalSyncError ?? null,
         } as AcademyRecord;
       }).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
       setAcademies(next);
@@ -386,9 +394,22 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
     }
   }
 
-  function refreshList() {
+  async function refreshList() {
+    if (!functions) {
+      onFeedback("A sincronização do Portal não está disponível neste ambiente.");
+      return;
+    }
     setSyncing(true);
-    window.setTimeout(() => { setLastSync(new Date()); setSyncing(false); onFeedback("Lista de clientes atualizada."); }, 500);
+    try {
+      const result = await httpsCallable<unknown, { ok: boolean; summary?: { clientCount: number; userCount: number } }>(functions, "syncPortalSnapshot")({});
+      const summary = result.data.summary;
+      setLastSync(new Date());
+      onFeedback(summary ? `Portal sincronizado: ${summary.clientCount} cliente(s) e ${summary.userCount} usuário(s).` : "Portal sincronizado.");
+    } catch {
+      onFeedback("Não foi possível sincronizar o Portal agora. Verifique a configuração do conector.");
+    } finally {
+      setSyncing(false);
+    }
   }
 
   if (access.accountType !== "developer") return null;
@@ -401,10 +422,10 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
     </aside>
     <main className="central-admin-main">
       <header className="central-admin-topbar"><div><span>ORQUESTRA.CS · CENTRAL DE CONTROLE</span><h1>Admin Orquestra.cs</h1><p>Controle comercial dos clientes, convites, planos e status de assinatura.</p></div><div className="central-admin-top-actions"><button type="button" className="central-admin-icon-button" aria-label="Buscar cliente" onClick={() => document.querySelector<HTMLInputElement>(".central-admin-search input")?.focus()}><Search size={17} /></button><button type="button" className="central-admin-icon-button" aria-label="Notificações" onClick={() => onFeedback("Não há novas notificações administrativas.")}><Bell size={17} /></button><button type="button" className="central-admin-close" onClick={onClose} aria-label="Fechar Central Admin"><X size={17} /></button></div></header>
-      <section className="central-admin-intro-card"><div><span>Admin Orquestra.cs</span><p>Controle comercial dos clientes, convites, planos e status de assinatura.</p><small>Clientes sem configuração usam tolerância de 5 dias úteis</small></div><div className="central-admin-sync"><small>Atualizado em {lastSync.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</small><button type="button" onClick={refreshList} disabled={syncing}><CloudCog size={15} />{syncing ? "Sincronizando…" : "Sincronizar Portal"}</button><button type="button" className="central-admin-synced"><span>✓</span> Atualizado</button></div></section>
+      <section className="central-admin-intro-card"><div><span>Admin Orquestra.cs</span><p>Controle comercial dos clientes, convites, planos e status de assinatura.</p><small>Clientes sem configuração usam tolerância de 5 dias úteis</small></div><div className="central-admin-sync"><small>Última sincronização: {lastSync.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</small><button type="button" onClick={() => void refreshList()} disabled={syncing}><CloudCog size={15} />{syncing ? "Sincronizando…" : "Sincronizar Portal"}</button><button type="button" className="central-admin-synced"><span>✓</span> {syncing ? "Em andamento" : "Conector seguro"}</button></div></section>
       <button type="button" className="central-admin-new-client" onClick={() => { setForm(emptyForm()); setModalMode("new"); }}><Plus size={17} /><span><strong>Novo cliente e convite comercial</strong><small>Abra para cadastrar os dados completos e gerar o convite de acesso.</small></span><ChevronDown size={17} /></button>
       <section className="central-admin-table-card">
-        <div className="central-admin-table-toolbar"><div><span>CLIENTES COMERCIAIS</span><strong>{visibleAcademies.length} cliente(s)</strong></div><button type="button" onClick={refreshList} aria-label="Atualizar lista"><RefreshCw size={16} /></button></div>
+        <div className="central-admin-table-toolbar"><div><span>CLIENTES COMERCIAIS</span><strong>{visibleAcademies.length} cliente(s)</strong></div><button type="button" onClick={() => void refreshList()} aria-label="Sincronizar Portal" disabled={syncing}><RefreshCw size={16} /></button></div>
         <label className="central-admin-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, plano ou status" aria-label="Buscar cliente, plano ou status" /></label>
         <div className="central-admin-table-scroll"><div className="central-admin-table" role="table" aria-label="Clientes da Orquestra.cs"><div className="central-admin-table-head" role="row" aria-label="Arraste os cabeçalhos para reorganizar" style={Object.fromEntries(columnOrder.map((column, index) => [`--central-${column}`, index + 1])) as CSSProperties}>{columnOrder.map((column) => <span key={column} data-column={column} draggable onDragStart={() => setDraggedColumn(column)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveColumn(column)} title="Arraste para reorganizar">⠿ {centralAdminColumns.find((item) => item.key === column)?.label}</span>)}</div>
           {visibleAcademies.length === 0 ? <div className="central-admin-empty"><Building2 size={22} /><p>{academies.length ? "Nenhum cliente encontrado para este filtro." : "Nenhum cliente comercial cadastrado ainda."}</p></div> : visibleAcademies.map((academy) => {
