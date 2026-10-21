@@ -115,6 +115,8 @@ export async function buildFitPortalSnapshot(firestore: Firestore) {
     const monthlyAmount = Number(academy.monthlyAmount);
     const graceDaysValue = Number(academy.billingToleranceDays);
     const graceDays = Number.isInteger(graceDaysValue) && graceDaysValue >= 0 && graceDaysValue <= 30 ? graceDaysValue : 3;
+    const billingDueDate = isoValue(academy.billingDueDate);
+    const billingDay = billingDueDate ? new Date(billingDueDate).getUTCDate() : null;
 
     return {
       id: externalId,
@@ -142,8 +144,8 @@ export async function buildFitPortalSnapshot(firestore: Firestore) {
         planId,
         planName: stringValue(academy.plan) || "Pró",
         monthlyFee: Number.isFinite(monthlyAmount) && monthlyAmount >= 0 ? monthlyAmount : null,
-        billingDay: dateValue(academy.billingDueDate),
-        renewalDate: dateValue(academy.billingDueDate),
+        billingDay,
+        renewalDate: billingDueDate,
         startDate: isoValue(academy.startDate || academy.createdAt),
         graceDays,
         paymentMethod: stringValue(academy.paymentMethod),
