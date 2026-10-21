@@ -5904,6 +5904,8 @@ button:not(:disabled):active {
 .student-app .workout-library-card::after,
 .student-app .student-rank-review::before,
 .student-app .student-rank-review::after,
+.student-app .evolution-level-card::after,
+.student-app .workout-overview::after,
 .student-app .agenda-calendar::before,
 .student-app .agenda-calendar::after {
   content: none !important;
