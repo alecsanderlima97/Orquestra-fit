@@ -112,6 +112,9 @@ export async function buildFitPortalSnapshot(firestore: Firestore) {
     const balanceCredits = Math.max(0, Number(academy.aiCreditsBalance ?? aiCredits.balance ?? monthlyCredits + extraCredits));
     const planId = "premium" as const;
     const status = subscriptionStatus(academy);
+    const monthlyAmount = Number(academy.monthlyAmount);
+    const graceDaysValue = Number(academy.billingToleranceDays);
+    const graceDays = Number.isInteger(graceDaysValue) && graceDaysValue >= 0 && graceDaysValue <= 30 ? graceDaysValue : 3;
 
     return {
       id: externalId,
@@ -137,10 +140,12 @@ export async function buildFitPortalSnapshot(firestore: Firestore) {
       owner,
       subscription: {
         planId,
-        planName: "Pró",
-        monthlyFee: "R$ 350,00",
+        planName: stringValue(academy.plan) || "Pró",
+        monthlyFee: Number.isFinite(monthlyAmount) && monthlyAmount >= 0 ? monthlyAmount : null,
         billingDay: dateValue(academy.billingDueDate),
         renewalDate: dateValue(academy.billingDueDate),
+        startDate: dateValue(academy.startDate || academy.createdAt),
+        graceDays,
         paymentMethod: stringValue(academy.paymentMethod),
         billingStatus: stringValue(academy.billingStatus || academy.status),
         subscriptionStatus: status,
