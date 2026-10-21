@@ -5805,3 +5805,109 @@ button:not(:disabled):active {
   display: none !important;
   content: none !important;
 }
+
+/* Superfícies foscas consistentes, sem blocos artificiais dentro dos cartões. */
+:is(
+  .workspace-panel,
+  .metric-card,
+  .permissions-panel,
+  .student-modal,
+  .module-card,
+  .directory-panel,
+  .student-detail-panel,
+  .billing-overview,
+  .charges-panel,
+  .plan-form-panel,
+  .plans-list-panel,
+  .training-form-panel,
+  .published-workouts,
+  .today-workout,
+  .status-grid article,
+  .weekly-card,
+  .academy-note,
+  .academy-whatsapp-card,
+  .program-summary,
+  .workout-library-card,
+  .student-anamnesis-panel,
+  .evolution-hero,
+  .evolution-grid article,
+  .evolution-level-card,
+  .assessment-chart,
+  .assessment-comparison,
+  .history-panel,
+  .latest-assessment,
+  .class-card,
+  .profile-link,
+  .student-plan-grid > div,
+  .protected-field,
+  .finance-panel,
+  .finance-entry-form,
+  .finance-list,
+  .finance-history,
+  .finance-purchase-form,
+  .finance-account-list,
+  .financial-report,
+  .stock-panel,
+  .stock-form,
+  .stock-list,
+  .stock-history,
+  .movement-modal,
+  .qr-modal,
+  .stock-summary > article,
+  .developer-academy-list,
+  .developer-academy-detail,
+  .app-guide-panel,
+  .agenda-calendar,
+  .student-rank-review,
+  .student-financial-lock > section,
+  .rank-review-workouts > article,
+  .evolution-rank-workouts > span,
+  .student-workout-toolbar,
+  .student-anamnesis-panel,
+  .student-whatsapp-panel,
+  .workout-overview,
+  .workout-completion-card,
+  .workout-share-panel,
+  .workout-share-preview,
+  .workout-share-output,
+  .workout-share-status,
+  .workout-exercise,
+  .workout-rest-banner
+) {
+  background-color: #121212 !important;
+  background-image: none !important;
+  border-color: #2b2b2b !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* O estado permanece nos rótulos e ícones; o fundo do cartão fica uniforme. */
+[data-theme] .student-app .workout-library-card.is-in-progress,
+[data-theme] .student-app .workout-library-card.is-completed,
+[data-theme] .student-app .workout-library-card.is-next,
+[data-theme] .student-app .workout-library-card.is-locked {
+  background: #121212 !important;
+  background-image: none !important;
+  border-color: #2b2b2b !important;
+  box-shadow: none !important;
+}
+
+/* Evita que a regra global de cartões transforme áreas internas em blocos. */
+.student-app .workout-library-card .workout-card-main,
+.student-app .workout-library-card .workout-card-progress {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.student-app .workout-library-card::after,
+.student-app .student-rank-review::before,
+.student-app .student-rank-review::after,
+.student-app .agenda-calendar::before,
+.student-app .agenda-calendar::after {
+  content: none !important;
+  display: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
