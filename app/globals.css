@@ -5714,9 +5714,12 @@ body,
 .workout-art,
 .today-workout .workout-art,
 .workout-art img,
-.academy-brand img,
 .central-admin-brand img {
   filter: grayscale(.65) contrast(1.05) brightness(.72) !important;
+}
+.v3-page .academy-brand img {
+  border-color: #8a6a43 !important;
+  filter: brightness(1.32) contrast(1.12) saturate(1.08) !important;
 }
 .workout-art { background: #121212 !important; }
 
