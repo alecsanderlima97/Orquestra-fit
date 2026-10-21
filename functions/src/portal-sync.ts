@@ -144,7 +144,7 @@ export async function buildFitPortalSnapshot(firestore: Firestore) {
         monthlyFee: Number.isFinite(monthlyAmount) && monthlyAmount >= 0 ? monthlyAmount : null,
         billingDay: dateValue(academy.billingDueDate),
         renewalDate: dateValue(academy.billingDueDate),
-        startDate: dateValue(academy.startDate || academy.createdAt),
+        startDate: isoValue(academy.startDate || academy.createdAt),
         graceDays,
         paymentMethod: stringValue(academy.paymentMethod),
         billingStatus: stringValue(academy.billingStatus || academy.status),
