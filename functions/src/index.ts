@@ -1098,19 +1098,9 @@ export const receivePortalCommand = onRequest({ region, secrets: [portalConnecto
   }
 });
 
-export const syncPortalSnapshot = onCall<unknown, Promise<PortalSyncResponse>>({
-  region,
-  timeoutSeconds: 120,
-  secrets: [portalConnectorSecret],
-}, async (request) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para sincronizar o Portal.");
-  const actor = await firestore.doc(`users/${request.auth.uid}`).get();
-  if (actor.data()?.accountType !== "developer") {
-    throw new HttpsError("permission-denied", "Somente o administrador da plataforma pode sincronizar o Portal.");
-  }
-
+async function sendFitPortalSnapshot(): Promise<PortalSyncResponse> {
   const secret = portalConnectorSecret.value().trim();
-  if (!secret) throw new HttpsError("failed-precondition", "O conector seguro do Portal ainda não foi configurado.");
+  if (!secret) throw new Error("portal_connector_not_configured");
   const snapshot = await buildFitPortalSnapshot(firestore);
   const response = await fetch(portalConnectorEndpoint, {
     method: "POST",
@@ -1125,7 +1115,7 @@ export const syncPortalSnapshot = onCall<unknown, Promise<PortalSyncResponse>>({
   });
   if (!response.ok) {
     console.error("orquestra_fit_portal_sync_failed", { status: response.status, summary: snapshot.summary });
-    throw new HttpsError("internal", "O Portal recusou a sincronização. Tente novamente em instantes.");
+    throw new Error("portal_sync_rejected");
   }
 
   const syncedAt = FieldValue.serverTimestamp();
@@ -1136,4 +1126,32 @@ export const syncPortalSnapshot = onCall<unknown, Promise<PortalSyncResponse>>({
     portalSyncError: null,
   }, { merge: true })));
   return { ok: true, summary: snapshot.summary };
+}
+
+export const syncPortalSnapshot = onCall<unknown, Promise<PortalSyncResponse>>({
+  region,
+  timeoutSeconds: 120,
+  secrets: [portalConnectorSecret],
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para sincronizar o Portal.");
+  const actor = await firestore.doc(`users/${request.auth.uid}`).get();
+  if (actor.data()?.accountType !== "developer") {
+    throw new HttpsError("permission-denied", "Somente o administrador da plataforma pode sincronizar o Portal.");
+  }
+  try {
+    return await sendFitPortalSnapshot();
+  } catch (error) {
+    if (error instanceof Error && error.message === "portal_connector_not_configured") throw new HttpsError("failed-precondition", "O conector seguro do Portal ainda não foi configurado.");
+    throw new HttpsError("internal", "O Portal recusou a sincronização. Tente novamente em instantes.");
+  }
+});
+
+export const syncPortalSnapshotScheduled = onSchedule({
+  region,
+  schedule: "every 15 minutes",
+  timeZone: "America/Sao_Paulo",
+  timeoutSeconds: 120,
+  secrets: [portalConnectorSecret],
+}, async () => {
+  await sendFitPortalSnapshot();
 });
