@@ -4,6 +4,7 @@ const SOURCE_SYSTEM = "orquestra_fit" as const;
 const CONTRACT_VERSION = "v1" as const;
 const DATA_VERSION = 1;
 const ONLINE_WINDOW_MS = 5 * 60 * 1000;
+const PLATFORM_ADMIN_EMAIL = "orquestracs@gmail.com";
 
 type FirestoreValue = unknown;
 
@@ -90,7 +91,7 @@ export async function buildFitPortalSnapshot(firestore: Firestore) {
       const data = memberDoc.data() as DocumentData;
       return { ...data, id: memberDoc.id } as DocumentData & { id: string };
     });
-    const users = members.map((member) => {
+    const users = members.filter((member) => stringValue(member.email)?.toLowerCase() !== PLATFORM_ADMIN_EMAIL).map((member) => {
       const lastActivityAt = isoValue(member.lastActivityAt || member.lastSeenAt);
       return {
         id: member.id,
