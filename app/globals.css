@@ -5435,7 +5435,8 @@ input, select, textarea { border-radius: 10px; }
 .central-admin-intro-card small { display: inline-block; border-radius: 4px; padding: 4px 8px; background: #fff0b8; color: #8c5c09; font-size: 9px; font-weight: 700; }
 .central-admin-sync { display: flex; align-items: center; gap: 8px; }
 .central-admin-sync > small { margin-right: 2px; color: #71878b; white-space: nowrap; }
-.central-admin-sync button { height: 33px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #7adbe7; border-radius: 5px; padding: 0 12px; background: #effdff; color: #11617b; font-size: 10px; font-weight: 700; }
+.central-admin-sync button, .central-admin-sync .central-admin-portal-link { height: 33px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #7adbe7; border-radius: 5px; padding: 0 12px; background: #effdff; color: #11617b; font-size: 10px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.central-admin-sync .central-admin-portal-link:hover { background: #e1f7fa; }
 .central-admin-sync button:disabled { opacity: .65; }
 .central-admin-sync .central-admin-synced { border-color: #b8ccb7; background: #f8fbf6; color: #50715d; }
 .central-admin-sync .central-admin-synced span { color: #558364; font-weight: 900; }
@@ -5582,7 +5583,7 @@ input, select, textarea { border-radius: 10px; }
   .central-admin-intro-card { margin-top: 15px; padding: 13px; }
   .central-admin-sync { align-items: stretch; }
   .central-admin-sync > small { width: 100%; }
-  .central-admin-sync button { flex: 1; justify-content: center; }
+  .central-admin-sync button, .central-admin-sync .central-admin-portal-link { flex: 1; justify-content: center; }
   .central-admin-table-card { margin-top: 14px; }
   .central-admin-table-scroll { overflow: visible; }
   .central-admin-table { min-width: 0; }

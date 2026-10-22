@@ -5,7 +5,7 @@ import type { CSSProperties } from "react";
 import { httpsCallable } from "firebase/functions";
 import { collection, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import {
-  Bell, Building2, ChevronDown, ChevronRight, CircleDollarSign, CloudCog, FileText, LockKeyhole,
+  Bell, Building2, ChevronDown, ChevronRight, CircleDollarSign, CloudCog, ExternalLink, FileText, LockKeyhole,
   PauseCircle, Pencil, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, X,
 } from "lucide-react";
 import { useAccess } from "@/components/auth/access-context";
@@ -95,6 +95,7 @@ type CentralAdminColumnKey = "client" | "plan" | "status" | "signup" | "due" | "
 
 const ORQUESTRA_PLAN_NAME = "Pró";
 const ORQUESTRA_PLAN_PRICE = 350;
+const ORQUESTRA_PORTAL_ADMIN_URL = "https://hub.orquestracs.com/#admin-orquestra";
 
 const centralAdminColumns: Array<{ key: CentralAdminColumnKey; label: string }> = [
   { key: "client", label: "Cliente" }, { key: "plan", label: "Plano" }, { key: "status", label: "Status" },
@@ -422,7 +423,7 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
     </aside>
     <main className="central-admin-main">
       <header className="central-admin-topbar"><div><span>ORQUESTRA.CS · CENTRAL DE CONTROLE</span><h1>Admin Orquestra.cs</h1><p>Controle comercial dos clientes, convites, planos e status de assinatura.</p></div><div className="central-admin-top-actions"><button type="button" className="central-admin-icon-button" aria-label="Buscar cliente" onClick={() => document.querySelector<HTMLInputElement>(".central-admin-search input")?.focus()}><Search size={17} /></button><button type="button" className="central-admin-icon-button" aria-label="Notificações" onClick={() => onFeedback("Não há novas notificações administrativas.")}><Bell size={17} /></button><button type="button" className="central-admin-close" onClick={onClose} aria-label="Fechar Central Admin"><X size={17} /></button></div></header>
-      <section className="central-admin-intro-card"><div><span>Admin Orquestra.cs</span><p>Controle comercial dos clientes, convites, planos e status de assinatura.</p><small>Clientes sem configuração usam tolerância de 5 dias úteis</small></div><div className="central-admin-sync"><small>Última sincronização: {lastSync.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</small><button type="button" onClick={() => void refreshList()} disabled={syncing}><CloudCog size={15} />{syncing ? "Sincronizando…" : "Sincronizar Portal"}</button><button type="button" className="central-admin-synced"><span>✓</span> {syncing ? "Em andamento" : "Conector seguro"}</button></div></section>
+      <section className="central-admin-intro-card"><div><span>Admin Orquestra.cs</span><p>Controle comercial dos clientes, convites, planos e status de assinatura.</p><small>Clientes sem configuração usam tolerância de 5 dias úteis</small></div><div className="central-admin-sync"><small>Última sincronização: {lastSync.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</small><button type="button" onClick={() => void refreshList()} disabled={syncing}><CloudCog size={15} />{syncing ? "Sincronizando…" : "Sincronizar Portal"}</button><a className="central-admin-portal-link" href={ORQUESTRA_PORTAL_ADMIN_URL} target="_blank" rel="noopener noreferrer" aria-label="Abrir a Central Admin do Portal Orquestra.cs em uma nova aba"><ExternalLink size={15} />Central Admin do Portal</a><button type="button" className="central-admin-synced"><span>✓</span> {syncing ? "Em andamento" : "Conector seguro"}</button></div></section>
       <button type="button" className="central-admin-new-client" onClick={() => { setForm(emptyForm()); setModalMode("new"); }}><Plus size={17} /><span><strong>Novo cliente e convite comercial</strong><small>Abra para cadastrar os dados completos e gerar o convite de acesso.</small></span><ChevronDown size={17} /></button>
       <section className="central-admin-table-card">
         <div className="central-admin-table-toolbar"><div><span>CLIENTES COMERCIAIS</span><strong>{visibleAcademies.length} cliente(s)</strong></div><button type="button" onClick={() => void refreshList()} aria-label="Sincronizar Portal" disabled={syncing}><RefreshCw size={16} /></button></div>
