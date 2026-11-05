@@ -21,6 +21,25 @@ service firebase.storage {
         && member(academyId).data.role == 'admin';
     }
 
+    function isTeacher(academyId) {
+      return signedIn()
+        && member(academyId).data.active == true
+        && member(academyId).data.role == 'teacher';
+    }
+
+    function canManageAssessmentPhotos(academyId) {
+      return academyOwner(academyId) || isManager(academyId) || isTeacher(academyId);
+    }
+
+    function studentCanViewAssessmentPhotos(academyId, studentId) {
+      let studentPath = /databases/(default)/documents/academies/$(academyId)/students/$(studentId);
+      return signedIn()
+        && request.auth.uid == studentId
+        && member(academyId).data.active == true
+        && member(academyId).data.role == 'student'
+        && firestore.exists(studentPath);
+    }
+
     function canManageExerciseMedia(academyId) {
       return academyOwner(academyId) ||
         (signedIn()
@@ -30,10 +49,7 @@ service firebase.storage {
 
     function isPlatformDeveloper() {
       return signedIn()
-        && (
-          firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.accountType == 'developer' ||
-          request.auth.token.email == 'orquestracs@gmail.com'
-        );
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.accountType == 'developer';
     }
 
     match /gif-library/{allPaths=**} {
@@ -48,6 +64,16 @@ service firebase.storage {
       allow create, update: if isManager(academyId)
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('application/pdf|image/(jpeg|png|webp)');
+    }
+
+    match /academies/{academyId}/assessment-photos/{studentId}/{assessmentId}/{fileName} {
+      allow read: if canManageAssessmentPhotos(academyId) || studentCanViewAssessmentPhotos(academyId, studentId);
+      allow create: if canManageAssessmentPhotos(academyId)
+        && resource == null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+      allow update: if false;
+      allow delete: if canManageAssessmentPhotos(academyId);
     }
 
     match /academies/{academyId}/exercise-media/{allPaths=**} {

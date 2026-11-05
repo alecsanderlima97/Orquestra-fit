@@ -43,7 +43,11 @@ service cloud.firestore {
     }
 
     function canUpdateAcademy(academyId) {
-      return (isDeveloper() || isAdmin(academyId)) &&
+      return (isDeveloper() || (isAdmin(academyId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'phone', 'instagramUrl', 'siteUrl', 'whatsappUrl', 'whatsappGroupUrl',
+          'openingDays', 'openingTime', 'closingTime', 'updatedAt', 'updatedBy'
+        ]))) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'aiCredits', 'aiCreditsBalance', 'aiCreditsMonthly', 'aiCreditsExtras',
           'aiCreditsTotal', 'aiCreditsUsed', 'aiCreditsLastReason',
@@ -64,7 +68,26 @@ service cloud.firestore {
         get(/databases/$(database)/documents/accessCodes/$(codeId)).data.academyId == academyId &&
         get(/databases/$(database)/documents/accessCodes/$(codeId)).data.role == role &&
         (get(/databases/$(database)/documents/accessCodes/$(codeId)).data.get('invitedEmail', null) == null ||
-          get(/databases/$(database)/documents/accessCodes/$(codeId)).data.get('invitedEmail', null) == request.auth.token.email);
+          get(/databases/$(database)/documents/accessCodes/$(codeId)).data.get('invitedEmail', null) == request.auth.token.email) &&
+        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.active == false &&
+        getAfter(/databases/$(database)/documents/accessCodes/$(codeId)).data.claimedBy == request.auth.uid;
+    }
+
+    function validWeeklyLimit(data) {
+      return data.get('weeklyVisitLimit', null) == null ||
+        (data.weeklyVisitLimit is int && data.weeklyVisitLimit >= 1 && data.weeklyVisitLimit <= 7);
+    }
+
+    function invitedStudentData() {
+      let invitation = get(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data;
+      return request.resource.data.get('planId', null) == invitation.get('planId', null) &&
+        request.resource.data.get('planPrice', null) == invitation.get('planPrice', null) &&
+        request.resource.data.get('plan', null) == invitation.get('plan', null) &&
+        request.resource.data.get('planInterval', null) == invitation.get('planInterval', null) &&
+        request.resource.data.get('weeklyVisitLimit', null) == invitation.get('weeklyVisitLimit', null) &&
+        request.resource.data.get('registrationFee', 0) == invitation.get('registrationFee', 0) &&
+        request.resource.data.get('approvedRank', 'Bronze') == 'Bronze' &&
+        request.resource.data.active == true && request.resource.data.accessBlocked == false;
     }
 
     match /accessCodes/{codeId} {
@@ -81,6 +104,8 @@ service cloud.firestore {
         (request.resource.data.role != 'admin' || isDeveloper()) &&
         (request.resource.data.role != 'admin' || request.resource.data.invitedEmail is string);
       allow update: if signedIn() && resource.data.active == true &&
+        (resource.data.get('invitedEmail', null) == null || resource.data.invitedEmail == request.auth.token.email) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'claimedBy', 'claimedAt']) &&
         request.resource.data.active == false &&
         request.resource.data.claimedBy == request.auth.uid &&
         request.resource.data.academyId == resource.data.academyId &&
@@ -91,12 +116,15 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isDeveloper() || (signedIn() && request.auth.uid == userId);
       allow create: if signedIn() && request.auth.uid == userId &&
+        request.resource.data.get('accountType', 'academy_admin') == 'academy_admin' &&
         ((request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
           (request.resource.data.activationCodeId is string && request.resource.data.activeAcademyId is string &&
             validInvitation(request.resource.data.activationCodeId, request.resource.data.activeAcademyId,
               get(/databases/$(database)/documents/accessCodes/$(request.resource.data.activationCodeId)).data.role)));
       allow update: if signedIn() && request.auth.uid == userId &&
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoUrl', 'lastAccessAt', 'lastSeenAt', 'lastRole', 'activeAcademyId']) &&
+        (request.resource.data.get('accountType', null) == resource.data.get('accountType', null) ||
+          (resource.data.get('accountType', null) != 'developer' && request.resource.data.get('accountType', null) == 'academy_admin')) &&
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'name', 'photoUrl', 'phone', 'cpf', 'cnpj', 'businessName', 'cep', 'street', 'number', 'complement', 'district', 'city', 'state', 'instagramUrl', 'siteUrl', 'whatsappUrl', 'whatsappGroupUrl', 'updatedAt', 'lastAccessAt', 'lastSeenAt', 'lastRole', 'activeAcademyId', 'presenceStatus', 'presenceEnteredAt', 'presenceExitedAt']) &&
           (!request.resource.data.keys().hasAny(['photoUrl']) ||
             (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() < 200000)) ||
           (request.resource.data.activeAcademyId is string && isOnboardingOwner(request.resource.data.activeAcademyId)) ||
@@ -107,12 +135,12 @@ service cloud.firestore {
     }
 
     match /academies/{academyId} {
-      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow create: if isDeveloper() && request.resource.data.ownerId == request.auth.uid;
       allow read: if isDeveloper() || belongsToAcademy(academyId);
       // Saldo e bônus de IA só podem ser alterados pela callable addAiCredits,
       // que valida o administrador da plataforma e grava o histórico.
       allow update: if canUpdateAcademy(academyId);
-      allow delete: if isAdmin(academyId);
+      allow delete: if false;
     }
 
     match /academies/{academyId}/members/{memberId} {
@@ -123,26 +151,28 @@ service cloud.firestore {
           request.resource.data.active == true &&
           getAfter(/databases/$(database)/documents/academies/$(academyId)).data.ownerId == request.auth.uid) ||
         isAdmin(academyId) ||
-        (request.resource.data.userId == request.auth.uid &&
+        (memberId == request.auth.uid && request.resource.data.userId == request.auth.uid &&
+          request.resource.data.active == true &&
+          request.resource.data.keys().hasOnly(['userId', 'displayName', 'email', 'username', 'role', 'active', 'activationCodeId', 'createdAt']) &&
           validInvitation(request.resource.data.activationCodeId, academyId, request.resource.data.role))
       );
       allow update: if isDeveloper() || isAdmin(academyId) ||
         (memberId == request.auth.uid && request.resource.data.role == 'admin' &&
           request.resource.data.active == true && isOnboardingOwner(academyId)) ||
-        (memberId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAccessAt', 'lastSeenAt', 'lastRole']));
+        (memberId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAccessAt', 'lastSeenAt', 'lastRole', 'presenceStatus', 'presenceEnteredAt', 'presenceExitedAt']));
       allow delete: if isAdmin(academyId);
     }
 
     match /academies/{academyId}/students/{studentId} {
       allow read: if isAdmin(academyId) ||
-        (isTeacher(academyId) && resource.data.teacherId == request.auth.uid) ||
+        isTeacher(academyId) ||
         (isStudent(academyId) && studentId == request.auth.uid);
       allow create: if isAdmin(academyId) || isTeacher(academyId) ||
         (studentId == request.auth.uid &&
           request.resource.data.activationCodeId is string &&
-          validInvitation(request.resource.data.activationCodeId, academyId, 'student'));
+          validInvitation(request.resource.data.activationCodeId, academyId, 'student') && invitedStudentData());
       allow update: if isAdmin(academyId) ||
-        (isTeacher(academyId) && resource.data.teacherId == request.auth.uid &&
+        (isTeacher(academyId) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvedRank', 'rankApprovedAt', 'rankApprovedBy']) &&
           request.resource.data.get('approvedRank', null) in ['Bronze', 'Prata', 'Ouro', 'Diamante'] &&
           request.resource.data.get('rankApprovedAt', null) is timestamp &&
@@ -163,7 +193,7 @@ service cloud.firestore {
 
     match /academies/{academyId}/plans/{planId} {
       allow read: if isAdmin(academyId);
-      allow create, update: if isAdmin(academyId);
+      allow create, update: if isAdmin(academyId) && validWeeklyLimit(request.resource.data);
       allow delete: if false;
     }
 
@@ -306,9 +336,13 @@ service cloud.firestore {
       allow delete: if belongsToAcademy(academyId) && resource.data.userId == request.auth.uid;
     }
 
-    match /academies/{academyId}/{document=**} {
+    match /academies/{academyId}/{collectionName}/{document=**} {
       allow read: if isDeveloper() || isAdmin(academyId);
-      allow write: if isAdmin(academyId);
+      // Do not override the stricter rules above with a recursive write grant.
+      allow write: if isAdmin(academyId) && collectionName in [
+        'anamneses', 'financialCategories', 'financialExpenses', 'financialSales',
+        'stockCategories', 'stockItems', 'stockMovements'
+      ];
     }
 
     match /auditLogs/{logId} {

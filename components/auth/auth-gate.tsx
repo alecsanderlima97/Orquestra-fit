@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { GoogleAuthProvider, browserLocalPersistence, inMemoryPersistence, signOut, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, updateProfile, User } from "firebase/auth";
+import { FacebookAuthProvider, GoogleAuthProvider, OAuthProvider, browserLocalPersistence, inMemoryPersistence, signOut, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, updateProfile, User } from "firebase/auth";
 import { Activity, ArrowRight, Dumbbell, Eye, EyeOff, HeartPulse, LockKeyhole, LogIn, Mail, PersonStanding, Trophy } from "lucide-react";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { AcademyGate } from "./academy-gate";
@@ -63,11 +63,11 @@ export function AuthGate({ children, kiosk = false }: AuthGateProps) {
       })
       .catch((error) => {
         if (!mounted) return;
-        console.error("Não foi possível concluir o retorno do Google.", error);
+        console.error("Não foi possível concluir o retorno do provedor de acesso.", error);
         const code = (error as { code?: string }).code;
         setRedirectError(code === "auth/unauthorized-domain"
-          ? "Este endereço ainda não foi autorizado no Firebase. Adicione localhost aos domínios autorizados."
-          : "O Google não conseguiu concluir o acesso. Tente novamente.");
+          ? "Este endereço ainda não foi autorizado no Firebase. Adicione o domínio aos domínios autorizados."
+          : "O provedor não conseguiu concluir o acesso. Tente novamente.");
       })
       .finally(() => {
         if (mounted) {
@@ -195,6 +195,76 @@ function LoginPanel({ initialStatus, kiosk = false, unavailable = false }: { ini
     }
   }
 
+  async function signInWithMicrosoft() {
+    if (!auth) return;
+    setSubmitting(true);
+    setStatus(null);
+    const provider = new OAuthProvider("microsoft.com");
+    provider.setCustomParameters({
+      prompt: "select_account",
+      ...(identifier.includes("@") ? { login_hint: identifier.trim() } : {}),
+    });
+    try {
+      if (window.matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "auth/popup-blocked") {
+        setStatus("O navegador bloqueou a janela da Microsoft. Permita pop-ups ou abra o sistema no Chrome ou Edge e tente novamente.");
+      } else if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        setStatus("A janela de acesso da Microsoft foi fechada antes da confirmação. Tente novamente.");
+      } else if (code === "auth/unauthorized-domain") {
+        setStatus("Este endereço ainda não está autorizado no Firebase para entrar com Microsoft.");
+      } else if (code === "auth/operation-not-allowed") {
+        setStatus("A entrada Microsoft ainda não foi habilitada nas configurações do Firebase.");
+      } else if (code === "auth/account-exists-with-different-credential") {
+        setStatus("Este e-mail já possui outro método de acesso no Orquestra Fit. Entre pelo método já cadastrado para continuar.");
+      } else {
+        setStatus("Não foi possível entrar com a conta Microsoft. Confira se o provedor está habilitado e tente novamente.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function signInWithFacebook() {
+    if (!auth) return;
+    setSubmitting(true);
+    setStatus(null);
+    const provider = new FacebookAuthProvider();
+    provider.addScope("email");
+    provider.setCustomParameters({ display: "popup" });
+    try {
+      if (window.matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "auth/popup-blocked") {
+        setStatus("O navegador bloqueou a janela do Facebook. Permita pop-ups ou tente novamente no Chrome ou Safari.");
+      } else if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        setStatus("A janela de acesso do Facebook foi fechada antes da confirmação. Tente novamente.");
+      } else if (code === "auth/unauthorized-domain") {
+        setStatus("Este endereço ainda não está autorizado no Firebase para entrar com Facebook.");
+      } else if (code === "auth/operation-not-allowed") {
+        setStatus("A entrada pelo Facebook ainda não foi habilitada nas configurações do Firebase.");
+      } else if (code === "auth/account-exists-with-different-credential") {
+        setStatus("Este e-mail já possui outro método de acesso no Orquestra Fit. Entre pelo método já cadastrado para continuar.");
+      } else if (code === "auth/missing-email") {
+        setStatus("O Facebook não compartilhou um e-mail. Autorize o compartilhamento ou use a conta vinculada ao convite.");
+      } else {
+        setStatus("Não foi possível entrar com o Facebook. Confira se o provedor está habilitado e tente novamente.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <main className={kiosk ? "auth-page kiosk-login" : "auth-page"}>
       <div className="auth-shell">
@@ -226,8 +296,12 @@ function LoginPanel({ initialStatus, kiosk = false, unavailable = false }: { ini
               {unavailable && <p role="status">O acesso aos treinos precisa da conexão com a academia.</p>}
               <button type="submit" disabled={submitting || unavailable}><LogIn size={18} /> {submitting ? "Aguarde..." : kiosk ? "Acessar meus treinos" : mode === "signup" ? "Criar acesso" : "Entrar na plataforma"}</button>
             </form>
-            {mode === "login" && !unavailable && <><div className="auth-divider"><span>ou</span></div><button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button></>}
-            {kiosk ? <p className="kiosk-first-access">Primeiro acesso ou conta Google? Entre com Google aqui ou use o QR code para acessar pelo celular. Se precisar, peça ajuda à recepção.</p> : <div className="auth-first-access"><span>{mode === "signup" ? "Já possui uma conta?" : "Primeiro acesso?"}</span><button type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Voltar para o login" : "Ativar minha conta"}<ArrowRight size={18} /></button></div>}
+            {!unavailable && <><div className="auth-divider"><span>ou</span></div><div className="auth-social-logins">
+              <button className="google-login" type="button" onClick={signInWithGoogle} disabled={submitting}><span>G</span> Continuar com Google</button>
+              {!kiosk && process.env.NEXT_PUBLIC_AUTH_MICROSOFT_ENABLED === "true" && <button className="google-login microsoft-login" type="button" onClick={signInWithMicrosoft} disabled={submitting}><span aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path fill="#f25022" d="M2 2h9v9H2z"/><path fill="#7fba00" d="M13 2h9v9h-9z"/><path fill="#00a4ef" d="M2 13h9v9H2z"/><path fill="#ffb900" d="M13 13h9v9h-9z"/></svg></span> Continuar com Microsoft</button>}
+              {process.env.NEXT_PUBLIC_AUTH_FACEBOOK_ENABLED === "true" && <button className="google-login facebook-login" type="button" onClick={signInWithFacebook} disabled={submitting}><span className="facebook-login-mark" aria-hidden="true">f</span> Continuar com Facebook</button>}
+            </div></>}
+            {kiosk ? <p className="kiosk-first-access">Primeiro acesso? Entre com Google ou seu e-mail e senha aqui, ou use o QR code para acessar pelo celular. Se precisar, peça ajuda à recepção.</p> : <div className="auth-first-access"><span>{mode === "signup" ? "Já possui uma conta?" : "Primeiro acesso?"}</span><button type="button" onClick={() => { setMode((current) => current === "login" ? "signup" : "login"); setStatus(null); }}>{mode === "signup" ? "Voltar para o login" : "Ativar minha conta"}<ArrowRight size={18} /></button></div>}
           </section>
         </section>
       </div>

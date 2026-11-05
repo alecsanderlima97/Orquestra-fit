@@ -41,6 +41,24 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+/.tools/
+/test-results/
+/playwright-report/
+firestore-debug.log
+firebase-debug.log*
+storage-debug.log
+ui-debug.log
+
+# Arquivos temporários locais de auditoria e instruções geradas pelo Next.js
+/AGENTS.md
+/--write-out
+/custom-domain.png
+/kiosk-bg-reduced.png
+/kiosk-bg.png
+/kiosk-compact.png
+/kiosk-final.png
+/matte-preview.png
+/matte-student-preview.png
 
 # Catálogo e arquivos de demonstração locais (não enviar os 3,9 GB ao Git)
 /public/exercise-gifs/

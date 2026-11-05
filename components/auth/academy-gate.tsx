@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { signOut, type User } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
-import { addDoc, collection, doc, getDoc, getDocFromServer, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocFromServer, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { Building2, CheckCircle2, ShieldCheck } from "lucide-react";
 import { auth, db, functions } from "@/lib/firebase/client";
 import { AccessProvider, AccessRole } from "./access-context";
@@ -28,11 +28,6 @@ async function leaveAccount() {
   } finally {
     window.location.reload();
   }
-}
-
-function isDeveloperAccount(user: User) {
-  const developerEmail = process.env.NEXT_PUBLIC_DEVELOPER_EMAIL?.trim().toLowerCase();
-  return Boolean(developerEmail && user.email?.trim().toLowerCase() === developerEmail);
 }
 
 export function AcademyGate({ user, children }: AcademyGateProps) {
@@ -101,7 +96,7 @@ export function AcademyGate({ user, children }: AcademyGateProps) {
   if (resolvedUserId !== user.uid || profile === undefined || member === undefined || passwordChangeRequired === undefined) return <main className="auth-loading"><OrquestraLoader label="Preparando seu acesso" /></main>;
   if (loadError) return <main className="auth-loading">Não foi possível confirmar seu acesso agora. Atualize a página para tentar novamente.</main>;
   if (!profile?.activeAcademyId) {
-    return isDeveloperAccount(user)
+    return profile?.accountType === "developer"
       ? <CreateAcademy user={user} onCreated={(nextProfile) => { setProfile(nextProfile); setMember({ role: "admin", active: true }); }} />
       : <ActivateAccess user={user} onActivated={(nextProfile, nextMember) => { setProfile(nextProfile); setMember(nextMember); }} />;
   }
@@ -148,16 +143,7 @@ function PresenceHeartbeat({ user, academyId, role }: { user: User; academyId: s
       ]);
       if (!auditWritten) {
         auditWritten = true;
-        await addDoc(collection(firestore, "auditLogs"), {
-          academyId,
-          userId: user.uid,
-          userName: user.displayName ?? user.email ?? "Usuário",
-          userEmail: user.email ?? null,
-          role,
-          action: "login",
-          label: "Acesso ao sistema",
-          createdAt: serverTimestamp(),
-        });
+        if (functions) await httpsCallable(functions, "recordAuditEvent")({ academyId, action: "login" });
       }
     };
     void touch(true).catch(() => undefined);
@@ -255,6 +241,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         planId?: string | null;
         planInterval?: string | null;
         planPrice?: number | null;
+        weeklyVisitLimit?: number | null;
         registrationFee?: number | null;
         initialDueDate?: string | null;
         anatomyProfile?: "masculino" | "feminino";
@@ -267,14 +254,18 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
       };
       const invitedEmail = invitation.invitedEmail?.trim().toLowerCase();
       const signedInEmail = user.email?.trim().toLowerCase();
+      if (invitedEmail && !signedInEmail && user.providerData.some((provider) => provider.providerId === "facebook.com")) {
+        setStatus("O Facebook não compartilhou um e-mail para confirmar este convite. Autorize o compartilhamento de e-mail ou entre por outra conta com o mesmo endereço autorizado.");
+        return;
+      }
       if (invitedEmail && invitedEmail !== signedInEmail) {
-        setStatus(`Este convite foi reservado para ${invitation.invitedEmail}. Entre com esse Gmail para continuar.`);
+        setStatus(`Este convite foi reservado para ${invitation.invitedEmail}. Entre com esse mesmo e-mail pelo Google ou pelo login e senha cadastrados.`);
         return;
       }
       const memberRef = doc(firestore, "academies", invitation.academyId, "members", user.uid);
       const userRef = doc(firestore, "users", user.uid);
       const existingUserSnapshot = await getDoc(userRef);
-      const existingUser = existingUserSnapshot.exists() ? existingUserSnapshot.data() as { academyIds?: string[] } : {};
+      const existingUser = existingUserSnapshot.exists() ? existingUserSnapshot.data() as { academyIds?: string[]; accountType?: string } : {};
       const academyIds = Array.from(new Set([...(existingUser.academyIds ?? []), invitation.academyId]));
       const batch = writeBatch(firestore);
       const now = serverTimestamp();
@@ -300,6 +291,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
           planId: invitation.planId ?? null,
           planInterval: invitation.planInterval ?? null,
           planPrice: invitation.planPrice ?? null,
+          weeklyVisitLimit: typeof invitation.weeklyVisitLimit === "number" && Number.isInteger(invitation.weeklyVisitLimit) ? invitation.weeklyVisitLimit : null,
           registrationFee: invitation.registrationFee ?? 0,
           initialDueDate: invitation.initialDueDate ?? null,
           nextBillingDate: invitation.initialDueDate ?? null,
@@ -338,7 +330,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         academyIds,
         activationCodeId: normalizedCode,
         createdAt: now,
-        ...(invitation.role === "admin" && !isDeveloperAccount(user) ? { accountType: "academy_admin" as const } : {}),
+        ...(invitation.role === "admin" && existingUser.accountType !== "developer" ? { accountType: "academy_admin" as const } : {}),
       };
       batch.set(userRef, userData, { merge: true });
       await batch.commit();
@@ -382,7 +374,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
         <div className="auth-mark"><ShieldCheck size={28} /></div>
         <p>ORQUESTRA FIT</p>
         <h1 id="activation-title">Ative seu acesso</h1>
-        <span>Entre com seu login criado ou com sua conta Google e informe o código recebido da academia para liberar seu perfil.</span>
+        <span>Entre com seu e-mail e senha ou Google e informe o código recebido da academia para liberar seu perfil.</span>
         <form onSubmit={submit}>
           <label><ShieldCheck size={17} /> Código de ativação<input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} autoComplete="one-time-code" placeholder="Ex.: DF-7K4M2P" required /></label>
           {status && <p className="auth-status" role="status">{status}</p>}
@@ -396,7 +388,7 @@ function ActivateAccess({ user, onActivated }: { user: User; onActivated: (profi
 }
 
 function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: UserProfile) => void }) {
-  const developer = isDeveloperAccount(user);
+  const developer = true;
   const [academyName, setAcademyName] = useState(developer ? "Orquestra Fit - Ambiente de Testes" : "");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -436,11 +428,10 @@ function CreateAcademy({ user, onCreated }: { user: User; onCreated: (profile: U
       batch.set(userRef, {
         displayName: user.displayName ?? user.email ?? "Administrador",
         email: user.email ?? null,
-        accountType: developer ? "developer" : "academy_admin",
         activeAcademyId: academyRef.id,
         academyIds: [academyRef.id],
         createdAt: now,
-      });
+      }, { merge: true });
       await batch.commit();
       onCreated({ activeAcademyId: academyRef.id, accountType: developer ? "developer" : "academy_admin" });
     } catch {

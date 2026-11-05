@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { CollectionReference, FieldValue, getFirestore } from "firebase-admin/firestore";
+import { CollectionReference, FieldValue, getFirestore, type Transaction } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { defineSecret } from "firebase-functions/params";
@@ -98,6 +98,16 @@ async function activeMembership(academyId: string, uid: string) {
   return membership;
 }
 
+async function studentCanReserve(transaction: Transaction, academyId: string, uid: string) {
+  const [member, student] = await Promise.all([
+    transaction.get(firestore.doc(`academies/${academyId}/members/${uid}`)),
+    transaction.get(firestore.doc(`academies/${academyId}/students/${uid}`)),
+  ]);
+  return member.data()?.active === true && member.data()?.role === "student" &&
+    member.data()?.accessBlocked !== true && student.exists &&
+    student.data()?.active !== false && student.data()?.accessBlocked !== true;
+}
+
 async function canManageExerciseMedia(academyId: string, uid: string) {
   const [academySnapshot, membershipSnapshot] = await Promise.all([
     firestore.doc(`academies/${academyId}`).get(),
@@ -129,6 +139,7 @@ async function audit(academyId: string, actorId: string, type: string, targetUse
 }
 
 const auditLabels: Record<string, string> = {
+  login: "Acesso ao sistema",
   teacher_updated: "Cadastro de professor atualizado",
   teacher_access_updated: "Acesso do professor atualizado",
   student_anamnesis_updated: "Ficha de anamnese atualizada",
@@ -162,7 +173,7 @@ export const recordAuditEvent = onCall({ region }, async (request) => {
   ]);
   const developer = userSnapshot.data()?.accountType === "developer";
   const membership = membershipSnapshot.data();
-  if (!developer && (!membershipSnapshot.exists || membership?.active !== true || !["admin", "teacher"].includes(String(membership.role)))) {
+  if (!developer && (!membershipSnapshot.exists || membership?.active !== true || !(action === "login" ? ["admin", "teacher", "student"] : ["admin", "teacher"]).includes(String(membership.role)))) {
     throw new HttpsError("permission-denied", "Somente gestão e professores ativos podem registrar alterações.");
   }
 
@@ -741,6 +752,7 @@ export const changeOwnPassword = onCall({ region }, async (request) => {
 
 export const reserveClass = onCall({ region }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para reservar uma aula.");
+  if (request.auth.token.passwordChangeRequired) throw new HttpsError("permission-denied", "Atualize sua senha antes de reservar.");
   const data = request.data as ClassReservationPayload;
   const academyId = readString(data.academyId, "a academia");
   const classId = readString(data.classId, "a aula");
@@ -761,6 +773,7 @@ export const reserveClass = onCall({ region }, async (request) => {
   let reservedCount = 0;
 
   await firestore.runTransaction(async (transaction) => {
+    if (!await studentCanReserve(transaction, academyId, uid)) throw new HttpsError("permission-denied", "Seu acesso está bloqueado. Procure a administração da academia.");
     const classSnapshot = await transaction.get(classRef);
     if (!classSnapshot.exists) throw new HttpsError("not-found", "A aula não foi encontrada.");
     const classData = classSnapshot.data() ?? {};
@@ -812,15 +825,24 @@ export const cancelClassReservation = onCall({ region }, async (request) => {
     if (!classSnapshot.exists) throw new HttpsError("not-found", "A aula não foi encontrada.");
     const reservation = reservationSnapshot.docs[0];
     if (!reservation) return;
-    transaction.update(reservation.ref, { status: "canceled", canceledAt: FieldValue.serverTimestamp(), canceledBy: uid });
     const currentCount = Math.max(0, Number(classSnapshot.data()?.reservedCount ?? 1));
-    const nextWaitlist = waitlistSnapshot.docs
+    const orderedWaitlist = waitlistSnapshot.docs
       .map((item) => ({ ref: item.ref, data: item.data() as ClassWaitlistRecord }))
       .sort((a, b) => {
         const aTime = typeof a.data.joinedAt === "object" && a.data.joinedAt && "toMillis" in a.data.joinedAt ? (a.data.joinedAt as { toMillis: () => number }).toMillis() : Number.MAX_SAFE_INTEGER;
         const bTime = typeof b.data.joinedAt === "object" && b.data.joinedAt && "toMillis" in b.data.joinedAt ? (b.data.joinedAt as { toMillis: () => number }).toMillis() : Number.MAX_SAFE_INTEGER;
         return aTime - bTime;
-      })[0];
+      });
+    let nextWaitlist: (typeof orderedWaitlist)[number] | undefined;
+    if (classSnapshot.data()?.active !== false && classSnapshot.data()?.visibility !== "selected") {
+      for (const candidate of orderedWaitlist) {
+        if (await studentCanReserve(transaction, academyId, candidate.data.studentId)) {
+          nextWaitlist = candidate;
+          break;
+        }
+      }
+    }
+    transaction.update(reservation.ref, { status: "canceled", canceledAt: FieldValue.serverTimestamp(), canceledBy: uid });
     if (nextWaitlist) {
       const promotedReservation = reservationCollection.doc();
       transaction.create(promotedReservation, {
@@ -844,6 +866,7 @@ export const cancelClassReservation = onCall({ region }, async (request) => {
 
 export const joinClassWaitlist = onCall({ region }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para entrar na lista de espera.");
+  if (request.auth.token.passwordChangeRequired) throw new HttpsError("permission-denied", "Atualize sua senha antes de reservar.");
   const data = request.data as ClassReservationPayload;
   const academyId = readString(data.academyId, "a academia");
   const classId = readString(data.classId, "a aula");
@@ -859,6 +882,7 @@ export const joinClassWaitlist = onCall({ region }, async (request) => {
   let position = 0;
   let alreadyWaiting = false;
   await firestore.runTransaction(async (transaction) => {
+    if (!await studentCanReserve(transaction, academyId, uid)) throw new HttpsError("permission-denied", "Seu acesso está bloqueado. Procure a administração da academia.");
     const [classSnapshot, reservationSnapshot, waitlistSnapshot] = await Promise.all([transaction.get(classRef), transaction.get(reservationQuery), transaction.get(waitlistQuery)]);
     if (!classSnapshot.exists) throw new HttpsError("not-found", "A aula não foi encontrada.");
     const classData = classSnapshot.data() ?? {};

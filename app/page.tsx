@@ -6,7 +6,7 @@ import { matchesSearch } from "@/lib/search";
 import { CompanyFields, maskCompanyDocument, type CompanyFieldsValue } from "@/components/company-fields";
 import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword, updateProfile } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
-import { addDoc, collection, deleteDoc, doc, documentId, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, documentId, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
   Activity, ArrowLeft, ArrowRight, ArrowUp, Banknote, BarChart3, Bell, CalendarDays, Camera, Check, Footprints,
@@ -23,6 +23,7 @@ import { createSessionClock } from "@/lib/workouts/session-clock";
 import { nextPendingExercise } from "@/lib/workouts/session-navigation";
 import { exerciseMetricLabels, type ExerciseMetricSource } from "@/lib/workouts/exercise-metrics";
 import { verifiedFemaleGifUrls } from "@/lib/workouts/verified-female-gifs";
+import { AssessmentPhotoComparison, AssessmentPhotoInputs, deleteAssessmentPhotoFiles, uploadAssessmentPhotoFiles, type AssessmentPhotoFiles, type AssessmentPhotoPaths } from "@/components/assessments/assessment-photos";
 
 const ExerciseAnatomyView = dynamic(() => import("@/components/workouts/exercise-anatomy-view").then((module) => module.ExerciseAnatomyView), { ssr: false });
 const WorkoutSessionView = dynamic(() => import("@/components/workouts/workout-session-view").then((module) => module.WorkoutSessionView), { ssr: false });
@@ -811,7 +812,7 @@ export default function Home() {
   const [activeWorkout, setActiveWorkout] = useState<WorkoutRecord | null>(null);
   const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const canSwitchRole = access.accountType === "developer" || access.role === "admin";
+  const canSwitchRole = access.accountType === "developer";
 
   useEffect(() => {
     const guardId = `orquestra-fit-navigation-${Date.now()}`;
@@ -1720,7 +1721,7 @@ function Evolution() {
             const delta = assessmentDelta(metric.key);
             return <div className="comparison-row" key={metric.key}><div><strong>{metric.label}</strong><small>{current === null ? "Não informado" : `${current} ${metric.unit}`}</small></div><span className={delta === null ? "comparison-neutral" : delta > 0 ? "comparison-up" : delta < 0 ? "comparison-down" : "comparison-neutral"}>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${metric.unit}`}</span></div>;
           })}</div>
-          <div className="assessment-chart"><header><div><small>HISTÓRICO DE MEDIDA</small><strong>{selectedMetric.label}</strong></div><select value={selectedAssessmentMetric} onChange={(event) => setSelectedAssessmentMetric(event.target.value as typeof selectedAssessmentMetric)} aria-label="Métrica do gráfico de evolução">{comparisonMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}</select></header>{assessmentChartData.length < 2 ? <p>Registre pelo menos duas avaliações com esta medida para visualizar a tendência.</p> : <><div className="assessment-chart-stage"><svg viewBox="0 0 100 100" role="img" aria-label={`Evolução de ${selectedMetric.label}`} preserveAspectRatio="none"><line x1="0" y1="90" x2="100" y2="90" /><line x1="0" y1="54" x2="100" y2="54" /><line x1="0" y1="18" x2="100" y2="18" /><polyline points={chartPoints.map((point) => `${point.x},${point.y}`).join(" ")} /></svg>{chartPoints.map((point) => <span className="assessment-chart-point" key={point.id} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`${formatDate(point.date)}: ${point.value} ${selectedMetric.unit}`} />)}</div><div className="assessment-chart-axis">{chartPoints.map((point) => <span key={point.id}>{formatDate(point.date)}</span>)}</div><small className="assessment-chart-range">Menor registro: {chartMin} {selectedMetric.unit} · Maior registro: {chartMax} {selectedMetric.unit}</small></>}</div>
+          <AssessmentPhotoComparison firebaseStorage={storage} current={latestAssessment} previous={previousAssessment} audience="student" /><div className="assessment-chart"><header><div><small>HISTÓRICO DE MEDIDA</small><strong>{selectedMetric.label}</strong></div><select value={selectedAssessmentMetric} onChange={(event) => setSelectedAssessmentMetric(event.target.value as typeof selectedAssessmentMetric)} aria-label="Métrica do gráfico de evolução">{comparisonMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}</select></header>{assessmentChartData.length < 2 ? <p>Registre pelo menos duas avaliações com esta medida para visualizar a tendência.</p> : <><div className="assessment-chart-stage"><svg viewBox="0 0 100 100" role="img" aria-label={`Evolução de ${selectedMetric.label}`} preserveAspectRatio="none"><line x1="0" y1="90" x2="100" y2="90" /><line x1="0" y1="54" x2="100" y2="54" /><line x1="0" y1="18" x2="100" y2="18" /><polyline points={chartPoints.map((point) => `${point.x},${point.y}`).join(" ")} /></svg>{chartPoints.map((point) => <span className="assessment-chart-point" key={point.id} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`${formatDate(point.date)}: ${point.value} ${selectedMetric.unit}`} />)}</div><div className="assessment-chart-axis">{chartPoints.map((point) => <span key={point.id}>{formatDate(point.date)}</span>)}</div><small className="assessment-chart-range">Menor registro: {chartMin} {selectedMetric.unit} · Maior registro: {chartMax} {selectedMetric.unit}</small></>}</div>
         </>}
       </section>
       <section className="history-panel">
@@ -1938,6 +1939,7 @@ function PasswordUpdateForm() {
   const [confirmation, setConfirmation] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const hasPasswordAccess = access.user.providerData?.some((provider) => provider.providerId === "password") === true;
+  const socialProvider = access.user.providerData?.find((provider) => ["microsoft.com", "google.com", "facebook.com"].includes(provider.providerId))?.providerId;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1972,7 +1974,9 @@ function PasswordUpdateForm() {
   }
 
   if (!hasPasswordAccess) {
-    return <div className="password-access-note"><strong>Entrada pelo Google</strong><span>Esta conta usa Google para entrar e não possui uma senha separada no Orquestra Fit.</span></div>;
+    const providerDescription = socialProvider === "microsoft.com" ? "a Microsoft" : socialProvider === "google.com" ? "o Google" : socialProvider === "facebook.com" ? "o Facebook" : "um provedor externo";
+    const title = socialProvider === "microsoft.com" ? "Entrada pela Microsoft" : socialProvider === "google.com" ? "Entrada pelo Google" : socialProvider === "facebook.com" ? "Entrada pelo Facebook" : "Acesso sem senha local";
+    return <div className="password-access-note"><strong>{title}</strong><span>Esta conta usa {providerDescription} e não possui uma senha separada no Orquestra Fit.</span></div>;
   }
 
   return <form className="password-update-form" onSubmit={submit}>
@@ -2388,6 +2392,7 @@ type RegisteredStudent = {
   plan: string;
   planId?: string | null;
   planPrice?: number | null;
+  weeklyVisitLimit?: number | null;
   planInterval?: string | null;
   initialDueDate?: string | null;
   nextBillingDate?: string | null;
@@ -2632,9 +2637,9 @@ function StudentAcademyPanel() {
   return <div className="student-academy-detail"><strong>{academy.name}</strong>{academy.address && <span>{academy.address}</span>}{academy.phone && <span>{academy.phone}</span>}<div><small>Funcionamento</small><b>{academy.openingTime && academy.closingTime ? `${academy.openingTime} – ${academy.closingTime}` : "Horário ainda não informado"}</b><span>{days || "Dias ainda não informados"}</span></div></div>;
 }
 
-type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean; registrationFee?: number };
+type AcademyPlan = { id: string; name: string; price: number; interval: string; active: boolean; registrationFee?: number; weeklyVisitLimit?: number | null };
 type BillingStudent = { id: string; name: string; active: boolean; userId?: string | null; teacherId?: string | null; birthDate?: string | null };
-type BillingPlan = { id: string; name: string; price: number; interval?: string; active: boolean; registrationFee?: number };
+type BillingPlan = { id: string; name: string; price: number; interval?: string; active: boolean; registrationFee?: number; weeklyVisitLimit?: number | null };
 type PaymentMethod = "pix" | "cartao_credito" | "cartao_debito" | "maquininha" | "dinheiro" | "transferencia" | "boleto";
 type ChargeType = "monthly" | "registration" | "service";
 type MonthlyCharge = { id: string; studentId: string; studentName: string; planName: string; amount: number; dueDate: string; status: "pending" | "paid"; paymentMethod?: PaymentMethod; chargeType?: ChargeType; planId?: string | null; accessCodeId?: string | null; origin?: string };
@@ -2703,7 +2708,7 @@ type ClassRecord = { id: string; name: string; instructor: string; instructorId?
 type ClassReservation = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled"; source?: "staff" | "student" };
 type ClassWaitlistRecord = { id: string; classId: string; className?: string; studentId: string; studentName?: string; status: "active" | "canceled" | "promoted"; position?: number; joinedAt?: unknown };
 type AttendanceRecord = { id: string; classId: string; className: string; studentId: string; studentName: string; date: string; time: string; status?: "present" | "absent" };
-type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string };
+type AssessmentRecord = { id: string; studentId: string; studentName: string; date: string; weight: string; height: string; bodyFat: string; biceps?: string; waist?: string; chest?: string; thigh?: string; notes: string; photos?: AssessmentPhotoPaths; photoConsentConfirmed?: boolean; photoConsentAt?: unknown; photoConsentBy?: string };
 type AnamnesisRecord = { id: string; studentId: string; studentName: string; goal: string; healthConditions: string; medications: string; injuries: string; surgeries: string; medicalClearance: string; emergencyName: string; emergencyPhone: string; consent: boolean; updatedAt?: unknown; updatedBy?: string };
 type WorkoutExecution = { id: string; workoutId: string; workoutName: string; studentId: string; workoutRevision?: number; durationSeconds: number; completedSets: number; totalSets: number; sets: Array<{ exerciseName: string; setNumber: number; load: string; reps: string; metricMode?: ExerciseMetricMode }>; calories?: number; totalVolume?: number; maxLoad?: number; maxReps?: number; completedAt?: { toDate?: () => Date } | string | Date };
 type WorkoutFeedbackRecord = { id: string; workoutId: string; workoutName: string; studentId: string; rating: number; comment: string; createdAt?: unknown };
@@ -2845,6 +2850,8 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
   const [chest, setChest] = useState("");
   const [thigh, setThigh] = useState("");
   const [notes, setNotes] = useState("");
+  const [photoFiles, setPhotoFiles] = useState<AssessmentPhotoFiles>({});
+  const [photoConsentConfirmed, setPhotoConsentConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
   const [historyFrom, setHistoryFrom] = useState("");
@@ -2856,17 +2863,21 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
       setAssessments(readLocalCollection<AssessmentRecord>(access.academyId, "assessments").sort((a, b) => b.date.localeCompare(a.date)));
       return;
     }
-    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; birthDate?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", birthDate: data.birthDate ?? null, active: data.active !== false }; })));
+    const studentsRef = collection(db, "academies", access.academyId, "students");
+    const unsubscribeStudents = onSnapshot(studentsRef, (snapshot) => setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; birthDate?: string | null }; return { id: student.id, name: data.name ?? "Aluno sem nome", birthDate: data.birthDate ?? null, active: data.active !== false }; })));
     const unsubscribeAssessments = onSnapshot(collection(db, "academies", access.academyId, "assessments"), (snapshot) => setAssessments(snapshot.docs.map((item) => { const data = item.data() as Omit<AssessmentRecord, "id">; return { id: item.id, ...data }; }).sort((a, b) => b.date.localeCompare(a.date))));
     return () => { unsubscribeStudents(); unsubscribeAssessments(); };
-  }, [access.academyId]);
+  }, [access.academyId, access.role, access.userId]);
 
   async function createAssessment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!studentId || !date || !weight || !height) { onFeedback("Selecione o aluno e informe data, peso e altura."); return; }
     const student = students.find((item) => item.id === studentId);
     if (!student) { onFeedback("Aluno não encontrado."); return; }
+    const hasPhotos = Object.values(photoFiles).some(Boolean);
+    if (hasPhotos && !photoConsentConfirmed) { onFeedback("Confirme que o aluno autorizou o registro das fotos."); return; }
     if (!db) {
+      if (hasPhotos) { onFeedback("As fotos privadas precisam de uma conexão ativa com o Firebase. As medidas podem ser salvas sem fotos."); return; }
       const nextAssessment: AssessmentRecord = { id: `local-assessment-${Date.now()}`, studentId, studentName: student.name, date, weight, height, bodyFat, biceps, waist, chest, thigh, notes };
       const nextAssessments = [nextAssessment, ...assessments].sort((a, b) => b.date.localeCompare(a.date));
       setAssessments(nextAssessments);
@@ -2876,10 +2887,24 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
       return;
     }
     setSaving(true);
+    let uploadedPhotos: AssessmentPhotoPaths = {};
     try {
-      await addDoc(collection(db, "academies", access.academyId, "assessments"), { studentId, studentName: student.name, date, weight, height, bodyFat, biceps, waist, chest, thigh, notes, createdBy: access.userId, createdAt: serverTimestamp() });
-      setStudentId(""); setDate(""); setWeight(""); setHeight(""); setBodyFat(""); setBiceps(""); setWaist(""); setChest(""); setThigh(""); setNotes(""); onFeedback("Avaliação física registrada.");
-    } catch { onFeedback("Não foi possível registrar a avaliação."); }
+      const assessmentRef = doc(collection(db, "academies", access.academyId, "assessments"));
+      if (hasPhotos) {
+        if (!storage) throw new Error("assessment_photo_storage_unavailable");
+        uploadedPhotos = await uploadAssessmentPhotoFiles(storage, access.academyId, studentId, assessmentRef.id, photoFiles);
+      }
+      await setDoc(assessmentRef, {
+        studentId, studentName: student.name, date, weight, height, bodyFat, biceps, waist, chest, thigh, notes,
+        ...(hasPhotos ? { photos: uploadedPhotos, photoConsentConfirmed: true, photoConsentAt: serverTimestamp(), photoConsentBy: access.userId } : {}),
+        createdBy: access.userId, createdAt: serverTimestamp(),
+      });
+      setStudentId(""); setDate(""); setWeight(""); setHeight(""); setBodyFat(""); setBiceps(""); setWaist(""); setChest(""); setThigh(""); setNotes(""); setPhotoFiles({}); setPhotoConsentConfirmed(false);
+      onFeedback("Avaliação física registrada.");
+    } catch {
+      if (storage && Object.keys(uploadedPhotos).length) await deleteAssessmentPhotoFiles(storage, uploadedPhotos).catch(() => undefined);
+      onFeedback("Não foi possível registrar a avaliação. Confira a conexão e as permissões das fotos.");
+    }
     finally { setSaving(false); }
   }
 
@@ -2899,7 +2924,7 @@ function AssessmentsModule({ onFeedback, initialStudentId = "" }: { onFeedback: 
   return (
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>EVOLUÇÃO · GESTÃO</span><h2>Avaliações físicas</h2><p>{selectedStudentProfile ? `${selectedStudentProfile.name} · ${selectedStudentAge !== null ? `${selectedStudentAge} anos` : "data de nascimento não informada"}` : "Registre medidas básicas e acompanhe a evolução dos alunos."}</p></div></section>
-      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><AssessmentAnatomyReference /><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{visibleAssessments.length} de {assessments.length} avaliações</h3></div></header><label className="assessment-filter">Ver evolução de<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Todos os alunos</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><div className="finance-account-filters"><input type="search" aria-label="Buscar avaliações" placeholder="Aluno, data ou medida" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><label>De<input type="date" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} /></label><label>Até<input type="date" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} /></label></div><div className="assessment-list">{visibleAssessments.length === 0 ? <div className="directory-empty"><Activity /><p>{assessments.length === 0 ? "Nenhuma avaliação registrada ainda." : "Nenhuma avaliação encontrada para esses filtros."}</p></div> : visibleAssessments.map((item) => <button className="assessment-row assessment-row-button" key={item.id} onClick={() => setSelectedStudentId(item.studentId)}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></button>)}</div>{selectedLatest && <div className="staff-assessment-detail"><span>COMPARAÇÃO DO ALUNO</span><strong>{selectedLatest.studentName}</strong><small>{selectedPrevious ? `${formatDate(selectedPrevious.date)} → ${formatDate(selectedLatest.date)}` : "Primeira avaliação registrada"}</small><div className="staff-measure-grid">{([ ["Peso", "weight", "kg"], ["Gordura", "bodyFat", "%"], ["Bíceps", "biceps", "cm"], ["Cintura", "waist", "cm"] ] as const).map(([label, key, unit]) => { const value = selectedLatest[key] ? `${selectedLatest[key]} ${unit}` : "Não informado"; const delta = selectedDelta(key); return <div key={key}><small>{label}</small><strong>{value}</strong><span>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${unit}`}</span></div>; })}</div></div>}</article></section>
+      <section className="assessment-layout"><article className="workspace-panel plan-form-panel"><header><div><span>NOVA AVALIAÇÃO</span><h3>Registrar medidas</h3></div></header><form className="student-detail-form" onSubmit={createAssessment}><label>Aluno<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setPhotoFiles({}); setPhotoConsentConfirmed(false); }} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><label>Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label><div className="measurement-grid"><label>Peso (kg)<input value={weight} onChange={(event) => setWeight(event.target.value)} inputMode="decimal" placeholder="72,5" required /></label><label>Altura (cm)<input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="numeric" placeholder="175" required /></label><label>Gordura (%)<input value={bodyFat} onChange={(event) => setBodyFat(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Bíceps (cm)<input value={biceps} onChange={(event) => setBiceps(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Cintura (cm)<input value={waist} onChange={(event) => setWaist(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Peito (cm)<input value={chest} onChange={(event) => setChest(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label><label>Coxa (cm)<input value={thigh} onChange={(event) => setThigh(event.target.value)} inputMode="decimal" placeholder="Opcional" /></label></div><AssessmentAnatomyReference /><AssessmentPhotoInputs files={photoFiles} onChange={setPhotoFiles} consentConfirmed={photoConsentConfirmed} onConsentChange={setPhotoConsentConfirmed} disabled={saving} /><label>Observações<textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observações do professor" /></label><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar avaliação"}</button></form></article><article className="workspace-panel plans-list-panel"><header><div><span>HISTÓRICO</span><h3>{visibleAssessments.length} de {assessments.length} avaliações</h3></div></header><label className="assessment-filter">Ver evolução de<select value={selectedStudentId} onChange={(event) => setSelectedStudentId(event.target.value)}><option value="">Todos os alunos</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label><div className="finance-account-filters"><input type="search" aria-label="Buscar avaliações" placeholder="Aluno, data ou medida" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /><label>De<input type="date" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} /></label><label>Até<input type="date" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} /></label></div><div className="assessment-list">{visibleAssessments.length === 0 ? <div className="directory-empty"><Activity /><p>{assessments.length === 0 ? "Nenhuma avaliação registrada ainda." : "Nenhuma avaliação encontrada para esses filtros."}</p></div> : visibleAssessments.map((item) => <button className="assessment-row assessment-row-button" key={item.id} onClick={() => setSelectedStudentId(item.studentId)}><div><strong>{item.studentName}</strong><small>{item.date} · {item.weight} kg · {item.height} cm{item.biceps ? ` · Bíceps ${item.biceps} cm` : ""}</small></div><span>{item.bodyFat ? `${item.bodyFat}% gordura` : "Medidas básicas"}</span></button>)}</div>{selectedLatest && <div className="staff-assessment-detail"><span>COMPARAÇÃO DO ALUNO</span><strong>{selectedLatest.studentName}</strong><small>{selectedPrevious ? `${formatDate(selectedPrevious.date)} → ${formatDate(selectedLatest.date)}` : "Primeira avaliação registrada"}</small><div className="staff-measure-grid">{([ ["Peso", "weight", "kg"], ["Gordura", "bodyFat", "%"], ["Bíceps", "biceps", "cm"], ["Cintura", "waist", "cm"] ] as const).map(([label, key, unit]) => { const value = selectedLatest[key] ? `${selectedLatest[key]} ${unit}` : "Não informado"; const delta = selectedDelta(key); return <div key={key}><small>{label}</small><strong>{value}</strong><span>{delta === null ? "Sem comparação" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)} ${unit}`}</span></div>; })}</div><AssessmentPhotoComparison firebaseStorage={storage} current={selectedLatest} previous={selectedPrevious} audience="staff" /></div>}</article></section>
     </div>
   );
 }
@@ -2929,7 +2954,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
     if (!db) {
       setClasses(readLocalCollection<ClassRecord>(access.academyId, "classes"));
       const localStudents = readLocalCollection<RegisteredStudent>(access.academyId, "students").filter((student) => student.active !== false);
-      setStudents(access.role === "teacher" ? localStudents.filter((student) => !student.teacherId || student.teacherId === access.userId) : localStudents);
+      setStudents(localStudents);
       const localReservations = readLocalCollection<ClassReservation>(access.academyId, "reservations");
       setReservations(localReservations);
       return;
@@ -2955,8 +2980,7 @@ function ClassesModule({ onFeedback }: { onFeedback: (message: string) => void }
   useEffect(() => {
     if (!db) return;
     const studentsRef = collection(db, "academies", access.academyId, "students");
-    const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
-    return onSnapshot(studentsQuery, (snapshot) => setStudents(snapshot.docs.map((item) => {
+    return onSnapshot(studentsRef, (snapshot) => setStudents(snapshot.docs.map((item) => {
       const data = item.data() as Partial<RegisteredStudent> & { authUid?: string | null };
       return { id: item.id, userId: data.userId ?? data.authUid ?? item.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" as const : "masculino" as const, active: data.active !== false };
     }).filter((student) => student.active !== false)), (error) => console.error("Não foi possível carregar alunos para a agenda.", error));
@@ -3599,8 +3623,7 @@ function TrainingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (me
     }
     const academy = ["academies", access.academyId];
     const studentsRef = collection(db, "academies", access.academyId, "students");
-    const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
-    const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
+    const unsubscribeStudents = onSnapshot(studentsRef, (snapshot) => {
       setStudents(snapshot.docs.map((student) => { const data = student.data() as { name?: string; active?: boolean; userId?: string | null; authUid?: string | null; uid?: string | null; teacherId?: string | null }; return { id: student.id, userId: data.userId ?? data.authUid ?? data.uid ?? student.id, name: data.name ?? "Aluno sem nome", active: data.active !== false, teacherId: data.teacherId ?? null }; }));
     });
     const unsubscribeExercises = onSnapshot(collection(db, "academies", access.academyId, "exercises"), (snapshot) => {
@@ -4179,6 +4202,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
   const [planPrice, setPlanPrice] = useState("");
   const [planRegistrationFee, setPlanRegistrationFee] = useState("");
   const [planInterval, setPlanInterval] = useState("Mensal");
+  const [planWeeklyVisitLimit, setPlanWeeklyVisitLimit] = useState("");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | ChargeViewStatus>("all");
   const [chargeSearch, setChargeSearch] = useState("");
@@ -4204,8 +4228,8 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     });
     const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setPlans(snapshot.docs.map((plan) => {
-        const data = plan.data() as { name?: string; price?: number; interval?: string; active?: boolean; registrationFee?: number };
-        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", registrationFee: Number(data.registrationFee ?? 0), active: data.active !== false };
+        const data = plan.data() as { name?: string; price?: number; interval?: string; active?: boolean; registrationFee?: number; weeklyVisitLimit?: number | null };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", registrationFee: Number(data.registrationFee ?? 0), weeklyVisitLimit: Number.isInteger(data.weeklyVisitLimit) ? data.weeklyVisitLimit : null, active: data.active !== false };
       }));
     });
     const unsubscribeCharges = onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
@@ -4245,12 +4269,15 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
 
   async function createPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const weeklyLimit = planWeeklyVisitLimit.trim() ? Number(planWeeklyVisitLimit) : null;
     if (!planName.trim() || !planPrice) { onFeedback("Informe o nome e o valor do plano."); return; }
+    if (weeklyLimit !== null && (!Number.isInteger(weeklyLimit) || weeklyLimit < 1 || weeklyLimit > 7)) { onFeedback("O limite semanal deve ser um número inteiro entre 1 e 7 dias."); return; }
     const planValues = {
       name: capitalizeName(planName.trim()),
       price: parseCurrency(planPrice),
       registrationFee: parseCurrency(planRegistrationFee),
       interval: planInterval,
+      weeklyVisitLimit: weeklyLimit,
     };
     if (!db) {
       const nextPlans = editingPlanId
@@ -4258,7 +4285,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
         : [...plans, { id: `local-plan-${Date.now()}`, ...planValues, active: true }];
       setPlans(nextPlans);
       writeLocalCollection(access.academyId, "plans", nextPlans);
-      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setEditingPlanId(null);
+      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setPlanWeeklyVisitLimit(""); setEditingPlanId(null);
       onFeedback(editingPlanId ? "Plano atualizado no modo local." : "Plano cadastrado no modo local.");
       return;
     }
@@ -4269,7 +4296,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
       } else {
         await addDoc(collection(db, "academies", access.academyId, "plans"), { ...planValues, active: true, createdBy: access.userId, createdAt: serverTimestamp() });
       }
-      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setEditingPlanId(null);
+      setPlanName(""); setPlanPrice(""); setPlanRegistrationFee(""); setPlanInterval("Mensal"); setPlanWeeklyVisitLimit(""); setEditingPlanId(null);
       onFeedback(editingPlanId ? "Plano atualizado com sucesso." : "Plano cadastrado com sucesso.");
     } catch { onFeedback("Não foi possível cadastrar o plano."); }
     finally { setSaving(false); }
@@ -4281,6 +4308,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     setPlanPrice(maskCurrency(String(Math.round(plan.price * 100))));
     setPlanRegistrationFee(maskCurrency(String(Math.round((plan.registrationFee ?? 0) * 100))));
     setPlanInterval(plan.interval ?? "Mensal");
+    setPlanWeeklyVisitLimit(plan.weeklyVisitLimit == null ? "" : String(plan.weeklyVisitLimit));
   }
 
   function clearPlanForm() {
@@ -4289,6 +4317,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     setPlanPrice("");
     setPlanRegistrationFee("");
     setPlanInterval("Mensal");
+    setPlanWeeklyVisitLimit("");
   }
 
   async function confirmPayment() {
@@ -4349,7 +4378,7 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     return summary;
   }, { total: 0, received: 0, overdue: 0, open: 0 });
   const visibleCharges = chargeRows.filter((charge) => (filter === "all" || charge.viewStatus === filter) && matchesSearch(chargeSearch, charge.studentName, charge.planName, charge.dueDate, charge.amount, chargeStatusLabel(charge.viewStatus)));
-  const visiblePlans = plans.filter((plan) => matchesSearch(planSearch, plan.name, plan.interval, plan.price, plan.registrationFee) && (planStatus === "Todos" || (planStatus === "Ativos" ? plan.active : !plan.active)));
+  const visiblePlans = plans.filter((plan) => matchesSearch(planSearch, plan.name, plan.interval, plan.price, plan.registrationFee, plan.weeklyVisitLimit) && (planStatus === "Todos" || (planStatus === "Ativos" ? plan.active : !plan.active)));
   const upcomingCount = chargeRows.filter((charge) => charge.viewStatus === "dueSoon").length;
   const moneyLabel = (amount: number) => amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -4357,10 +4386,10 @@ function BillingModule({ onFeedback, initialStudentId = "" }: { onFeedback: (mes
     <div className="workspace-content module-view">
       <section className="workspace-intro"><div><span>RECEITA · GESTÃO</span><h2>Planos e mensalidades</h2><p>Gere cobranças vinculadas aos alunos e acompanhe os recebimentos.</p></div></section>
       <section className="billing-layout">
-        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>{editingPlanId ? "EDITAR PLANO" : "NOVO PLANO"}</span><h3>{editingPlanId ? "Atualizar plano" : "Cadastrar plano"}</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Mensalidade<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Taxa de inscrição <small>Valor único cobrado uma vez no cadastro do aluno.</small><input value={planRegistrationFee} onChange={(event) => setPlanRegistrationFee(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00 · opcional" /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingPlanId ? "Salvar plano" : "Cadastrar plano"}</button>{editingPlanId && <button className="secondary-action" type="button" onClick={clearPlanForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}{(plan.registrationFee ?? 0) > 0 ? ` · inscrição única R$ ${plan.registrationFee!.toFixed(2).replace(".", ",")}` : ""}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
+        <div className="billing-form-stack"><article className="workspace-panel plan-form-panel"><header><div><span>{editingPlanId ? "EDITAR PLANO" : "NOVO PLANO"}</span><h3>{editingPlanId ? "Atualizar plano" : "Cadastrar plano"}</h3></div></header><form className="student-detail-form" onSubmit={createPlan}><label>Nome do plano<input value={planName} onChange={(event) => setPlanName(capitalizeName(event.target.value))} placeholder="Ex.: Plano mensal" required /></label><label>Mensalidade<input value={planPrice} onChange={(event) => setPlanPrice(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label><label>Taxa de inscrição <small>Valor único cobrado uma vez no cadastro do aluno.</small><input value={planRegistrationFee} onChange={(event) => setPlanRegistrationFee(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00 · opcional" /></label><label>Periodicidade<select value={planInterval} onChange={(event) => setPlanInterval(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></label><label>Dias permitidos por semana <small>Opcional. Regra de acesso futuro; não altera a presença em aulas.</small><input type="number" min={1} max={7} step={1} inputMode="numeric" value={planWeeklyVisitLimit} onChange={(event) => setPlanWeeklyVisitLimit(event.target.value)} placeholder="Sem limite" /></label><div className="form-actions"><button className="detail-save" type="submit" disabled={saving}>{saving ? "Salvando..." : editingPlanId ? "Salvar plano" : "Cadastrar plano"}</button>{editingPlanId && <button className="secondary-action" type="button" onClick={clearPlanForm}>Cancelar</button>}</div></form></article><article className="workspace-panel plan-form-panel"><header><div><span>NOVA COBRANÇA</span><h3>Gerar cobrança</h3></div></header><form className="student-detail-form" onSubmit={createCharge}><label>Tipo<select value={chargeType} onChange={(event) => setChargeType(event.target.value as ChargeType)}><option value="monthly">Mensalidade</option><option value="registration">Taxa de inscrição</option><option value="service">Serviço avulso</option></select></label><label>Aluno<select value={studentId} onChange={(event) => setStudentId(event.target.value)} required><option value="">Selecione um aluno</option>{students.filter((student) => student.active).map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{chargeType === "monthly" ? <label>Plano<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{plans.filter((plan) => plan.active).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · R$ {plan.price.toFixed(2).replace(".", ",")}{(plan.registrationFee ?? 0) > 0 ? ` · inscrição única R$ ${plan.registrationFee!.toFixed(2).replace(".", ",")}` : ""}</option>)}</select></label> : <><label>Descrição<input value={chargeDescription} onChange={(event) => setChargeDescription(capitalizeName(event.target.value))} placeholder={chargeType === "registration" ? "Taxa de inscrição" : "Ex.: Avaliação física"} /></label><label>Valor<input value={chargeAmount} onChange={(event) => setChargeAmount(maskCurrency(event.target.value))} inputMode="decimal" placeholder="R$ 0,00" required /></label></>}<label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><button className="detail-save" type="submit" disabled={saving || students.length === 0 || (chargeType === "monthly" && plans.length === 0)}>{saving ? "Gerando..." : "Gerar cobrança"}</button></form></article></div>
         <article className="workspace-panel billing-overview"><header><div><span>LEITURA DO MÊS</span><h3>Resumo financeiro</h3></div><small>{upcomingCount ? `${upcomingCount} vencendo em até 7 dias` : "Nenhum vencimento próximo"}</small></header><div className="billing-automation-note"><Check size={14} /> Cobranças recorrentes geradas automaticamente todos os dias</div><div className="billing-summary-grid"><div><small>Previsto</small><strong>R$ {totals.total.toFixed(2).replace(".", ",")}</strong></div><div className="received"><small>Recebido</small><strong>R$ {totals.received.toFixed(2).replace(".", ",")}</strong></div><div className="overdue"><small>Vencido</small><strong>R$ {totals.overdue.toFixed(2).replace(".", ",")}</strong></div></div><div className="billing-progress"><span style={{ width: `${totals.total ? Math.min(100, (totals.received / totals.total) * 100) : 0}%` }} /></div><div className="billing-progress-label"><span>{totals.total ? Math.round((totals.received / totals.total) * 100) : 0}% recebido</span><span>Em aberto: R$ {totals.open.toFixed(2).replace(".", ",")}</span></div></article>
       </section>
-      <section className="workspace-panel plans-list-panel billing-plans-panel"><header><div><span>PLANOS CADASTRADOS</span><h3>{visiblePlans.length} de {plans.length} planos</h3></div></header><div className="finance-account-filters"><input type="search" aria-label="Buscar planos" placeholder="Nome, periodicidade ou valor" value={planSearch} onChange={(event) => setPlanSearch(event.target.value)} /><select aria-label="Filtrar situação dos planos" value={planStatus} onChange={(event) => setPlanStatus(event.target.value)}><option>Todos</option><option>Ativos</option><option>Inativos</option></select></div><div className="plans-list">{visiblePlans.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhum plano cadastrado ainda.</p></div> : visiblePlans.map((plan) => { const interval = plan.interval ?? "Mensal"; return <div className="plan-row" key={plan.id}><div><strong>{plan.name}</strong><small>{interval} · {plan.active ? "Disponível" : "Desativado"}{(plan.registrationFee ?? 0) > 0 ? ` · Inscrição única ${moneyLabel(plan.registrationFee ?? 0)}` : " · Sem taxa de inscrição"}</small></div><b>{moneyLabel(plan.price)} / {interval.toLowerCase()}</b><div className="row-actions"><button type="button" className="plan-edit" onClick={() => editPlan(plan)}>Editar</button><button type="button" className={plan.active ? "plan-disable" : "plan-enable"} onClick={() => void toggleBillingPlan(plan)}>{plan.active ? "Desativar" : "Ativar"}</button></div></div>; })}</div></section>
+      <section className="workspace-panel plans-list-panel billing-plans-panel"><header><div><span>PLANOS CADASTRADOS</span><h3>{visiblePlans.length} de {plans.length} planos</h3></div></header><div className="finance-account-filters"><input type="search" aria-label="Buscar planos" placeholder="Nome, periodicidade ou valor" value={planSearch} onChange={(event) => setPlanSearch(event.target.value)} /><select aria-label="Filtrar situação dos planos" value={planStatus} onChange={(event) => setPlanStatus(event.target.value)}><option>Todos</option><option>Ativos</option><option>Inativos</option></select></div><div className="plans-list">{visiblePlans.length === 0 ? <div className="directory-empty"><WalletCards /><p>Nenhum plano cadastrado ainda.</p></div> : visiblePlans.map((plan) => { const interval = plan.interval ?? "Mensal"; return <div className="plan-row" key={plan.id}><div><strong>{plan.name}</strong><small>{interval} · {plan.active ? "Disponível" : "Desativado"} · {plan.weeklyVisitLimit ? "Até " + plan.weeklyVisitLimit + " dias de acesso/semana" : "Sem limite semanal"}{(plan.registrationFee ?? 0) > 0 ? ` · Inscrição única ${moneyLabel(plan.registrationFee ?? 0)}` : " · Sem taxa de inscrição"}</small></div><b>{moneyLabel(plan.price)} / {interval.toLowerCase()}</b><div className="row-actions"><button type="button" className="plan-edit" onClick={() => editPlan(plan)}>Editar</button><button type="button" className={plan.active ? "plan-disable" : "plan-enable"} onClick={() => void toggleBillingPlan(plan)}>{plan.active ? "Desativar" : "Ativar"}</button></div></div>; })}</div></section>
       <section className="workspace-panel charges-panel"><header><div><span>ACOMPANHAMENTO</span><h3>{charges.length} {charges.length === 1 ? "lançamento" : "lançamentos"}</h3></div><div className="charge-filters" role="tablist" aria-label="Filtrar lançamentos">{([["all", "Todas"], ["dueSoon", "Próximas"], ["overdue", "Vencidas"], ["paid", "Pagas"]] as const).map(([value, label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div></header><div className="workspace-search"><Search /><input type="search" aria-label="Buscar cobranças" placeholder="Aluno, plano, vencimento ou valor" value={chargeSearch} onChange={(event) => setChargeSearch(event.target.value)} /></div><div className="charges-list">{visibleCharges.length === 0 ? <div className="directory-empty"><WalletCards /><p>{charges.length === 0 ? "Nenhum lançamento gerado ainda." : "Nenhum lançamento neste filtro."}</p></div> : visibleCharges.map((charge) => <div className="charge-row" key={charge.id}><div className="charge-main"><strong>{charge.studentName}</strong><small>{charge.planName} · Vencimento {formatDate(charge.dueDate)}{charge.paymentMethod ? ` · ${paymentMethodLabel(charge.paymentMethod)}` : ""}</small></div><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><span className={`charge-status ${charge.viewStatus}`}>{chargeStatusLabel(charge.viewStatus)}</span><button className="charge-action" onClick={() => charge.status === "paid" ? toggleCharge(charge) : setPaymentCharge(charge)}>{charge.status === "paid" ? "Desfazer baixa" : "Dar baixa"}</button></div>)}</div></section>
       {paymentCharge && <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="payment-title"><section className="payment-modal"><header><div><span>BAIXA MANUAL</span><h2 id="payment-title">Registrar pagamento</h2><p>{paymentCharge.studentName} · R$ {paymentCharge.amount.toFixed(2).replace(".", ",")}</p></div><button aria-label="Fechar registro de pagamento" onClick={() => setPaymentCharge(null)}><X /></button></header><div className="payment-method-grid">{([['pix', 'Pix'], ['cartao_credito', 'Cartão de crédito'], ['cartao_debito', 'Cartão de débito'], ['dinheiro', 'Dinheiro'], ['transferencia', 'Transferência'], ['boleto', 'Boleto']] as const).map(([value, label]) => <button key={value} className={paymentMethod === value ? "active" : ""} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><div className="payment-modal-actions"><button className="modal-secondary" onClick={() => setPaymentCharge(null)}>Cancelar</button><button className="detail-save" onClick={confirmPayment} disabled={savingPayment}>{savingPayment ? "Salvando..." : "Confirmar pagamento"}</button></div></section></div>}
     </div>
@@ -4556,7 +4585,7 @@ function TeachersModule({ onFeedback }: { onFeedback: (message: string) => void 
             <header><div><span>PERFIL DO PROFESSOR</span><h3>{selectedTeacher.name}</h3><p className="student-profile-subtitle">{selectedTeacher.specialty || "Especialidade não informada"}</p></div><span className={selectedTeacher.active === false ? "detail-status inactive" : "detail-status"}>{selectedTeacher.active === false ? "Suspenso" : "Ativo"}</span></header>
             <form className="student-detail-form" onSubmit={saveTeacher}>
               <label>Nome completo<input value={editName} onChange={(event) => setEditName(capitalizeName(event.target.value))} required /></label>
-              <label>E-mail Google<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
+              <label>E-mail de acesso<input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
               <label>Telefone<input value={editPhone} onChange={(event) => setEditPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label>
               <label>CPF<input value={editCpf} onChange={(event) => setEditCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label>
               <label>Data de nascimento<input type="date" value={editBirthDate} onChange={(event) => setEditBirthDate(event.target.value)} max={todayIso()} /></label>
@@ -4832,11 +4861,10 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       return () => window.removeEventListener("orquestra-fit:collection-updated", syncLocalDirectory);
     }
     const studentsRef = collection(db, "academies", access.academyId, "students");
-    const studentsQuery = access.role === "teacher" ? query(studentsRef, where("teacherId", "==", access.userId)) : studentsRef;
-    const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
+    const unsubscribeStudents = onSnapshot(studentsRef, (snapshot) => {
       setStudents(snapshot.docs.map((student) => {
-        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; planPrice?: number | null; planInterval?: string | null; initialDueDate?: string | null; nextBillingDate?: string | null; accessBlocked?: boolean; accessOverrideChargeIds?: string[]; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; approvedRank?: StudentRank; rankApprovedAt?: unknown; rankApprovedBy?: string | null; active?: boolean };
-        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, planPrice: data.planPrice ?? null, planInterval: data.planInterval ?? null, initialDueDate: data.initialDueDate ?? null, nextBillingDate: data.nextBillingDate ?? null, accessBlocked: data.accessBlocked === true, accessOverrideChargeIds: Array.isArray(data.accessOverrideChargeIds) ? data.accessOverrideChargeIds : [], joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", approvedRank: normalizeStudentRank(data.approvedRank), rankApprovedAt: data.rankApprovedAt, rankApprovedBy: data.rankApprovedBy ?? null, active: data.active !== false };
+        const data = student.data() as { name?: string; userId?: string | null; authUid?: string | null; email?: string | null; phone?: string | null; cpf?: string | null; birthDate?: string | null; plan?: string; planId?: string | null; planPrice?: number | null; weeklyVisitLimit?: number | null; planInterval?: string | null; initialDueDate?: string | null; nextBillingDate?: string | null; accessBlocked?: boolean; accessOverrideChargeIds?: string[]; joinedAt?: string | null; planStartedAt?: string | null; teacherId?: string | null; anatomyProfile?: "masculino" | "feminino"; approvedRank?: StudentRank; rankApprovedAt?: unknown; rankApprovedBy?: string | null; active?: boolean };
+        return { id: student.id, userId: data.userId ?? data.authUid ?? student.id, name: data.name ?? "Aluno sem nome", email: data.email ?? null, phone: data.phone ?? null, cpf: data.cpf ?? null, birthDate: data.birthDate ?? null, plan: data.plan ?? "Sem plano", planId: data.planId ?? null, planPrice: data.planPrice ?? null, weeklyVisitLimit: typeof data.weeklyVisitLimit === "number" && Number.isInteger(data.weeklyVisitLimit) ? data.weeklyVisitLimit : null, planInterval: data.planInterval ?? null, initialDueDate: data.initialDueDate ?? null, nextBillingDate: data.nextBillingDate ?? null, accessBlocked: data.accessBlocked === true, accessOverrideChargeIds: Array.isArray(data.accessOverrideChargeIds) ? data.accessOverrideChargeIds : [], joinedAt: data.joinedAt ?? null, planStartedAt: data.planStartedAt ?? null, teacherId: data.teacherId ?? null, anatomyProfile: data.anatomyProfile === "feminino" ? "feminino" : "masculino", approvedRank: normalizeStudentRank(data.approvedRank), rankApprovedAt: data.rankApprovedAt, rankApprovedBy: data.rankApprovedBy ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os alunos.", error));
     const unsubscribeCharges = access.role === "admin" ? onSnapshot(collection(db, "academies", access.academyId, "monthlyCharges"), (snapshot) => {
@@ -4863,8 +4891,8 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     }, (error) => console.error("Não foi possível carregar os professores.", error));
     const unsubscribePlans = onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setPlans(snapshot.docs.map((plan) => {
-        const data = plan.data() as { name?: string; price?: number; active?: boolean; registrationFee?: number };
-        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), registrationFee: Number(data.registrationFee ?? 0), active: data.active !== false };
+        const data = plan.data() as { name?: string; price?: number; interval?: string; active?: boolean; registrationFee?: number; weeklyVisitLimit?: number | null };
+        return { id: plan.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), interval: data.interval ?? "Mensal", registrationFee: Number(data.registrationFee ?? 0), weeklyVisitLimit: data.weeklyVisitLimit ?? null, active: data.active !== false };
       }));
     }, (error) => console.error("Não foi possível carregar os planos.", error));
     return () => { unsubscribeStudents(); unsubscribeMembers(); unsubscribeTeachers(); unsubscribePlans(); unsubscribeCharges(); unsubscribeWorkouts(); unsubscribeAttendance(); unsubscribeExecutions(); };
@@ -4908,6 +4936,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       (accessFilter === "Todos" || accessStatus === accessFilter);
   });
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
+  const canAccessStudentMessages = access.role === "admin" || (access.role === "teacher" && selectedStudent?.teacherId === access.userId);
   const selectedStudentRank = normalizeStudentRank(selectedStudent?.approvedRank);
   const selectedStudentRankIndex = studentRankOrder.indexOf(selectedStudentRank);
   const nextStudentRank = studentRankOrder[selectedStudentRankIndex + 1];
@@ -4942,7 +4971,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
       setStudentExecutions([]);
       setStudentAttendance(readLocalCollection<AttendanceRecord>(access.academyId, "attendance").filter((item) => item.studentId === selectedId));
       setStudentFeedback(readLocalCollection<WorkoutFeedbackRecord>(access.academyId, "workoutFeedback").filter((item) => item.studentId === selectedId).sort((a, b) => (workoutExecutionTime(a.createdAt as WorkoutExecution["completedAt"]) - workoutExecutionTime(b.createdAt as WorkoutExecution["completedAt"]))).reverse());
-      setStudentMessages(readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId));
+      setStudentMessages(canAccessStudentMessages ? readLocalCollection<InternalMessage>(access.academyId, "messages").filter((item) => item.studentId === selectedId) : []);
       return;
     }
     const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("studentId", "==", selectedId)), (snapshot) => {
@@ -4963,11 +4992,11 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     const unsubscribeFeedback = onSnapshot(query(collection(db, "academies", access.academyId, "workoutFeedback"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentFeedback(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<WorkoutFeedbackRecord, "id">) })).sort((a, b) => workoutExecutionTime(b.createdAt as WorkoutExecution["completedAt"]) - workoutExecutionTime(a.createdAt as WorkoutExecution["completedAt"])));
     });
-    const unsubscribeMessages = onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
+    const unsubscribeMessages = canAccessStudentMessages ? onSnapshot(query(collection(db, "academies", access.academyId, "messages"), where("studentId", "==", selectedId)), (snapshot) => {
       setStudentMessages(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<InternalMessage, "id">) })).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)));
-    });
+    }) : () => setStudentMessages([]);
     return () => { unsubscribeWorkouts(); unsubscribeAssessments(); unsubscribeCharges(); unsubscribeExecutions(); unsubscribeAttendance(); unsubscribeFeedback(); unsubscribeMessages(); };
-  }, [access.academyId, access.role, selectedId]);
+  }, [access.academyId, access.role, access.userId, canAccessStudentMessages, selectedId]);
 
   useEffect(() => {
     if (db || !selectedId) return;
@@ -4987,8 +5016,15 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
     if (!selectedStudent || !editName.trim()) { onFeedback("Informe o nome completo do aluno."); return; }
     if (editName.trim().length < 2) { onFeedback("Informe o nome completo do aluno."); return; }
     if (!validEmail(editEmail.trim())) { onFeedback("Informe um e-mail válido ou deixe o campo vazio."); return; }
+    const selectedBillingPlan = plans.find((plan) => plan.name === editPlan) ?? null;
+    const planChanges = editPlan !== selectedStudent.plan ? {
+      planId: selectedBillingPlan?.id ?? null,
+      planPrice: selectedBillingPlan?.price ?? null,
+      planInterval: selectedBillingPlan?.interval ?? null,
+      weeklyVisitLimit: selectedBillingPlan?.weeklyVisitLimit ?? null,
+    } : {};
     if (!db) {
-      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, birthDate: editBirthDate || null, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : student);
+      const nextStudents = students.map((student) => student.id === selectedStudent.id ? { ...student, name: capitalizeName(editName.trim()), email: editEmail.trim() || null, phone: editPhone.trim() || null, cpf: editCpf.trim() || null, birthDate: editBirthDate || null, plan: editPlan, ...planChanges, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : student);
       setStudents(nextStudents);
       writeLocalCollection(access.academyId, "students", nextStudents);
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_updated", label: "Cadastro de aluno atualizado", details: selectedStudent.name });
@@ -5004,7 +5040,7 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
         cpf: editCpf.trim() || null,
         birthDate: editBirthDate || null,
       };
-      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), access.role === "admin" ? { ...personalData, plan: editPlan, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : personalData);
+      await updateDoc(doc(db, "academies", access.academyId, "students", selectedStudent.id), access.role === "admin" ? { ...personalData, plan: editPlan, ...planChanges, teacherId: editTeacherId || null, anatomyProfile: editAnatomyProfile } : personalData);
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "student_updated", label: "Cadastro de aluno atualizado", details: selectedStudent.name });
       onFeedback("Dados do aluno atualizados.");
     } catch {
@@ -5057,10 +5093,6 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
 
   async function approveNextStudentRank() {
     if (!selectedStudent || !nextStudentRank || !["admin", "teacher"].includes(access.role)) return;
-    if (access.role === "teacher" && selectedStudent.teacherId !== access.userId) {
-      onFeedback("Este aluno não está vinculado ao seu perfil de professor.");
-      return;
-    }
     if (!window.confirm(`Confirmar a promoção de ${selectedStudent.name} de ${selectedStudentRank} para ${nextStudentRank}?`)) return;
     setApprovingRank(true);
     const approvedAt = new Date().toISOString();
@@ -5186,13 +5218,13 @@ function StudentsModule({ onNewStudent, onFeedback, onNavigate, initialSearch = 
             <header><div><span>PERFIL DO ALUNO</span><h3>{selectedStudent.name}</h3><p className="student-profile-subtitle">{selectedStudent.email || "E-mail ainda não informado"}</p></div><span className={selectedStudent.active === false || selectedStudent.accessBlocked ? "detail-status inactive" : "detail-status"}>{selectedStudent.active === false ? "Suspenso" : selectedStudent.accessBlocked ? "Financeiro bloqueado" : "Ativo"}</span></header>
             <div className="student-profile-overview"><div><small>STATUS DE ACESSO</small><strong>{selectedStudent.active === false ? "Suspenso" : "Ativo"}</strong></div><div><small>PLANO ATUAL</small><strong>{selectedStudent.plan}</strong></div><div><small>TREINOS ATIVOS</small><strong>{studentWorkouts.length}</strong></div><div><small>AVALIAÇÕES</small><strong>{studentAssessments.length}</strong></div><div><small>ÚLTIMO TREINO</small><strong>{studentExecutions[0] ? displayWorkoutName(studentExecutions[0].workoutName) : "Sem registro"}</strong></div></div>
              <StudentFrequency attendance={studentAttendance} executions={studentExecutions} />
-             <StudentRankReviewPanel student={selectedStudent} workouts={studentWorkouts} executions={studentExecutions} canPromote={access.role === "admin" || (access.role === "teacher" && selectedStudent.teacherId === access.userId)} saving={approvingRank} onPromote={() => void approveNextStudentRank()} />
+             <StudentRankReviewPanel student={selectedStudent} workouts={studentWorkouts} executions={studentExecutions} canPromote={access.role === "admin" || access.role === "teacher"} saving={approvingRank} onPromote={() => void approveNextStudentRank()} />
             <div className="student-profile-sections"><section><span>PROGRAMA ATUAL</span>{studentWorkouts.length > 0 ? studentWorkouts.slice(0, 3).map((workout) => <div className="student-profile-row" key={workout.id}><div><strong>{displayWorkoutName(workout.name)}</strong><small>{workout.exerciseIds.length} exercícios · publicado para o aluno</small></div><em>Ativo</em></div>) : <p className="student-profile-empty">Nenhum treino publicado ainda.</p>}</section><section><span>EVOLUÇÃO FÍSICA</span>{studentAssessments.length > 0 ? <div className="student-profile-metrics"><div><small>Peso atual</small><strong>{studentAssessments[0].weight} kg</strong></div><div><small>Altura</small><strong>{studentAssessments[0].height} cm</strong></div><div><small>Bíceps</small><strong>{studentAssessments[0].biceps ? `${studentAssessments[0].biceps} cm` : "Não informado"}</strong></div><div><small>Gordura</small><strong>{studentAssessments[0].bodyFat ? `${studentAssessments[0].bodyFat}%` : "Não informado"}</strong></div></div> : <p className="student-profile-empty">Nenhuma avaliação física registrada.</p>}</section><section><span>FINANCEIRO</span>{studentCharges.length > 0 ? <div className="student-profile-row"><div><strong>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Há cobrança pendente" : "Pagamentos em dia"}</strong><small>{studentCharges.length} cobrança(s) · próxima: {formatDate(studentCharges[0].dueDate)}</small></div><em>{studentCharges.filter((charge) => charge.status !== "paid").length > 0 ? "Acompanhar" : "Regular"}</em></div> : <p className="student-profile-empty">Nenhuma cobrança registrada.</p>}</section></div>
             <div className="student-profile-actions"><button type="button" onClick={() => onNavigate("Treinos", selectedStudent.id)}><Dumbbell size={15} /> Gerenciar treino</button><button type="button" onClick={() => onNavigate("Avaliações", selectedStudent.id)}><Activity size={15} /> Nova avaliação</button>{access.role === "admin" && <button type="button" className={financialOpen ? "is-open" : ""} onClick={() => setFinancialOpen((current) => !current)}><WalletCards size={15} /> {financialOpen ? "Ocultar financeiro" : "Ver financeiro"}</button>}</div>
             {access.role === "admin" && financialOpen && <section className="student-finance-inline"><header><div><span>CONDIÇÃO FINANCEIRA</span><strong>Resumo de {selectedStudent.name}</strong><small>Visão exclusiva deste cadastro; nenhuma navegação para o financeiro geral.</small></div><WalletCards /></header><div className="student-finance-grid"><div><small>Mês de entrada</small><strong>{formatMonth(entryDate)}</strong></div><div><small>Plano atual</small><strong>{selectedStudent.plan || "Sem plano"}</strong></div><div><small>Inscrição</small><strong>{registrationCharge ? registrationCharge.status === "paid" ? "Paga" : "Pendente" : "Não lançada"}</strong></div><div><small>Próximo vencimento</small><strong>{nextDue ? formatDate(nextDue.dueDate) : "Não informado"}</strong></div><div><small>Status</small><strong className={financialStatus === "Pagamentos em dia" ? "finance-ok" : financialStatus === "Há vencimento atrasado" ? "finance-alert" : ""}>{financialStatus}</strong></div><div><small>Histórico</small><strong>{orderedCharges.length} {orderedCharges.length === 1 ? "lançamento" : "lançamentos"}</strong></div></div>{orderedCharges.length > 0 ? <div className="student-finance-history">{orderedCharges.slice(0, 6).map((charge) => <div key={charge.id}><span><strong>{charge.planName}</strong><small>{charge.chargeType === "registration" ? "Inscrição" : charge.chargeType === "service" ? "Serviço" : "Mensalidade"} · {formatDate(charge.dueDate)}</small></span><b>R$ {charge.amount.toFixed(2).replace(".", ",")}</b><em className={charge.status === "paid" ? "finance-paid" : "finance-pending"}>{charge.status === "paid" ? "Paga" : "Pendente"}</em></div>)}</div> : <p className="student-finance-empty">Nenhuma cobrança foi lançada para este aluno. Gere a inscrição ou a mensalidade no financeiro para acompanhar aqui.</p>}</section>}
-            <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />
-            <StudentWhatsAppPanel student={selectedStudent} onFeedback={onFeedback} />
-            <StudentAnamnesisPanel student={selectedStudent} onFeedback={onFeedback} />
+            {canAccessStudentMessages && <StudentMessagesPanel messages={studentMessages} body={messageBody} sending={sendingMessage} onBodyChange={setMessageBody} onSend={sendInternalMessage} />}
+            {canAccessStudentMessages && <StudentWhatsAppPanel student={selectedStudent} onFeedback={onFeedback} />}
+            {access.role === "admin" && <StudentAnamnesisPanel student={selectedStudent} onFeedback={onFeedback} />}
             {access.role === "admin" && selectedStudent.accessBlocked && <button className="detail-toggle" type="button" onClick={() => void releaseFinancialAccess()} disabled={releasingAccess}>{releasingAccess ? "Liberando..." : "Liberar acesso manualmente"}</button>}
             <StudentWorkoutFeedbackPanel feedbacks={studentFeedback} />
             <details className="student-profile-collapse"><summary><span><small>CADASTRO E ACESSO</small><strong>Dados pessoais, plano e permissões</strong></span><ChevronDown /></summary><div className="student-profile-collapse-content">
@@ -5282,7 +5314,7 @@ function ManagerProfilePanel({ profile, workspaceProfile, onClose, onFeedback }:
         window.dispatchEvent(new Event("orquestra-fit:collection-updated"));
       } else {
         await setDoc(doc(db, "users", access.userId), { ...normalized, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, whatsappUrl: normalized.whatsappUrl || null, whatsappGroupUrl: normalized.whatsappGroupUrl || null, updatedAt: serverTimestamp() }, { merge: true });
+        if (isManager) await setDoc(doc(db, "academies", access.academyId), { phone: normalized.phone || null, instagramUrl: normalized.instagramUrl || null, siteUrl: normalized.siteUrl || null, whatsappUrl: normalized.whatsappUrl || null, whatsappGroupUrl: normalized.whatsappGroupUrl || null, updatedAt: serverTimestamp() }, { merge: true });
       }
       void recordAuditEvent({ academyId: access.academyId, userId: access.userId, userName: access.user.displayName, userEmail: access.user.email, role: access.role, action: "profile_updated", label: isManager ? "Perfil da academia atualizado" : "Perfil profissional atualizado" });
       onFeedback("Perfil atualizado.");
@@ -5453,7 +5485,11 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
       return;
     }
     if (roleToAdd === "admin" && (!academyName.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))) {
-      onFeedback("Informe o Gmail da proprietária para criar o convite de gestão.");
+      onFeedback("Informe um e-mail válido da proprietária para criar o convite de gestão.");
+      return;
+    }
+    if (roleToAdd === "teacher" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      onFeedback("Informe o e-mail do professor para vincular o convite à conta Microsoft dele.");
       return;
     }
     setGenerating(true);
@@ -5509,7 +5545,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
           <div className="permission-roles">
           {roles.map((role) => <article className={`permission-role ${role.tone}`} key={role.label}><div className="permission-role-icon"><ShieldCheck /></div><div><strong>{role.label}</strong><p>{role.description}</p><span>Acesso: {role.access}</span></div><button onClick={() => chooseInviteRole(role.id as "admin" | "teacher" | "student")}><Plus size={16} /> Adicionar</button></article>)}
           </div>
-          {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>{roleToAdd === "admin" ? "Liberar nova academia" : `Convite de ${roleToAdd === "teacher" ? "professor" : "aluno"}`}</strong><p>{roleToAdd === "admin" ? "Crie um ambiente isolado para a academia e entregue a gestão à proprietária." : "O convite fica vinculado ao Gmail informado. A pessoa deverá entrar com essa conta Google para ativá-lo."}</p></div>{roleToAdd === "admin" && <label className="invite-email-field">Nome da academia<input value={academyName} onChange={(event) => setAcademyName(event.target.value)} required /></label>}<label className="invite-email-field">Gmail autorizado<input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="nome@gmail.com" required={roleToAdd === "admin"} /></label><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : roleToAdd === "admin" ? "Criar academia e código" : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
+          {roleToAdd && <div className="invite-box"><div><span>NOVO CÓDIGO</span><strong>{roleToAdd === "admin" ? "Liberar nova academia" : `Convite de ${roleToAdd === "teacher" ? "professor" : "aluno"}`}</strong><p>{roleToAdd === "admin" ? "Crie um ambiente isolado para a academia e entregue a gestão à proprietária." : roleToAdd === "teacher" ? "Informe o e-mail que o professor usará no acesso. Ele pode entrar pela Microsoft ou pelo Facebook, sem criar senha no Orquestra Fit; o código continua obrigatório e o e-mail da conta deve corresponder ao convite." : "O convite fica vinculado ao e-mail informado. A pessoa pode entrar com Google, Microsoft, Facebook ou e-mail e senha, usando a mesma conta."}</p></div>{roleToAdd === "admin" && <label className="invite-email-field">Nome da academia<input value={academyName} onChange={(event) => setAcademyName(event.target.value)} required /></label>}<label className="invite-email-field">E-mail autorizado<input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="nome@exemplo.com" required={roleToAdd === "admin" || roleToAdd === "teacher"} /></label><button onClick={generateAccessCode} disabled={generating}>{generating ? "Gerando..." : roleToAdd === "admin" ? "Criar academia e código" : "Gerar código"}</button>{generatedCode && <div className="generated-code"><code>{generatedCode}</code><button onClick={() => navigator.clipboard?.writeText(generatedCode).then(() => onFeedback("Código copiado."))}>Copiar</button></div>}</div>}
         </section>
          {access.accountType === "developer" && <section className="settings-section settings-card developer-console-launch">
           <div className="settings-section-heading"><div><span>OPERAÇÃO SAAS</span><h3>Auditoria e academias</h3></div><small>Central exclusiva do desenvolvedor</small></div>
@@ -5683,14 +5719,33 @@ function DeveloperConsolePanel({ onFeedback, fullScreen = false, onClose }: { on
     setStatus(selected?.billingStatus === "past_due" || selected?.billingStatus === "suspended" ? selected.billingStatus : "active");
     setAmount(selected?.monthlyAmount ? String(selected.monthlyAmount).replace(".", ",") : "");
     setEditing(false);
+    let active = true;
     const unsubscribeMembers = onSnapshot(collection(firestore, "academies", selectedId, "members"), (snapshot) => {
-      setMembers(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<DeveloperMember, "id">) })).sort((a, b) => (a.displayName ?? a.email ?? "").localeCompare(b.displayName ?? b.email ?? "", "pt-BR")));
+      const listedMembers = snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<DeveloperMember, "id">) }));
+      setMembers(listedMembers.sort((a, b) => (a.displayName ?? a.email ?? "").localeCompare(b.displayName ?? b.email ?? "", "pt-BR")));
+      void Promise.all(listedMembers.map(async (member) => {
+        if (member.email && member.displayName) return member;
+        try {
+          const profile = await getDoc(doc(firestore, "users", member.id));
+          if (!profile.exists()) return member;
+          const profileData = profile.data();
+          return {
+            ...member,
+            displayName: member.displayName || profileData.displayName || profileData.name || undefined,
+            email: member.email || profileData.email || undefined,
+          };
+        } catch {
+          return member;
+        }
+      })).then((hydratedMembers) => {
+        if (active) setMembers(hydratedMembers.sort((a, b) => (a.displayName ?? a.email ?? "").localeCompare(b.displayName ?? b.email ?? "", "pt-BR")));
+      });
     }, () => onFeedback("Não foi possível carregar os acessos desta academia."));
     const auditQuery = query(collection(firestore, "auditLogs"), where("academyId", "==", selectedId));
     const unsubscribeAudit = onSnapshot(auditQuery, (snapshot) => {
       setAudit(snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<DeveloperAudit, "id">) })).sort((a, b) => (firestoreDate(b.createdAt)?.getTime() ?? 0) - (firestoreDate(a.createdAt)?.getTime() ?? 0)).slice(0, 40));
     }, () => onFeedback("Não foi possível carregar a auditoria desta academia."));
-    return () => { unsubscribeMembers(); unsubscribeAudit(); };
+    return () => { active = false; unsubscribeMembers(); unsubscribeAudit(); };
   }, [access.accountType, academies, onFeedback, selectedId]);
 
   async function saveAcademy() {
@@ -5719,11 +5774,11 @@ function DeveloperConsolePanel({ onFeedback, fullScreen = false, onClose }: { on
     <div className="settings-section-heading"><div><span>OPERAÇÃO SAAS</span><h3>Auditoria e academias</h3></div><small>Controle central da plataforma</small></div>
     <div className="developer-kpi-grid"><article><small>ACADEMIAS</small><strong>{academies.length}</strong><span>ambientes cadastrados</span></article><article><small>USUÁRIOS ATIVOS</small><strong>{members.filter((member) => member.active !== false).length}</strong><span>na academia selecionada</span></article><article><small>ONLINE AGORA</small><strong>{onlineMembers.length}</strong><span>últimos 5 minutos</span></article><article><small>ACESSOS HOJE</small><strong>{accessesToday}</strong><span>último registro</span></article></div>
     <div className="developer-academy-layout">
-      <div className="developer-academy-list"><div className="developer-subheading"><strong>Academias</strong><span>{academies.length} cadastrada(s)</span></div>{academies.length === 0 ? <p className="panel-helper">Nenhuma academia provisionada ainda.</p> : academies.map((academy) => <button type="button" key={academy.id} className={selectedId === academy.id ? "developer-academy-row active" : "developer-academy-row"} onClick={() => setSelectedId(academy.id)}><span><strong>{academy.name}</strong><small>{academy.ownerEmail || "Gmail não informado"}</small></span><em className={academyStatusLabel(academy.billingStatus) === "Ativa" ? "online" : "warning"}>{academyStatusLabel(academy.billingStatus)}</em><b>{memberCounts[academy.id] ?? 0}</b></button>)}</div>
-      {selected && <div className="developer-academy-detail"><header><div><span>ACADEMIA SELECIONADA</span><h4>{selected.name}</h4><p>{selected.ownerEmail || "Gmail da proprietária não informado"}</p></div><button type="button" className="detail-secondary" onClick={() => setEditing((current) => !current)}>{editing ? "Cancelar" : "Editar controle"}</button></header>
+      <div className="developer-academy-list"><div className="developer-subheading"><strong>Academias</strong><span>{academies.length} cadastrada(s)</span></div>{academies.length === 0 ? <p className="panel-helper">Nenhuma academia provisionada ainda.</p> : academies.map((academy) => <button type="button" key={academy.id} className={selectedId === academy.id ? "developer-academy-row active" : "developer-academy-row"} onClick={() => setSelectedId(academy.id)}><span><strong>{academy.name}</strong><small>{academy.ownerEmail || "E-mail não informado"}</small></span><em className={academyStatusLabel(academy.billingStatus) === "Ativa" ? "online" : "warning"}>{academyStatusLabel(academy.billingStatus)}</em><b>{memberCounts[academy.id] ?? 0}</b></button>)}</div>
+      {selected && <div className="developer-academy-detail"><header><div><span>ACADEMIA SELECIONADA</span><h4>{selected.name}</h4><p>{selected.ownerEmail || "E-mail da proprietária não informado"}</p></div><button type="button" className="detail-secondary" onClick={() => setEditing((current) => !current)}>{editing ? "Cancelar" : "Editar controle"}</button></header>
         <div className="developer-academy-meta"><div><small>ENTRADA</small><strong>{dateTimeLabel(selected.createdAt)}</strong></div><div><small>PLANO</small><strong>{selected.plan || "basic"}</strong></div><div><small>VENCIMENTO</small><strong>{selected.billingDueDate ? formatDate(selected.billingDueDate) : "Não definido"}</strong></div><div><small>STATUS</small><strong>{academyStatusLabel(selected.billingStatus)}</strong></div></div>
         {editing && <div className="developer-billing-form"><label>Plano<input value={plan} onChange={(event) => setPlan(event.target.value)} /></label><label>Mensalidade<input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="R$ 0,00" /></label><label>Vencimento<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label><label>Status<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="active">Ativa</option><option value="past_due">Em atraso</option><option value="suspended">Suspensa</option></select></label><button type="button" className="detail-save" onClick={() => void saveAcademy()} disabled={saving}>{saving ? "Salvando..." : "Salvar controle"}</button></div>}
-        <div className="developer-members-heading"><div><span>ACESSO GERAL</span><strong>{members.length} pessoas vinculadas</strong></div><small>{onlineMembers.length} online agora</small></div><div className="developer-member-list">{members.length === 0 ? <p className="panel-helper">Nenhum usuário vinculado ainda.</p> : members.map((member) => { const online = onlineMembers.some((item) => item.id === member.id); return <div className="developer-member-row" key={member.id}><span className={online ? "presence-dot online" : "presence-dot"} /><div><strong>{member.displayName || member.email || "Usuário sem nome"}</strong><small>{member.email || "Sem Gmail"} · {memberRoleLabel(member.role)}</small></div><em>{online ? "Online" : "Offline"}</em><small>{dateTimeLabel(member.lastAccessAt)}</small></div>; })}</div>
+        <div className="developer-members-heading"><div><span>ACESSO GERAL</span><strong>{members.length} pessoas vinculadas</strong></div><small>{onlineMembers.length} online agora</small></div><div className="developer-member-list">{members.length === 0 ? <p className="panel-helper">Nenhum usuário vinculado ainda.</p> : members.map((member) => { const online = onlineMembers.some((item) => item.id === member.id); return <div className="developer-member-row" key={member.id}><span className={online ? "presence-dot online" : "presence-dot"} /><div><strong>{member.displayName || member.email || "Usuário sem nome"}</strong><small>{member.email || "Sem e-mail"} · {memberRoleLabel(member.role)}</small></div><em>{online ? "Online" : "Offline"}</em><small>{dateTimeLabel(member.lastAccessAt)}</small></div>; })}</div>
         <div className="developer-members-heading"><div><span>AUDITORIA</span><strong>Últimos acessos e eventos</strong></div><small>{audit.length} registros</small></div><div className="developer-audit-list">{audit.length === 0 ? <p className="panel-helper">Nenhum evento registrado ainda.</p> : audit.map((item) => <div className="developer-audit-row" key={item.id}><Activity size={15} /><div><strong>{item.label || item.action || "Evento"}</strong><small>{item.userName || item.userEmail || "Usuário"} · {memberRoleLabel(item.role)}</small></div><time>{dateTimeLabel(item.createdAt)}</time></div>)}</div>
       </div>}
     </div>
@@ -5906,8 +5961,8 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
     }
     return onSnapshot(collection(db, "academies", access.academyId, "plans"), (snapshot) => {
       setAvailablePlans(snapshot.docs.map((item) => {
-        const data = item.data() as { name?: string; price?: number; registrationFee?: number; interval?: string; active?: boolean };
-        return { id: item.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), registrationFee: Number(data.registrationFee ?? 0), interval: data.interval ?? "Mensal", active: data.active !== false };
+        const data = item.data() as { name?: string; price?: number; registrationFee?: number; interval?: string; weeklyVisitLimit?: number | null; active?: boolean };
+        return { id: item.id, name: data.name ?? "Plano sem nome", price: Number(data.price ?? 0), registrationFee: Number(data.registrationFee ?? 0), interval: data.interval ?? "Mensal", weeklyVisitLimit: typeof data.weeklyVisitLimit === "number" && Number.isInteger(data.weeklyVisitLimit) ? data.weeklyVisitLimit : null, active: data.active !== false };
       }).filter((item) => item.active));
     }, () => setAvailablePlans([]));
   }, [access.academyId]);
@@ -5935,7 +5990,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
           role,
           invitedName: capitalizeName(name.trim()),
           invitedEmail: email.trim() || null,
-          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planInterval: selectedPlan?.interval ?? null, planPrice: selectedPlan?.price ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, initialDueDate: selectedPlan ? firstDueDate : null, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
+          ...(role === "student" ? { phone: phone || null, cpf: cpf || null, address: address.trim() || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planInterval: selectedPlan?.interval ?? null, planPrice: selectedPlan?.price ?? null, weeklyVisitLimit: selectedPlan?.weeklyVisitLimit ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, initialDueDate: selectedPlan ? firstDueDate : null, anatomyProfile, birthDate: birthDate || null } : { phone: phone || null, cpf: cpf || null, birthDate: birthDate || null, cref: cref.trim() || null, specialty: capitalizeName(specialty.trim()) || null }),
           active: true,
           createdBy: access.userId,
           createdAt: serverTimestamp(),
@@ -5977,7 +6032,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
         const id = `local-${role}-${Date.now()}`;
         if (role === "student") {
           const students = readLocalCollection<RegisteredStudent>(access.academyId, "students");
-          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planPrice: selectedPlan?.price ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, planInterval: selectedPlan?.interval ?? null, initialDueDate: selectedPlan ? firstDueDate : null, nextBillingDate: selectedPlan ? firstDueDate : null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true, accessBlocked: false }]);
+          writeLocalCollection(access.academyId, "students", [...students, { id, name: capitalizeName(name.trim()), email: email.trim() || null, phone: phone || null, cpf: cpf || null, address: address.trim() || null, birthDate: birthDate || null, plan: selectedPlanName, planId: selectedPlan?.id ?? null, planPrice: selectedPlan?.price ?? null, weeklyVisitLimit: selectedPlan?.weeklyVisitLimit ?? null, registrationFee: selectedPlan?.registrationFee ?? 0, planInterval: selectedPlan?.interval ?? null, initialDueDate: selectedPlan ? firstDueDate : null, nextBillingDate: selectedPlan ? firstDueDate : null, joinedAt: todayIso(), planStartedAt: todayIso(), teacherId: null, anatomyProfile, active: true, accessBlocked: false }]);
           if (selectedPlan && selectedPlan.price > 0) {
             const charges = readLocalCollection<MonthlyCharge>(access.academyId, "monthlyCharges");
             writeLocalCollection(access.academyId, "monthlyCharges", [...charges, { id: `local-registration-${id}`, studentId: id, studentName: capitalizeName(name.trim()), planId: selectedPlan.id, planName: selectedPlan.name, amount: selectedPlan.price, dueDate: firstDueDate, status: "pending", chargeType: "monthly", origin: "student_registration" }]);
@@ -5999,7 +6054,9 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
       setSaving(false);
     }
   }
-  const inviteWhatsappHref = phone ? whatsappMessageHref(phone, `Olá ${name.trim() || "!"}. Seu acesso à Orquestra Fit foi criado pela academia. Use o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://fit.orquestracs.com"} e toque em “Ativar minha conta” para começar.`) : "";
+  const inviteWhatsappHref = phone ? whatsappMessageHref(phone, role === "teacher"
+    ? `Olá ${name.trim() || "!"}. Seu acesso de professor à Orquestra Fit foi criado pela academia. Crie seu acesso com o e-mail do convite (${email.trim()}) e uma senha pessoal, ou use Google com o mesmo e-mail. Depois informe o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://fit.orquestracs.com"}.`
+    : `Olá ${name.trim() || "!"}. Seu acesso à Orquestra Fit foi criado pela academia. Use o código ${code ?? ""} em ${typeof window !== "undefined" ? window.location.origin : "https://fit.orquestracs.com"} e toque em “Ativar minha conta” para começar.`) : "";
   return (
     <div className="permissions-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-student-title">
       <section className="student-modal">
@@ -6007,7 +6064,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
         {!code ? (
           <form className="student-form" onSubmit={submit}>
             <label>Nome completo<input value={name} onChange={(event) => setName(capitalizeName(event.target.value))} autoComplete="name" required /></label>
-            <label>E-mail Google <small>(opcional — use somente se a pessoa tiver)</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="aluno@exemplo.com" /></label>
+            <label>E-mail de acesso <small>{role === "teacher" ? "obrigatório — pode ser Gmail, Hotmail/Outlook ou outro endereço" : "opcional — pode ser Gmail, Hotmail/Outlook ou outro endereço"}</small><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="nome@exemplo.com" required={role === "teacher"} /></label>
             {role === "student" && <><label>Telefone / WhatsApp<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Endereço<input value={address} onChange={(event) => setAddress(event.target.value)} autoComplete="street-address" placeholder="Rua, número, bairro e cidade" /></label></>}
             {role === "teacher" && <><label>Telefone<input value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></label><label>CPF<input value={cpf} onChange={(event) => setCpf(maskCpf(event.target.value))} inputMode="numeric" placeholder="000.000.000-00" /></label><label>Data de nascimento<input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayIso()} /></label><label>CREF<input value={cref} onChange={(event) => setCref(event.target.value.toUpperCase())} placeholder="Ex.: 012345-G/SP" /></label><label>Especialidade<input value={specialty} onChange={(event) => setSpecialty(capitalizeName(event.target.value))} placeholder="Ex.: Musculação" /></label></>}
             {role === "student" && (availablePlans.length > 0 ? <label>Plano da academia<select value={planId} onChange={(event) => setPlanId(event.target.value)} required><option value="">Selecione um plano</option>{availablePlans.map((item) => <option key={item.id} value={item.id}>{item.name} · mensalidade {item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}{(item.registrationFee ?? 0) > 0 ? ` · inscrição ${item.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""} · {item.interval}</option>)}</select><small>{selectedPlan && (selectedPlan.registrationFee ?? 0) > 0 ? `Taxa única de inscrição: ${selectedPlan.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}, lançada para hoje. ` : ""}A primeira mensalidade será lançada para o vencimento escolhido.</small></label> : <label>Plano<select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select><small>Nenhum plano com valor foi cadastrado ainda. A cobrança poderá ser criada depois.</small></label>)}
@@ -6018,7 +6075,7 @@ function NewMemberModal({ role, onClose, onFeedback }: { role: "student" | "teac
             <div className="student-modal-actions"><button type="button" className="modal-secondary" onClick={onClose}>Cancelar</button><button type="submit" disabled={saving}>{saving ? "Salvando..." : "Cadastrar e gerar código"}</button></div>
           </form>
         ) : (
-          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>Envie este código para a pessoa. No primeiro acesso, ela escolhe “Criar acesso”, define um nome de usuário e senha (ou usa Google) e informa o código. Sem um código válido, o acesso não é liberado.{selectedPlan ? ` Mensalidade de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para ${formatDate(firstDueDate)}${(selectedPlan.registrationFee ?? 0) > 0 ? `; taxa única de inscrição de ${selectedPlan.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para hoje` : ""}.` : " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado."}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div>{inviteWhatsappHref && <a className="whatsapp-invite-action" href={inviteWhatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Enviar código pelo WhatsApp</a>}<button className="student-modal-close" onClick={onClose}>Concluir</button></div>
+          <div className="student-invite-result"><span>CADASTRO CRIADO</span><h3>{name}</h3><p>{role === "teacher" ? `Envie este código para ${name}. No primeiro acesso, crie uma conta com ${email.trim()} e senha pessoal, ou use Google com o mesmo e-mail. Depois informe o código do convite.` : "Envie este código para a pessoa. No primeiro acesso, ela pode continuar com Google ou criar acesso com e-mail e senha, sempre usando o e-mail autorizado no convite. Sem um código válido, o acesso não é liberado."}{selectedPlan ? ` Mensalidade de ${selectedPlan.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para ${formatDate(firstDueDate)}${(selectedPlan.registrationFee ?? 0) > 0 ? `; taxa única de inscrição de ${selectedPlan.registrationFee!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} lançada para hoje` : ""}.` : role === "student" ? " Nenhuma cobrança automática foi lançada porque não há um plano com valor selecionado." : ""}</p><div className="generated-code"><code>{code}</code><button onClick={() => navigator.clipboard?.writeText(code).then(() => onFeedback("Código copiado."))}>Copiar</button></div>{inviteWhatsappHref && <a className="whatsapp-invite-action" href={inviteWhatsappHref} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Enviar código pelo WhatsApp</a>}<button className="student-modal-close" onClick={onClose}>Concluir</button></div>
         )}
       </section>
     </div>
@@ -6034,7 +6091,7 @@ function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeCha
   const [teacherWorkoutCount, setTeacherWorkoutCount] = useState(0);
   useEffect(() => {
     if (!db) return;
-    const unsubscribeStudents = onSnapshot(query(collection(db, "academies", access.academyId, "students"), where("teacherId", "==", access.userId)), (snapshot) => setTeacherStudentCount(snapshot.size));
+    const unsubscribeStudents = onSnapshot(collection(db, "academies", access.academyId, "students"), (snapshot) => setTeacherStudentCount(snapshot.docs.filter((student) => student.data().active !== false).length));
     const unsubscribeWorkouts = onSnapshot(query(collection(db, "academies", access.academyId, "workouts"), where("createdBy", "==", access.userId)), (snapshot) => setTeacherWorkoutCount(snapshot.size));
     return () => { unsubscribeStudents(); unsubscribeWorkouts(); };
   }, [access.academyId, access.userId]);
@@ -6053,7 +6110,7 @@ function ProfessorWorkspace({ theme, onThemeChange }: { theme: Theme; onThemeCha
             <button onClick={() => navigateWorkspace("Aulas e reservas")}>Ver agenda <ArrowRight /></button>
           </article>
           <div className="professor-metrics">
-            <MetricCard icon={Users} label="Meus alunos" value={String(teacherStudentCount)} note={teacherStudentCount === 0 ? "Nenhum aluno vinculado" : "Alunos vinculados"} />
+            <MetricCard icon={Users} label="Alunos da academia" value={String(teacherStudentCount)} note={teacherStudentCount === 0 ? "Nenhum aluno cadastrado" : "Todos os alunos cadastrados"} />
             <MetricCard icon={ClipboardList} label="Treinos publicados" value={String(teacherWorkoutCount)} note={teacherWorkoutCount === 0 ? "Nenhum treino publicado" : "Treinos no sistema"} warning={false} />
           </div>
         </section>

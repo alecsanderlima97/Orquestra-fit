@@ -87,9 +87,21 @@ export async function buildFitPortalSnapshot(firestore: Firestore) {
     const academyId = academyDoc.id;
     const externalId = externalCustomerId(academyId);
     const membersSnapshot = await firestore.collection("academies/" + academyId + "/members").get();
-    const members = membersSnapshot.docs.map((memberDoc) => {
+    const memberDocuments = membersSnapshot.docs.map((memberDoc) => {
       const data = memberDoc.data() as DocumentData;
       return { ...data, id: memberDoc.id } as DocumentData & { id: string };
+    });
+    const memberProfiles = memberDocuments.length
+      ? await firestore.getAll(...memberDocuments.map((member) => firestore.doc("users/" + member.id)))
+      : [];
+    const profileById = new Map(memberDocuments.map((member, index) => [member.id, memberProfiles[index]?.data() ?? {}]));
+    const members: Array<DocumentData & { id: string }> = memberDocuments.map((member) => {
+      const profile = profileById.get(member.id) ?? {};
+      return {
+        ...member,
+        displayName: member.displayName || member.name || profile.displayName || profile.name,
+        email: member.email || profile.email,
+      };
     });
     const users = members.filter((member) => stringValue(member.email)?.toLowerCase() !== PLATFORM_ADMIN_EMAIL).map((member) => {
       const lastActivityAt = isoValue(member.lastActivityAt || member.lastSeenAt);
