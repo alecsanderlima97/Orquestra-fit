@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { httpsCallable } from "firebase/functions";
-import { collection, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import {
   Bell, Building2, ChevronDown, ChevronRight, CircleDollarSign, CloudCog, ExternalLink, FileText, LockKeyhole,
   PauseCircle, Pencil, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, X,
@@ -64,6 +64,7 @@ type AcademyMember = {
   lastAccessAt?: unknown;
   lastSeenAt?: unknown;
   presenceStatus?: string | null;
+  lastDevice?: string | null;
 };
 
 type AcademyForm = {
@@ -191,6 +192,18 @@ function academyCredits(academy: AcademyRecord) {
   return { balance, monthly, extras, total };
 }
 
+function memberRoleLabel(role?: string | null) {
+  if (role === "admin") return "Proprietário / gestor";
+  if (role === "teacher") return "Professor";
+  if (role === "student") return "Aluno";
+  return role || "Usuário";
+}
+
+function memberIsOnline(member: AcademyMember, now: number) {
+  const lastSeen = firestoreDate(member.lastSeenAt);
+  return Boolean(lastSeen && lastSeen.getTime() >= now - 5 * 60 * 1000 && member.presenceStatus !== "left");
+}
+
 type CreditModalState = { academy: AcademyRecord; amount: string; reason: string };
 
 function AiCreditsModal({ state, onClose, onChange, onSubmit, saving }: { state: CreditModalState; onClose: () => void; onChange: (field: "amount" | "reason", value: string) => void; onSubmit: () => void; saving: boolean }) {
@@ -257,10 +270,33 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
   useEffect(() => {
     if (!db || !academies.length || access.accountType !== "developer") return;
     const firestore = db;
+    let disposed = false;
     const unsubscribers = academies.map((academy) => onSnapshot(collection(firestore, "academies", academy.id, "members"), (snapshot) => {
-      setMembersByAcademy((current) => ({ ...current, [academy.id]: snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AcademyMember, "id">) })) }));
+      const listedMembers = snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<AcademyMember, "id">) }));
+      setMembersByAcademy((current) => ({ ...current, [academy.id]: listedMembers }));
+      void Promise.all(listedMembers.map(async (member) => {
+        if (member.email && member.displayName && member.lastAccessAt) return member;
+        try {
+          const profile = await getDoc(doc(firestore, "users", member.id));
+          if (!profile.exists()) return member;
+          const profileData = profile.data() as Partial<AcademyMember>;
+          return {
+            ...member,
+            displayName: member.displayName || profileData.displayName || undefined,
+            email: member.email || profileData.email || undefined,
+            lastAccessAt: member.lastAccessAt || profileData.lastAccessAt,
+            lastSeenAt: member.lastSeenAt || profileData.lastSeenAt,
+            presenceStatus: member.presenceStatus || profileData.presenceStatus,
+            lastDevice: member.lastDevice || profileData.lastDevice,
+          };
+        } catch {
+          return member;
+        }
+      })).then((hydratedMembers) => {
+        if (!disposed) setMembersByAcademy((current) => ({ ...current, [academy.id]: hydratedMembers }));
+      });
     }, () => undefined));
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+    return () => { disposed = true; unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, [access.accountType, academies]);
 
   function moveColumn(target: CentralAdminColumnKey) {
@@ -436,7 +472,8 @@ export function CentralAdminPanel({ onFeedback, onClose, fullScreen = true }: Ce
             const calculated = calculatedStatus(academy);
             const credits = academyCredits(academy);
             const gridStyle = Object.fromEntries(columnOrder.map((column, index) => [`--central-${column}`, index + 1])) as CSSProperties;
-            return <div className="central-admin-client-group" key={academy.id}><div className="central-admin-client-row" role="row" style={gridStyle}><div className="central-admin-cell central-admin-client-name" data-label="Cliente"><i>{initials(academy.name)}</i><span><strong>{academy.name}</strong><small>{academy.ownerEmail || "Responsável não informado"}</small><em>{academy.contactPhone || "Contato não informado"}</em><b>{academy.billingStatus === "past_due" ? "Cobrança em atraso" : "Sem cobrança PIX"}</b></span></div><div className="central-admin-cell" data-label="Plano">{ORQUESTRA_PLAN_NAME}</div><div className="central-admin-cell" data-label="Status"><em className={`central-admin-status ${statusTone(academy.billingStatus)}`}>{statusLabel(academy.billingStatus)}</em></div><div className="central-admin-cell" data-label="Inscrição">{dateLabel(academy.createdAt)}</div><div className="central-admin-cell" data-label="Vencimento">{academy.billingDueDate ? dateLabel(academy.billingDueDate) : "Sem vencimento"}</div><div className="central-admin-cell" data-label="Situação calculada"><em className={`central-admin-calculated ${calculated.tone}`}>{calculated.label}</em></div><div className="central-admin-cell" data-label="Último acesso">{dateTimeLabel(lastAccess)}</div><div className="central-admin-cell" data-label="Online"><em className={online ? "central-admin-online online" : "central-admin-online"}>{online ? "Online" : "Offline"}</em></div><div className="central-admin-cell" data-label="Créditos IA">{credits.balance}/{credits.total}</div><div className="central-admin-actions" data-label="Ação"><button type="button" onClick={() => openEdit(academy)} aria-label={`Editar ${academy.name}`} title="Editar"><Pencil size={15} /></button><button type="button" onClick={() => openCredits(academy)} aria-label={`Adicionar créditos IA para ${academy.name}`} title="Adicionar créditos IA"><Sparkles size={15} /></button><button type="button" onClick={() => openEdit(academy)} aria-label={`Abrir cobrança de ${academy.name}`} title="Cobrança"><CircleDollarSign size={15} /></button><button type="button" onClick={() => void toggleStatus(academy)} aria-label={`Alterar status de ${academy.name}`} title="Suspender ou reativar"><PauseCircle size={15} /></button><button type="button" onClick={() => onFeedback("Para preservar o histórico, o cliente deve ser suspenso em vez de excluído.")} aria-label={`Preservar histórico de ${academy.name}`} title="Preservar histórico"><Trash2 size={15} /></button></div></div><button type="button" className="central-admin-details-toggle" onClick={() => { setSelectedId(academy.id); setDetailsId((current) => current === academy.id ? "" : academy.id); }}><span><strong>Detalhes operacionais</strong><small>{academy.name} · atualização {dateTimeLabel(academy.createdAt)}</small></span><span>{detailsId === academy.id ? "Fechar detalhes" : "Abrir detalhes"} <ChevronRight size={14} /></span></button>{detailsId === academy.id && <div className="central-admin-details"><div className="central-admin-detail-card"><header><strong>SINCRONIZAÇÃO COM PORTAL</strong><em>Sincronizado</em></header><dl><div><dt>Identificador externo</dt><dd>{academy.id}</dd></div><div><dt>ID interno</dt><dd>{academy.id}</dd></div><div><dt>Última atualização</dt><dd>{dateTimeLabel(academy.createdAt)}</dd></div><div><dt>Última sincronização</dt><dd>{lastSync.toLocaleString("pt-BR")}</dd></div></dl></div><div className="central-admin-detail-card"><header><strong>Usuários e acessos</strong><em>Administradores: {members.filter((member) => member.role === "admin").length}/4</em></header><div className="central-admin-owner"><ShieldCheck size={16} /><span><small>RESPONSÁVEL PRINCIPAL</small><strong>{academy.ownerEmail || "Responsável não informado"}</strong><em>{academy.ownerEmail ? "Gmail cadastrado" : "Gmail não informado"}</em></span></div><div className="central-admin-detail-summary"><span>Colaboradores administrativos</span><strong>{members.filter((member) => member.role === "teacher").length} cadastrado(s)</strong></div><div className="central-admin-detail-summary"><span>Usuários finais</span><strong>{activeMembers.length} ativo(s) · {onlineMembers.length} online</strong></div></div></div>}</div>;
+            const orderedMembers = [...members].sort((a, b) => Number(memberIsOnline(b, presenceNow)) - Number(memberIsOnline(a, presenceNow)) || (a.displayName ?? a.email ?? "").localeCompare(b.displayName ?? b.email ?? "", "pt-BR"));
+            return <div className="central-admin-client-group" key={academy.id}><div className="central-admin-client-row" role="row" style={gridStyle}><div className="central-admin-cell central-admin-client-name" data-label="Cliente"><i>{initials(academy.name)}</i><span><strong>{academy.name}</strong><small>{academy.ownerEmail || "Responsável não informado"}</small><em>{academy.contactPhone || "Contato não informado"}</em><b>{academy.billingStatus === "past_due" ? "Cobrança em atraso" : "Sem cobrança PIX"}</b></span></div><div className="central-admin-cell" data-label="Plano">{ORQUESTRA_PLAN_NAME}</div><div className="central-admin-cell" data-label="Status"><em className={`central-admin-status ${statusTone(academy.billingStatus)}`}>{statusLabel(academy.billingStatus)}</em></div><div className="central-admin-cell" data-label="Inscrição">{dateLabel(academy.createdAt)}</div><div className="central-admin-cell" data-label="Vencimento">{academy.billingDueDate ? dateLabel(academy.billingDueDate) : "Sem vencimento"}</div><div className="central-admin-cell" data-label="Situação calculada"><em className={`central-admin-calculated ${calculated.tone}`}>{calculated.label}</em></div><div className="central-admin-cell" data-label="Último acesso">{dateTimeLabel(lastAccess)}</div><div className="central-admin-cell" data-label="Online"><em className={online ? "central-admin-online online" : "central-admin-online"}>{online ? "Online" : "Offline"}</em></div><div className="central-admin-cell" data-label="Créditos IA">{credits.balance}/{credits.total}</div><div className="central-admin-actions" data-label="Ação"><button type="button" onClick={() => openEdit(academy)} aria-label={`Editar ${academy.name}`} title="Editar"><Pencil size={15} /></button><button type="button" onClick={() => openCredits(academy)} aria-label={`Adicionar créditos IA para ${academy.name}`} title="Adicionar créditos IA"><Sparkles size={15} /></button><button type="button" onClick={() => openEdit(academy)} aria-label={`Abrir cobrança de ${academy.name}`} title="Cobrança"><CircleDollarSign size={15} /></button><button type="button" onClick={() => void toggleStatus(academy)} aria-label={`Alterar status de ${academy.name}`} title="Suspender ou reativar"><PauseCircle size={15} /></button><button type="button" onClick={() => onFeedback("Para preservar o histórico, o cliente deve ser suspenso em vez de excluído.")} aria-label={`Preservar histórico de ${academy.name}`} title="Preservar histórico"><Trash2 size={15} /></button></div></div><button type="button" className="central-admin-details-toggle" onClick={() => { setSelectedId(academy.id); setDetailsId((current) => current === academy.id ? "" : academy.id); }}><span><strong>Detalhes operacionais</strong><small>{academy.name} · atualização {dateTimeLabel(academy.createdAt)}</small></span><span>{detailsId === academy.id ? "Fechar detalhes" : "Abrir detalhes"} <ChevronRight size={14} /></span></button>{detailsId === academy.id && <div className="central-admin-details"><div className="central-admin-detail-card"><header><strong>SINCRONIZAÇÃO COM PORTAL</strong><em>Sincronizado</em></header><dl><div><dt>Identificador externo</dt><dd>{academy.id}</dd></div><div><dt>ID interno</dt><dd>{academy.id}</dd></div><div><dt>Última atualização</dt><dd>{dateTimeLabel(academy.createdAt)}</dd></div><div><dt>Última sincronização</dt><dd>{lastSync.toLocaleString("pt-BR")}</dd></div></dl></div><div className="central-admin-detail-card central-admin-members-card"><header><strong>Usuários e acessos</strong><em>{activeMembers.length} ativos · {onlineMembers.length} online</em></header><div className="central-admin-owner"><ShieldCheck size={16} /><span><small>RESPONSÁVEL PRINCIPAL</small><strong>{academy.ownerEmail || "Responsável não informado"}</strong><em>{academy.ownerEmail ? "Gmail cadastrado" : "Gmail não informado"}</em></span></div><div className="central-admin-detail-summary"><span>Administradores</span><strong>{members.filter((member) => member.role === "admin").length}/4</strong></div><div className="central-admin-detail-summary"><span>Professores</span><strong>{members.filter((member) => member.role === "teacher").length} cadastrado(s)</strong></div><div className="central-admin-detail-summary"><span>Alunos</span><strong>{members.filter((member) => member.role === "student").length} cadastrado(s)</strong></div><div className="central-admin-members-list" aria-label="Lista de usuários e e-mails">{orderedMembers.length === 0 ? <p>Nenhum usuário vinculado ainda.</p> : orderedMembers.map((member) => { const memberOnline = memberIsOnline(member, presenceNow); return <article key={member.id}><span className={memberOnline ? "central-admin-member-dot online" : "central-admin-member-dot"} /><div><strong>{member.displayName || "Usuário sem nome"}</strong><small>{member.email || "E-mail não informado"}</small></div><em>{memberRoleLabel(member.role)}</em><span className={memberOnline ? "central-admin-member-status online" : "central-admin-member-status"}>{memberOnline ? "Online" : "Offline"}</span><time>{dateTimeLabel(member.lastAccessAt)}</time></article>; })}</div></div></div>}</div>;
           })}
         </div></div>
       </section>
