@@ -5560,7 +5560,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
         </section>}
         {access.accountType !== "developer" && <AcademyHoursSettings onFeedback={onFeedback} />}
         {access.accountType !== "developer" && access.role === "admin" && <AcademySubscriptionSettings onFeedback={onFeedback} />}
-        {access.accountType !== "developer" && access.role === "admin" && <ControlIdConnectionSettings onFeedback={onFeedback} />}
+        {access.role === "admin" && <ControlIdConnectionSettings onFeedback={onFeedback} />}
          <section className="settings-section settings-card appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />

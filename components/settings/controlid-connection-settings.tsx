@@ -32,7 +32,7 @@ export function ControlIdConnectionSettings({ onFeedback }: Props) {
   const [pairingCode, setPairingCode] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [loading, setLoading] = useState(false);
-  const canManage = access.role === "admin" && access.accountType !== "developer";
+  const canManage = access.role === "admin";
 
   useEffect(() => {
     if (!canManage || !db) return undefined;
