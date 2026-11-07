@@ -437,7 +437,12 @@ export const claimControlIdPairing = onRequest({ region }, async (request, respo
       response.status(410).json({ error: "O código de pareamento expirou ou já foi utilizado." });
       return;
     }
-    response.status(404).json({ error: "Código de pareamento não encontrado." });
+    if (error instanceof Error && error.message === "pairing_not_found") {
+      response.status(404).json({ error: "Código de pareamento não encontrado." });
+      return;
+    }
+    console.error("controlid_pairing_claim_failed", error);
+    response.status(500).json({ error: "Não foi possível concluir o pareamento agora." });
   }
 });
 
