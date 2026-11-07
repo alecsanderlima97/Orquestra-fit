@@ -39,6 +39,22 @@ CONTROLID_DEVICE_LOGIN=(somente no computador local)
 CONTROLID_DEVICE_PASSWORD=(somente no computador local)
 ```
 
+## Teste rápido no computador conectado
+
+Depois de copiar o projeto e configurar o perfil local, execute:
+
+```powershell
+npm run controlid:check
+```
+
+Esse comando somente verifica se o equipamento responde e se a interface é Control iD. Para consultar informações autenticadas do dispositivo, informe as credenciais apenas na sessão local do computador e execute:
+
+```powershell
+npm run controlid:info
+```
+
+O gateway atual é somente de diagnóstico. Ele não abre, bloqueia, cadastra usuários nem altera o modo de operação.
+
 Antes de ativar o controle de acesso, será necessário definir a política de contingência: o que fazer quando a internet ou o gateway estiver indisponível. Essa decisão deve ser aprovada antes de qualquer comando de abertura ou bloqueio.
 
 ## Referências
