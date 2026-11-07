@@ -3,6 +3,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import readline from "node:readline/promises";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -15,9 +17,11 @@ function printHelp() {
     "Uso:",
     "  npm run controlid:check   verifica somente a rede e a interface web",
     "  npm run controlid:info    consulta informações autenticadas do equipamento",
+    "  npm run controlid:pair    vincula este computador à academia usando um código de uso único",
     "",
     "A senha nunca é lida do arquivo de configuração. Para --info, informe-a apenas",
     "pela variável local CONTROLID_DEVICE_PASSWORD.",
+    "Para --pair, o código pode ser informado por CONTROLID_PAIRING_TOKEN ou solicitado no terminal.",
   ].join("\n"));
 }
 
@@ -59,13 +63,29 @@ async function loadConfig() {
   }
   if (!parsed.port) parsed.port = String(configuredPort);
 
+  const configuredGatewayId = String(process.env.CONTROLID_GATEWAY_ID || local?.gatewayId || "").trim();
   return {
     baseUrl: parsed.toString().replace(/\/$/, ""),
+    gatewayId: configuredGatewayId || `orquestra-fit-${randomUUID()}`,
+    pairingEndpoint: String(process.env.CONTROLID_PAIRING_ENDPOINT || local?.pairingEndpoint || template?.pairingEndpoint || "").trim(),
     model: String(local?.model || template?.model || "Control iD"),
+    firmware: String(local?.firmware || template?.firmware || "").trim(),
     login: String(process.env.CONTROLID_DEVICE_LOGIN || "").trim(),
     password: process.env.CONTROLID_DEVICE_PASSWORD || "",
     timeoutMs: Math.min(Math.max(Number(process.env.CONTROLID_DEVICE_TIMEOUT_MS || 8000), 1000), 30000),
   };
+}
+
+async function pairingToken() {
+  const fromEnv = String(process.env.CONTROLID_PAIRING_TOKEN || "").trim();
+  if (fromEnv) return fromEnv;
+  if (!process.stdin.isTTY) throw new Error("informe CONTROLID_PAIRING_TOKEN ao executar sem terminal interativo");
+  const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await terminal.question("Cole o código de pareamento (não será salvo): ")).trim();
+  } finally {
+    terminal.close();
+  }
 }
 
 async function request(config, endpoint, options = {}, session) {
@@ -118,6 +138,29 @@ async function login(config) {
   return parsed.session;
 }
 
+async function pair(config) {
+  if (!config.pairingEndpoint) throw new Error("endpoint de pareamento ausente; configure CONTROLID_PAIRING_ENDPOINT");
+  const token = await pairingToken();
+  if (!token) throw new Error("código de pareamento vazio");
+  const response = await fetch(config.pairingEndpoint, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      token,
+      gatewayId: config.gatewayId,
+      deviceUrl: config.baseUrl,
+      devicePort: Number(new URL(config.baseUrl).port || 80),
+      model: config.model,
+      firmware: config.firmware || null,
+    }),
+  });
+  const body = await response.text();
+  let parsed;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  if (!response.ok) throw new Error(parsed?.error || `pareamento recusado (HTTP ${response.status})`);
+  return parsed;
+}
+
 function safeSystemInfo(value) {
   const network = value?.network && typeof value.network === "object" ? value.network : {};
   return {
@@ -137,9 +180,14 @@ function safeSystemInfo(value) {
 
 async function main() {
   if (args.has("--help") || args.has("-h")) return printHelp();
-  const mode = args.has("--info") ? "info" : "check";
+  const mode = args.has("--info") ? "info" : args.has("--pair") ? "pair" : "check";
   const config = await loadConfig();
   const result = { mode, deviceUrl: config.baseUrl, model: config.model, accessCommandsEnabled: false };
+  if (mode === "pair") {
+    const paired = await pair(config);
+    console.log(JSON.stringify({ mode, gatewayId: config.gatewayId, ...paired, accessCommandsEnabled: false }, null, 2));
+    return;
+  }
   result.probe = await probe(config);
   if (mode === "info") {
     const session = await login(config);

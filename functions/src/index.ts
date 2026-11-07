@@ -2,7 +2,7 @@ import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { CollectionReference, FieldValue, getFirestore, type Transaction } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
@@ -39,6 +39,7 @@ type CounterSalePayload = {
   items?: unknown;
 };
 type AddAiCreditsPayload = { academyId?: unknown; credits?: unknown; reason?: unknown };
+type ControlIdPairingPayload = { academyId?: unknown; expiresInMinutes?: unknown };
 
 type PortalSyncResponse = {
   ok: boolean;
@@ -80,6 +81,44 @@ function commandSecretMatches(received: string, expected: string) {
 function commandDate(value: unknown) {
   const normalized = commandText(value);
   return normalized && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(normalized) ? normalized.slice(0, 10) : null;
+}
+
+function privateDeviceUrl(value: unknown) {
+  const raw = readString(value, "o endereço local da catraca");
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new HttpsError("invalid-argument", "O endereço da catraca é inválido.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new HttpsError("invalid-argument", "Use somente http(s)://IP-da-catraca, sem usuário, senha ou parâmetros.");
+  }
+  const host = parsed.hostname.toLowerCase();
+  const privateIpv4 = /^(10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.(?:\d{1,3}\.)\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3}|127\.0\.0\.1)$/u.test(host);
+  if (!privateIpv4 && host !== "localhost" && !host.endsWith(".local")) {
+    throw new HttpsError("invalid-argument", "Por segurança, o pareamento aceita somente IP privado ou host local.");
+  }
+  parsed.pathname = parsed.pathname.replace(/\/$/u, "");
+  return parsed.toString().replace(/\/$/u, "");
+}
+
+function hashPairingToken(token: string) {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+function pairingToken(value: unknown) {
+  const token = readString(value, "o código de pareamento");
+  if (!/^[A-Za-z0-9_-]{40,80}$/u.test(token)) {
+    throw new HttpsError("invalid-argument", "O código de pareamento é inválido ou expirou.");
+  }
+  return token;
+}
+
+function expiresAtDate(value: unknown) {
+  if (value && typeof (value as { toDate?: unknown }).toDate === "function") return (value as { toDate: () => Date }).toDate();
+  if (value instanceof Date) return value;
+  return typeof value === "string" ? new Date(value) : null;
 }
 
 function validatePassword(value: unknown) {
@@ -285,6 +324,121 @@ export const addAiCredits = onCall({ region }, async (request) => {
   });
 
   return { ok: true, ...result };
+});
+
+/**
+ * Cria um pareamento de uso único para o computador local da academia.
+ * O token é devolvido somente nesta resposta e apenas o hash é persistido.
+ */
+export const createControlIdPairing = onCall({ region }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Entre novamente para conectar a catraca.");
+  const payload = (request.data ?? {}) as ControlIdPairingPayload;
+  const academyId = readString(payload.academyId, "a academia");
+  const uid = request.auth.uid;
+  const [userSnapshot, membershipSnapshot] = await Promise.all([
+    firestore.doc(`users/${uid}`).get(),
+    firestore.doc(`academies/${academyId}/members/${uid}`).get(),
+  ]);
+  const membership = membershipSnapshot.data();
+  const developer = userSnapshot.data()?.accountType === "developer";
+  if (!developer && (!membershipSnapshot.exists || membership?.active !== true || membership.role !== "admin")) {
+    throw new HttpsError("permission-denied", "Somente a gestão ativa pode conectar a catraca.");
+  }
+
+  const expiresInMinutes = Number(payload.expiresInMinutes ?? 15);
+  if (!Number.isInteger(expiresInMinutes) || expiresInMinutes < 5 || expiresInMinutes > 30) {
+    throw new HttpsError("invalid-argument", "O código deve expirar entre 5 e 30 minutos.");
+  }
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = hashPairingToken(token);
+  const pairingRef = firestore.doc(`academies/${academyId}/accessPairings/${tokenHash}`);
+  const expiresAt = new Date(Date.now() + expiresInMinutes * 60_000);
+  const lookupRef = firestore.doc(`controlIdPairings/${tokenHash}`);
+  await firestore.runTransaction(async (transaction) => {
+    transaction.set(pairingRef, {
+      tokenHash,
+      status: "pending",
+      createdBy: uid,
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt,
+    });
+    transaction.set(lookupRef, { academyId, tokenHash, expiresAt, createdAt: FieldValue.serverTimestamp() });
+  });
+  return { ok: true, token, expiresAt: expiresAt.toISOString() };
+});
+
+/**
+ * Endpoint consumido somente pelo gateway local. Ele não abre a catraca e
+ * não recebe senha do equipamento: apenas vincula o computador à academia.
+ */
+export const claimControlIdPairing = onRequest({ region }, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ error: "Método não permitido." });
+    return;
+  }
+  const body = commandRecord(request.body);
+  try {
+    const token = pairingToken(body.token);
+    const gatewayId = readString(body.gatewayId, "o identificador do gateway");
+    if (!/^[A-Za-z0-9_-]{8,80}$/u.test(gatewayId)) {
+      response.status(400).json({ error: "Identificador do gateway inválido." });
+      return;
+    }
+    const deviceUrl = privateDeviceUrl(body.deviceUrl);
+    const port = Number(body.devicePort ?? 80);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      response.status(400).json({ error: "Porta da catraca inválida." });
+      return;
+    }
+    const model = commandText(body.model).slice(0, 80) || "Control iD";
+    const firmware = commandText(body.firmware).slice(0, 80) || null;
+    const tokenHash = hashPairingToken(token);
+    // O token não carrega o tenant. A busca por hash usa uma coleção raiz
+    // auxiliar para que o gateway local não precise conhecer a academia.
+    const lookupRef = firestore.doc(`controlIdPairings/${tokenHash}`);
+    const result = await firestore.runTransaction(async (transaction) => {
+      const lookupSnapshot = await transaction.get(lookupRef);
+      if (!lookupSnapshot.exists) throw new Error("pairing_not_found");
+      const lookup = lookupSnapshot.data() ?? {};
+      const academyId = commandText(lookup.academyId);
+      if (!academyId) throw new Error("pairing_not_found");
+      const academyPairingRef = firestore.doc(`academies/${academyId}/accessPairings/${tokenHash}`);
+      const pairingSnapshot = await transaction.get(academyPairingRef);
+      if (!pairingSnapshot.exists) throw new Error("pairing_not_found");
+      const pairing = pairingSnapshot.data() ?? {};
+      const expiresAt = expiresAtDate(pairing.expiresAt);
+      if (pairing.status !== "pending" || !expiresAt || expiresAt.getTime() <= Date.now()) throw new Error("pairing_expired");
+      const deviceRef = firestore.doc(`academies/${academyId}/accessDevices/${gatewayId}`);
+      const now = new Date().toISOString();
+      transaction.set(deviceRef, {
+        gatewayId,
+        status: "paired",
+        deviceUrl,
+        devicePort: port,
+        model,
+        firmware,
+        accessCommandsEnabled: false,
+        pairingId: tokenHash,
+        pairedAt: now,
+        lastSeenAt: now,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      transaction.update(academyPairingRef, { status: "claimed", gatewayId, claimedAt: now });
+      transaction.delete(lookupRef);
+      return { academyId, gatewayId };
+    });
+    response.json({ ok: true, ...result, accessCommandsEnabled: false });
+  } catch (error) {
+    if (error instanceof HttpsError) {
+      response.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message === "pairing_expired") {
+      response.status(410).json({ error: "O código de pareamento expirou ou já foi utilizado." });
+      return;
+    }
+    response.status(404).json({ error: "Código de pareamento não encontrado." });
+  }
 });
 
 /**

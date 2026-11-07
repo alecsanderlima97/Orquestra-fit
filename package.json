@@ -12,6 +12,7 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "controlid:check": "node scripts/controlid/gateway.mjs --check",
     "controlid:info": "node scripts/controlid/gateway.mjs --info",
+    "controlid:pair": "node scripts/controlid/gateway.mjs --pair",
     "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .tools",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"

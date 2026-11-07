@@ -336,6 +336,17 @@ service cloud.firestore {
       allow delete: if belongsToAcademy(academyId) && resource.data.userId == request.auth.uid;
     }
 
+    match /academies/{academyId}/accessDevices/{deviceId} {
+      allow read: if isDeveloper() || isAdmin(academyId);
+      // Pareamentos e atualizações de presença passam por Cloud Functions.
+      allow create, update, delete: if false;
+    }
+
+    match /academies/{academyId}/accessPairings/{pairingId} {
+      allow read: if isDeveloper() || isAdmin(academyId);
+      allow create, update, delete: if false;
+    }
+
     match /academies/{academyId}/{collectionName}/{document=**} {
       allow read: if isDeveloper() || isAdmin(academyId);
       // Do not override the stricter rules above with a recursive write grant.

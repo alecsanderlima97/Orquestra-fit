@@ -1,6 +1,8 @@
 {
   "deviceUrl": "http://192.168.1.201",
   "port": 80,
+  "gatewayId": "",
+  "pairingEndpoint": "https://southamerica-east1-orquestra-fit.cloudfunctions.net/claimControlIdPairing",
   "model": "iDFace",
   "firmware": "8.2.6",
   "mode": "unknown",

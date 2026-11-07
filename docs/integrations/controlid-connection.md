@@ -53,7 +53,20 @@ Esse comando somente verifica se o equipamento responde e se a interface é Cont
 npm run controlid:info
 ```
 
-O gateway atual é somente de diagnóstico. Ele não abre, bloqueia, cadastra usuários nem altera o modo de operação.
+Para vincular este computador à academia, abra **Configurações → Conexão com a
+catraca** no Orquestra Fit, gere o código temporário e execute no computador
+local:
+
+```powershell
+npm run controlid:pair
+```
+
+O código expira em 15 minutos, é de uso único e não é salvo no repositório. O
+pareamento registra somente a academia, o gateway e o endereço privado do
+equipamento; a senha permanece no computador local. Nenhum comando de abertura,
+bloqueio, cadastro facial ou mudança de modo é habilitado por essa etapa.
+
+O gateway atual é de diagnóstico e pareamento. Ele não abre, bloqueia, cadastra usuários nem altera o modo de operação.
 
 Antes de ativar o controle de acesso, será necessário definir a política de contingência: o que fazer quando a internet ou o gateway estiver indisponível. Essa decisão deve ser aprovada antes de qualquer comando de abertura ou bloqueio.
 

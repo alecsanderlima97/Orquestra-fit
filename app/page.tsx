@@ -24,6 +24,7 @@ import { nextPendingExercise } from "@/lib/workouts/session-navigation";
 import { exerciseMetricLabels, type ExerciseMetricSource } from "@/lib/workouts/exercise-metrics";
 import { verifiedFemaleGifUrls } from "@/lib/workouts/verified-female-gifs";
 import { AssessmentPhotoComparison, AssessmentPhotoInputs, deleteAssessmentPhotoFiles, uploadAssessmentPhotoFiles, type AssessmentPhotoFiles, type AssessmentPhotoPaths } from "@/components/assessments/assessment-photos";
+import { ControlIdConnectionSettings } from "@/components/settings/controlid-connection-settings";
 
 const ExerciseAnatomyView = dynamic(() => import("@/components/workouts/exercise-anatomy-view").then((module) => module.ExerciseAnatomyView), { ssr: false });
 const WorkoutSessionView = dynamic(() => import("@/components/workouts/workout-session-view").then((module) => module.WorkoutSessionView), { ssr: false });
@@ -5559,6 +5560,7 @@ function PermissionsPanel({ theme, onThemeChange, onClose, onFeedback }: { theme
         </section>}
         {access.accountType !== "developer" && <AcademyHoursSettings onFeedback={onFeedback} />}
         {access.accountType !== "developer" && access.role === "admin" && <AcademySubscriptionSettings onFeedback={onFeedback} />}
+        {access.accountType !== "developer" && access.role === "admin" && <ControlIdConnectionSettings onFeedback={onFeedback} />}
          <section className="settings-section settings-card appearance-section">
           <div className="settings-section-heading"><div><span>IDENTIDADE VISUAL</span><h3>Aparência</h3></div><small>Preferência deste ambiente</small></div>
           <ThemeSwitcher theme={theme} onChange={onThemeChange} />

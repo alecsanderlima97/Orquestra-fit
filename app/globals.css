@@ -963,6 +963,24 @@ button:focus-visible { outline: 2px solid var(--bronze-300); outline-offset: 2px
 .settings-section-heading span { color: var(--bronze-300); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
 .settings-section-heading h3 { margin: 5px 0 0; color: #f4f1ea; font-family: Georgia, serif; font-size: 21px; font-weight: 500; }
 .settings-section-heading small { color: var(--steel-500); font-size: 11px; }
+.controlid-settings-copy { margin: 0 0 14px; color: var(--steel-400); font-size: 11px; line-height: 1.55; }
+.controlid-device-list { display: grid; gap: 8px; margin-bottom: 13px; }
+.controlid-device-list article { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 10px 12px; border: 1px solid #303536; background: #0e1213; }
+.controlid-device-list article > div { display: grid; gap: 4px; min-width: 0; }
+.controlid-device-list strong { color: var(--paper); font-size: 11px; }
+.controlid-device-list small, .controlid-empty { color: var(--steel-500); font-size: 10px; }
+.controlid-device-list small { overflow-wrap: anywhere; }
+.controlid-device-status { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; border: 1px solid #40583d; padding: 5px 7px; color: #aacf8a; font-size: 9px; font-weight: 800; }
+.controlid-empty { margin: 0 0 13px; }
+.controlid-pairing-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.controlid-pairing-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; margin: 0; }
+.controlid-pairing-result { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 13px; padding: 12px; border: 1px dashed #765333; background: #17130f; color: var(--bronze-300); }
+.controlid-pairing-result > div { display: grid; gap: 5px; min-width: 0; }
+.controlid-pairing-result span { font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+.controlid-pairing-result code { overflow-wrap: anywhere; color: var(--paper); font-size: 14px; font-weight: 900; letter-spacing: .08em; }
+.controlid-pairing-result small { color: var(--steel-500); font-size: 9px; }
+.controlid-settings-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 13px; color: var(--steel-500); font-size: 10px; line-height: 1.45; }
+.controlid-settings-note svg { flex: 0 0 auto; color: var(--bronze-300); }
 .developer-console-section { overflow: hidden; }
 .developer-console-launch p { margin: 0 0 12px; color: var(--steel-500); font-size: 12px; line-height: 1.5; }
 .developer-console-launch button { width: 100%; }
