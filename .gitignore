@@ -66,4 +66,7 @@ ui-debug.log
 !/public/gif-catalog.json
 !/public/gif-catalog-feminine.json
 
+# Configuração local da catraca (não contém credenciais no template)
+/config/controlid-device.local.json
+
 .vercel
