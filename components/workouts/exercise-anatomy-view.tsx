@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { Anatomy3DViewer, type Anatomy3DHandle } from "@/components/workouts/anatomy-3d-viewer";
 import { Activity, ArrowLeft, BookOpen, Dumbbell, RefreshCw, RotateCcw, Timer, Weight, ZoomIn, ZoomOut } from "lucide-react";
 
 export type ExerciseAnatomyData = { name: string; primaryMuscle: string; secondaryMuscles?: string; anatomyProfile?: "masculino" | "feminino"; sets: number; reps: string; load: string; metricMode?: "strength" | "cardio" | "timed"; rest: string; };
@@ -128,6 +129,9 @@ const ANATOMY_CALLOUTS: Record<AnatomyView, Partial<Record<MuscleZone, Callout>>
   },
 };
 
+function highlightPaths(paths: Record<MuscleZone, string[]>, primary: Set<MuscleZone>, secondary: Set<MuscleZone>) {
+  return { primary: [...primary].flatMap((zone) => paths[zone]), secondary: [...secondary].filter((zone) => !primary.has(zone)).flatMap((zone) => paths[zone]) };
+}
 function selectedZone(zones: Set<MuscleZone>) { return ZONE_PRIORITY.find((zone) => zones.has(zone)); }
 function insightFor(zones: Set<MuscleZone>) { const zone = selectedZone(zones); return { zone, insight: zone ? MUSCLE_INSIGHTS[zone] : MOVEMENT_INSIGHT }; }
 function exerciseNameOrigin(name: string) {
@@ -171,6 +175,8 @@ export function ExerciseAnatomyView({ exercise, onClose }: { exercise: ExerciseA
   const metric = exercise.metricMode === "cardio" ? { load: "Velocidade", loadUnit: "km/h", reps: "Tempo", repsUnit: "min" } : exercise.metricMode === "timed" ? { load: "Intensidade", loadUnit: "", reps: "Tempo", repsUnit: "s" } : { load: "Carga", loadUnit: "kg", reps: "Repetições", repsUnit: "rep." };
   const [view, setView] = useState<AnatomyView>(() => recommendedView(primaryZones)); const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const viewer = useRef<Anatomy3DHandle>(null); const [is3d, setIs3d] = useState(true); const [zoom3d, setZoom3d] = useState(100);
+  const highlight = { front: highlightPaths(FRONT_PATHS, primaryZones, secondaryZones), back: highlightPaths(BACK_PATHS, primaryZones, secondaryZones) };
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -184,7 +190,7 @@ export function ExerciseAnatomyView({ exercise, onClose }: { exercise: ExerciseA
   useEffect(() => { const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", closeOnEscape); return () => window.removeEventListener("keydown", closeOnEscape); }, [onClose]);
   const resetZoom = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
   const changeZoom = (amount: number) => { setZoom((current) => Math.min(3, Math.max(1, current + amount))); setPan({ x: 0, y: 0 }); };
-  const chooseView = (next: AnatomyView) => { setView(next); resetZoom(); };
+  const chooseView = (next: AnatomyView) => { setView(next); resetZoom(); viewer.current?.setView(next); };
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -229,9 +235,9 @@ export function ExerciseAnatomyView({ exercise, onClose }: { exercise: ExerciseA
     <header><button type="button" aria-label="Voltar ao treino" onClick={onClose}><ArrowLeft /></button><h2 id="anatomy-title">{exercise.name}</h2><span /></header>
     <main>
       <div className="anatomy-realistic-viewer">
-        <div className="anatomy-realistic-stage" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => pointers.current.clear()} onLostPointerCapture={(event) => pointers.current.delete(event.pointerId)} onWheel={(event: ReactWheelEvent<HTMLDivElement>) => { changeZoom(event.deltaY < 0 ? .08 : -.08); }}><div className="anatomy-realistic-zoom" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}><AnatomyFigure primary={primaryZones} secondary={secondaryZones} profile={profile} view={view} /></div></div>
+        <Anatomy3DViewer ref={viewer} profile={profile} view={view} highlight={highlight} className="anatomy-realistic-stage" label={`Corpo anatômico 3D destacando ${exercise.primaryMuscle || "o grupo principal"}`} onZoom={setZoom3d} onFailed={() => setIs3d(false)} fallback={<div className="anatomy-realistic-stage" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => pointers.current.clear()} onLostPointerCapture={(event) => pointers.current.delete(event.pointerId)} onWheel={(event: ReactWheelEvent<HTMLDivElement>) => { changeZoom(event.deltaY < 0 ? .08 : -.08); }}><div className="anatomy-realistic-zoom" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}><AnatomyFigure primary={primaryZones} secondary={secondaryZones} profile={profile} view={view} /></div></div>} />
         <div className="anatomy-view-presets" role="group" aria-label="Posição do corpo anatômico">{VIEW_ORDER.map((item) => <button type="button" key={item} className={view === item ? "active" : ""} onClick={() => chooseView(item)}>{VIEW_LABEL[item]}</button>)}</div>
-        <div className="anatomy-controls"><span>Pinça para ampliar · {Math.round(zoom * 100)}%<br />{zoom > 1 ? "Arraste para explorar" : "Deslize para trocar a vista"}</span><div><button type="button" aria-label="Diminuir zoom" disabled={zoom <= 1} onClick={() => changeZoom(-.25)}><ZoomOut /></button><button type="button" aria-label="Restaurar zoom" onClick={resetZoom}><RotateCcw /></button><button type="button" aria-label="Aumentar zoom" disabled={zoom >= 3} onClick={() => changeZoom(.25)}><ZoomIn /></button></div></div>
+        {is3d ? <div className="anatomy-controls"><span>Arraste para girar · pinça para zoom · {zoom3d}%<br />Dois dedos movem o corpo</span><div><button type="button" aria-label="Diminuir zoom" onClick={() => viewer.current?.zoomBy(1 / 1.25)}><ZoomOut /></button><button type="button" aria-label="Restaurar posição" onClick={() => viewer.current?.reset()}><RotateCcw /></button><button type="button" aria-label="Aumentar zoom" onClick={() => viewer.current?.zoomBy(1.25)}><ZoomIn /></button></div></div> : <div className="anatomy-controls"><span>Pinça para ampliar · {Math.round(zoom * 100)}%<br />{zoom > 1 ? "Arraste para explorar" : "Deslize para trocar a vista"}</span><div><button type="button" aria-label="Diminuir zoom" disabled={zoom <= 1} onClick={() => changeZoom(-.25)}><ZoomOut /></button><button type="button" aria-label="Restaurar zoom" onClick={resetZoom}><RotateCcw /></button><button type="button" aria-label="Aumentar zoom" disabled={zoom >= 3} onClick={() => changeZoom(.25)}><ZoomIn /></button></div></div>}
       </div>
       <section className="muscle-legend"><div><i className="primary" /><span>Músculo principal</span><strong>{exercise.primaryMuscle || "Grupo principal"}</strong></div><div><i className="secondary" /><span>Auxiliares</span><strong>{exercise.secondaryMuscles || "Não informados"}</strong></div></section>
       <section className="anatomy-insight" aria-labelledby="anatomy-insight-title"><header><span>LEITURA ANATÔMICA</span><h3 id="anatomy-insight-title">{insight.label}</h3><p>Vermelho marca o foco principal do GIF; âmbar mostra os músculos que auxiliam o movimento.</p></header><div className="anatomy-facts"><div><Activity /><span>ONDE FICA</span><strong>{(selectedZone(primaryZones) && MUSCLE_LOCATIONS[selectedZone(primaryZones) as MuscleZone]) || "A região destacada acompanha o foco principal deste movimento."}</strong></div><div><Activity /><span>COMO TRABALHA</span><strong>{insight.function}</strong></div><div><Dumbbell /><span>COMO ATIVAR</span><strong>{insight.activation}</strong></div><div><Timer /><span>RECUPERAÇÃO</span><strong>{insight.recovery}</strong></div><div><Weight /><span>DESENVOLVIMENTO</span><strong>{insight.development}</strong></div></div></section>
