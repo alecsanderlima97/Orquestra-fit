@@ -32,6 +32,7 @@ const WorkoutSessionView = dynamic(() => import("@/components/workouts/workout-s
 const WorkoutShareCard = dynamic(() => import("@/components/workouts/workout-share-card").then((module) => module.WorkoutShareCard), { ssr: false });
 const FinanceModule = dynamic(() => import("@/components/finance/finance-module-v2").then((module) => module.FinanceModule), { ssr: false, loading: () => <ModuleLoading label="Carregando financeiro" /> });
 const StockModule = dynamic(() => import("@/components/stock/stock-module").then((module) => module.StockModule), { ssr: false, loading: () => <ModuleLoading label="Carregando estoque" /> });
+import { announceScreen } from "@/lib/assistant/screen-guides";
 const AppGuide = dynamic(() => import("@/components/assistant/app-guide").then((module) => module.AppGuide), { ssr: false });
 
 function ModuleLoading({ label }: { label: string }) {
@@ -842,6 +843,11 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem("orquestra_fit_theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (role !== "aluno" || sessionOpen) return;
+    announceScreen({ role, screen: activeTab });
+  }, [role, activeTab, sessionOpen]);
 
   useEffect(() => {
     setActiveWorkoutId(window.sessionStorage.getItem(workoutInProgressKey(access.academyId, access.userId)));
@@ -2470,6 +2476,9 @@ function WorkspaceShell({ children, profile, theme, onThemeChange, onNewStudent 
   }, [feedback, profile]);
   useEffect(() => {
     if (profile === "Professor" && activeModule === "Financeiro") setActiveModule("Visão geral");
+  }, [activeModule, profile]);
+  useEffect(() => {
+    announceScreen({ role: profile === "Professor" ? "professor" : "gestao", screen: activeModule });
   }, [activeModule, profile]);
   const visibleNav = profile === "Professor"
     ? workspaceNav.filter(([label]) => ["Visão geral", "Alunos", "Treinos", "Aulas e reservas", "Avaliações"].includes(label))
