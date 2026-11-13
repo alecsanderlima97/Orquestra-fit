@@ -3011,6 +3011,10 @@ button:not(:disabled):active { transform: translateY(1px) scale(.995); }
 .app-guide-panel > footer button { display: flex; align-items: center; gap: 7px; min-height: 38px; border: 1px solid #7c5631; background: linear-gradient(105deg, #d69a55, #efc078); color: #160f09; padding: 0 14px; font-weight: 900; cursor: pointer; }
 .app-guide-panel > footer button.guide-secondary { border-color: #414647; background: #111516; color: var(--steel-300); }
 .app-guide-panel > footer svg { width: 15px; }
+.app-guide-actions { display: flex; gap: 8px; }
+.app-guide-panel > footer:has(.app-guide-actions) { align-items: center; gap: 8px; }
+.app-guide-panel > footer:has(.app-guide-actions) button { white-space: nowrap; font-size: 11px; padding: 0 12px; }
+.app-guide-panel > footer button.guide-mute { min-height: 32px; padding: 0 4px; border: 0; background: none; color: var(--steel-500); font-size: 10px; text-decoration: underline; }
 
 @media (max-width: 850px) {
   .finance-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
